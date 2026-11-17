@@ -14,7 +14,8 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "typecheck": "tsc --noEmit",
-    "gen:api": "openapi-typescript ../api/api/openapi.yaml -o src/lib/api.gen.ts && oxfmt src/lib/api.gen.ts"
+    "gen:api": "openapi-typescript ../api/api/openapi.yaml -o src/lib/api.gen.ts && oxfmt src/lib/api.gen.ts",
+    "test": "node --experimental-strip-types --no-warnings src/lib/money.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/recursive": "^5.3.0",

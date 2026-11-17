@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 )
@@ -34,7 +35,17 @@ type Operation struct {
 	OperationID string
 	Summary     string
 	Access      Access
+	// Budget is the permission the caller's role in the budget of the path
+	// must grant, from `x-budget: read | write | manage`; "" for operations
+	// outside a budget.
+	Budget string
 }
+
+// BudgetParam is the path parameter that names the budget of an operation
+// with `x-budget`.
+const BudgetParam = "budgetId"
+
+var budgetPermissions = map[string]bool{"read": true, "write": true, "manage": true}
 
 var pathParam = regexp.MustCompile(`\{([^}]+)\}`)
 
@@ -51,12 +62,18 @@ func Operations(spec *openapi3.T) ([]Operation, error) {
 				errs = append(errs, fmt.Errorf("%s %s: %w", method, path, err))
 				continue
 			}
+			budget, err := operationBudget(op, path, access)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s %s: %w", method, path, err))
+				continue
+			}
 			ops = append(ops, Operation{
 				Method:      method,
 				Route:       BaseURL + pathParam.ReplaceAllString(path, ":$1"),
 				OperationID: op.OperationID,
 				Summary:     op.Summary,
 				Access:      access,
+				Budget:      budget,
 			})
 		}
 	}
@@ -67,6 +84,29 @@ func Operations(spec *openapi3.T) ([]Operation, error) {
 		return ops[i].Method < ops[j].Method
 	})
 	return ops, errors.Join(errs...)
+}
+
+// operationBudget reads `x-budget`. Paths with a budget id must declare it,
+// so that no operation inside a budget skips the membership check.
+func operationBudget(op *openapi3.Operation, path string, access Access) (string, error) {
+	inBudget := strings.Contains(path, "{"+BudgetParam+"}")
+	v, ok := op.Extensions["x-budget"]
+	if !ok {
+		if inBudget {
+			return "", errors.New("has {budgetId} in its path but declares no x-budget")
+		}
+		return "", nil
+	}
+	p, _ := v.(string)
+	switch {
+	case !budgetPermissions[p]:
+		return "", fmt.Errorf("x-budget must be read, write or manage, got %v", v)
+	case !inBudget:
+		return "", errors.New("declares x-budget but has no {budgetId} in its path")
+	case access != Authenticated:
+		return "", errors.New("x-budget needs x-auth: authenticated")
+	}
+	return p, nil
 }
 
 func operationAccess(op *openapi3.Operation) (Access, error) {

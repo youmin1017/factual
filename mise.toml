@@ -51,7 +51,7 @@ depends = ["//apps/api:fmt", "//apps/web:fmt"]
 
 [tasks.test]
 description = "Run all tests"
-depends = ["//apps/api:test"]
+depends = ["//apps/api:test", "//apps/web:test"]
 
 [tasks.check]
 description = "Lint, test and build (CI-equivalent)"

@@ -13,7 +13,12 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppProfileRouteImport } from './routes/_app/profile'
+import { Route as AppSetupRouteImport } from './routes/_app/setup'
+import { Route as AppBBudgetIdRouteImport } from './routes/_app/b/$budgetId'
 import { Route as AppSettingsOidcProvidersRouteImport } from './routes/_app/settings/oidc-providers'
+import { Route as AppBBudgetIdIndexRouteImport } from './routes/_app/b/$budgetId/index'
+import { Route as AppBBudgetIdAccountsRouteImport } from './routes/_app/b/$budgetId/accounts'
+import { Route as AppBBudgetIdCategoriesRouteImport } from './routes/_app/b/$budgetId/categories'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -34,45 +39,106 @@ const AppProfileRoute = AppProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSetupRoute = AppSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBBudgetIdRoute = AppBBudgetIdRouteImport.update({
+  id: '/b/$budgetId',
+  path: '/b/$budgetId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsOidcProvidersRoute =
   AppSettingsOidcProvidersRouteImport.update({
     id: '/settings/oidc-providers',
     path: '/settings/oidc-providers',
     getParentRoute: () => AppRoute,
   } as any)
+const AppBBudgetIdIndexRoute = AppBBudgetIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppBBudgetIdRoute,
+} as any)
+const AppBBudgetIdAccountsRoute = AppBBudgetIdAccountsRouteImport.update({
+  id: '/accounts',
+  path: '/accounts',
+  getParentRoute: () => AppBBudgetIdRoute,
+} as any)
+const AppBBudgetIdCategoriesRoute = AppBBudgetIdCategoriesRouteImport.update({
+  id: '/categories',
+  path: '/categories',
+  getParentRoute: () => AppBBudgetIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
   '/profile': typeof AppProfileRoute
+  '/setup': typeof AppSetupRoute
+  '/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/b/$budgetId/accounts': typeof AppBBudgetIdAccountsRoute
+  '/b/$budgetId/categories': typeof AppBBudgetIdCategoriesRoute
+  '/b/$budgetId/': typeof AppBBudgetIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/profile': typeof AppProfileRoute
+  '/setup': typeof AppSetupRoute
   '/': typeof AppIndexRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/b/$budgetId/accounts': typeof AppBBudgetIdAccountsRoute
+  '/b/$budgetId/categories': typeof AppBBudgetIdCategoriesRoute
+  '/b/$budgetId': typeof AppBBudgetIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/profile': typeof AppProfileRoute
+  '/_app/setup': typeof AppSetupRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
   '/_app/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/_app/b/$budgetId/accounts': typeof AppBBudgetIdAccountsRoute
+  '/_app/b/$budgetId/categories': typeof AppBBudgetIdCategoriesRoute
+  '/_app/b/$budgetId/': typeof AppBBudgetIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/profile' | '/settings/oidc-providers'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/profile'
+    | '/setup'
+    | '/b/$budgetId'
+    | '/settings/oidc-providers'
+    | '/b/$budgetId/accounts'
+    | '/b/$budgetId/categories'
+    | '/b/$budgetId/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/profile' | '/' | '/settings/oidc-providers'
+  to:
+    | '/login'
+    | '/profile'
+    | '/setup'
+    | '/'
+    | '/settings/oidc-providers'
+    | '/b/$budgetId/accounts'
+    | '/b/$budgetId/categories'
+    | '/b/$budgetId'
   id:
     | '__root__'
     | '/_app'
     | '/login'
     | '/_app/profile'
+    | '/_app/setup'
     | '/_app/'
+    | '/_app/b/$budgetId'
     | '/_app/settings/oidc-providers'
+    | '/_app/b/$budgetId/accounts'
+    | '/_app/b/$budgetId/categories'
+    | '/_app/b/$budgetId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -110,6 +176,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProfileRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/setup': {
+      id: '/_app/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof AppSetupRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/b/$budgetId': {
+      id: '/_app/b/$budgetId'
+      path: '/b/$budgetId'
+      fullPath: '/b/$budgetId'
+      preLoaderRoute: typeof AppBBudgetIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/oidc-providers': {
       id: '/_app/settings/oidc-providers'
       path: '/settings/oidc-providers'
@@ -117,18 +197,59 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsOidcProvidersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/b/$budgetId/': {
+      id: '/_app/b/$budgetId/'
+      path: '/'
+      fullPath: '/b/$budgetId/'
+      preLoaderRoute: typeof AppBBudgetIdIndexRouteImport
+      parentRoute: typeof AppBBudgetIdRoute
+    }
+    '/_app/b/$budgetId/accounts': {
+      id: '/_app/b/$budgetId/accounts'
+      path: '/accounts'
+      fullPath: '/b/$budgetId/accounts'
+      preLoaderRoute: typeof AppBBudgetIdAccountsRouteImport
+      parentRoute: typeof AppBBudgetIdRoute
+    }
+    '/_app/b/$budgetId/categories': {
+      id: '/_app/b/$budgetId/categories'
+      path: '/categories'
+      fullPath: '/b/$budgetId/categories'
+      preLoaderRoute: typeof AppBBudgetIdCategoriesRouteImport
+      parentRoute: typeof AppBBudgetIdRoute
+    }
   }
 }
 
+interface AppBBudgetIdRouteChildren {
+  AppBBudgetIdAccountsRoute: typeof AppBBudgetIdAccountsRoute
+  AppBBudgetIdCategoriesRoute: typeof AppBBudgetIdCategoriesRoute
+  AppBBudgetIdIndexRoute: typeof AppBBudgetIdIndexRoute
+}
+
+const AppBBudgetIdRouteChildren: AppBBudgetIdRouteChildren = {
+  AppBBudgetIdAccountsRoute: AppBBudgetIdAccountsRoute,
+  AppBBudgetIdCategoriesRoute: AppBBudgetIdCategoriesRoute,
+  AppBBudgetIdIndexRoute: AppBBudgetIdIndexRoute,
+}
+
+const AppBBudgetIdRouteWithChildren = AppBBudgetIdRoute._addFileChildren(
+  AppBBudgetIdRouteChildren,
+)
+
 interface AppRouteChildren {
   AppProfileRoute: typeof AppProfileRoute
+  AppSetupRoute: typeof AppSetupRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppBBudgetIdRoute: typeof AppBBudgetIdRouteWithChildren
   AppSettingsOidcProvidersRoute: typeof AppSettingsOidcProvidersRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppProfileRoute: AppProfileRoute,
+  AppSetupRoute: AppSetupRoute,
   AppIndexRoute: AppIndexRoute,
+  AppBBudgetIdRoute: AppBBudgetIdRouteWithChildren,
   AppSettingsOidcProvidersRoute: AppSettingsOidcProvidersRoute,
 }
 

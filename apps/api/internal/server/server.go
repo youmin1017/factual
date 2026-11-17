@@ -16,6 +16,7 @@ import (
 	"factual/apps/api/internal/api"
 	"factual/apps/api/internal/apispec"
 	"factual/apps/api/internal/domain/identity"
+	"factual/apps/api/internal/domain/ledger"
 )
 
 // Pinger reports whether the database answers (*pgxpool.Pool).
@@ -29,6 +30,7 @@ type Pinger interface {
 type Deps struct {
 	DB       Pinger
 	Identity *identity.Service
+	Ledger   *ledger.Service
 }
 
 // The domains' operations are promoted into server by embedding their
@@ -36,12 +38,14 @@ type Deps struct {
 // implementing the same operation do not compile (ambiguous selector).
 type (
 	identityHandlers = identity.Handlers
+	ledgerHandlers   = ledger.Handlers
 )
 
 // server implements api.StrictServerInterface: the domains' operations and
 // the health check.
 type server struct {
 	*identityHandlers
+	*ledgerHandlers
 	deps Deps
 }
 
@@ -61,7 +65,8 @@ func (s *server) GetHealth(ctx context.Context, _ api.GetHealthRequestObject) (a
 // New builds the echo instance.
 //
 // Request flow: recover/log -> cross-site guard -> session -> access check
-// (x-auth) -> login rate limit -> OpenAPI validation -> handler.
+// (x-auth) -> budget membership (x-budget) -> login rate limit -> OpenAPI
+// validation -> handler.
 func New(d Deps) (*echo.Echo, error) {
 	swagger, err := api.GetSwagger()
 	if err != nil {
@@ -71,7 +76,7 @@ func New(d Deps) (*echo.Echo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("openapi access rules: %w", err)
 	}
-	s := &server{identityHandlers: d.Identity.Handlers(), deps: d}
+	s := &server{identityHandlers: d.Identity.Handlers(), ledgerHandlers: d.Ledger.Handlers(), deps: d}
 
 	e := echo.New()
 	e.HideBanner = true
@@ -88,7 +93,8 @@ func New(d Deps) (*echo.Echo, error) {
 	})
 
 	g := e.Group("")
-	g.Use(crossSiteGuard, s.session, checkAccess(accessRules(ops)), loginRateLimit())
+	rules := accessRules(ops)
+	g.Use(crossSiteGuard, s.session, checkAccess(rules), s.checkBudget(rules), loginRateLimit())
 	g.Use(echomw.OapiRequestValidatorWithOptions(swagger, &echomw.Options{
 		SilenceServersWarning: true,
 		Skipper: func(c echo.Context) bool {

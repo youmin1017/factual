@@ -13,6 +13,7 @@ import (
 	"factual/apps/api/internal/config"
 	"factual/apps/api/internal/database"
 	"factual/apps/api/internal/domain/identity"
+	"factual/apps/api/internal/domain/ledger"
 	"factual/apps/api/internal/secretbox"
 	"factual/apps/api/internal/server"
 )
@@ -70,7 +71,7 @@ func run() error {
 	}
 	go identitySvc.RunCleanup(ctx, time.Hour)
 
-	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc})
+	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc, Ledger: ledger.New(pool)})
 	if err != nil {
 		return err
 	}

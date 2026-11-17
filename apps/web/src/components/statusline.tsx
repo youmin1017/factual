@@ -22,7 +22,11 @@ export function Statusline({ username }: { username: string }) {
     .filter((match) => match.staticData.crumb)
     .at(-1)
   const here = page?.staticData.crumb
-  const section = page?.staticData.section
+  // Pages inside a budget are placed under the budget's name.
+  const budgetName = (
+    page?.context as { budget?: { name: string } } | undefined
+  )?.budget?.name
+  const section = budgetName ?? page?.staticData.section
 
   return (
     <footer className="flex h-7 shrink-0 items-stretch border-t bg-sidebar font-mono text-xs text-muted-foreground">

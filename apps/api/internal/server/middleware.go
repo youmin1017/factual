@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/time/rate"
 
 	"factual/apps/api/internal/apispec"
 	"factual/apps/api/internal/domain/identity"
+	"factual/apps/api/internal/domain/ledger"
 	"factual/apps/api/internal/shared/apperr"
 	"factual/apps/api/internal/shared/reqctx"
 )
@@ -88,6 +90,39 @@ func checkAccess(rules map[string]apispec.Operation) echo.MiddlewareFunc {
 			}
 			if op.Access == apispec.Admin && !p.IsAdmin {
 				return apperr.New(http.StatusForbidden, "forbidden", "forbidden")
+			}
+			return next(c)
+		}
+	}
+}
+
+// checkBudget enforces `x-budget`: the caller must be a member of the
+// budget in the path, with a role that grants the declared permission. A
+// budget the caller is not a member of answers 404, like one that does not
+// exist, so ids cannot be probed. Runs after checkAccess, which guarantees a
+// caller for these operations.
+func (s *server) checkBudget(rules map[string]apispec.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			op, ok := rules[routeKey(c.Request().Method, c.Path())]
+			if !ok || op.Budget == "" {
+				return next(c)
+			}
+			notFound := apperr.New(http.StatusNotFound, "not_found", "budget not found")
+			budgetID, err := uuid.Parse(c.Param(apispec.BudgetParam))
+			if err != nil {
+				return notFound
+			}
+			ctx := c.Request().Context()
+			role, err := s.deps.Ledger.MemberRole(ctx, budgetID, reqctx.Caller(ctx).UserID)
+			if errors.Is(err, ledger.ErrNotMember) {
+				return notFound
+			}
+			if err != nil {
+				return err
+			}
+			if !role.Can(ledger.Permission(op.Budget)) {
+				return apperr.New(http.StatusForbidden, "forbidden", "your role in this budget does not allow this")
 			}
 			return next(c)
 		}

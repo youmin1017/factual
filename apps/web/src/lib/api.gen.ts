@@ -262,6 +262,189 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Budgets the caller is a member of */
+    get: operations['listBudgets']
+    put?: never
+    /**
+     * Create a budget owned by the caller
+     * @description The first budget a user creates becomes their default one.
+     */
+    post: operations['createBudget']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /** One budget */
+    get: operations['getBudget']
+    /** Rename a budget */
+    put: operations['updateBudget']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/summary': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /** Totals of a budget */
+    get: operations['getBudgetSummary']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/accounts': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /** Accounts of a budget with their balances */
+    get: operations['listAccounts']
+    put?: never
+    /** Add an account, with its opening balance */
+    post: operations['createAccount']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/accounts/order': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Set the order of accounts
+     * @description Accounts are shown in the order of `ids`; accounts not listed keep their place after them.
+     */
+    put: operations['reorderAccounts']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/accounts/{accountId}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /** Rename, close or reopen an account */
+    put: operations['updateAccount']
+    post?: never
+    /** Delete an account that has no transactions besides its opening balance */
+    delete: operations['deleteAccount']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/categories': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /** Categories of a budget (flat; build the tree from parentId) */
+    get: operations['listCategories']
+    put?: never
+    /** Add a category (at most three levels; children take their parent's kind) */
+    post: operations['createCategory']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/categories/order': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /** Set the order of the categories under one parent */
+    put: operations['reorderCategories']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/categories/{categoryId}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        categoryId: components['parameters']['CategoryId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /** Rename, archive, or share one envelope among the children */
+    put: operations['updateCategory']
+    post?: never
+    /** Delete an unused category (archive it otherwise) */
+    delete: operations['deleteCategory']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
 }
 export type webhooks = Record<string, never>
 export interface components {
@@ -354,6 +537,120 @@ export interface components {
       /** Format: date-time */
       lastLoginAt: string | null
     }
+    /** @enum {string} */
+    BudgetRole: 'owner' | 'editor' | 'viewer'
+    Budget: {
+      /** Format: uuid */
+      id: string
+      name: string
+      /** @description ISO 4217 code, e.g. TWD. */
+      currency: string
+      /**
+       * Format: int32
+       * @description Digits after the decimal point in amounts of this budget.
+       */
+      minorUnits: number
+      role: components['schemas']['BudgetRole']
+      /** @description The caller's default budget (shared expenses land here). */
+      isDefault: boolean
+      /** Format: date-time */
+      createdAt: string
+    }
+    BudgetCreate: {
+      name: string
+      currency: string
+      /** @description Create a common set of categories to start from. */
+      starterCategories: boolean
+    }
+    BudgetUpdate: {
+      name: string
+    }
+    BudgetSummary: {
+      /**
+       * Format: int64
+       * @description Money not yet given to any envelope.
+       */
+      pool: number
+      /**
+       * Format: int64
+       * @description Sum of the on-budget accounts.
+       */
+      onBudgetBalance: number
+      /**
+       * Format: int64
+       * @description Sum of the tracking (off-budget) accounts.
+       */
+      offBudgetBalance: number
+    }
+    /** @enum {string} */
+    AccountKind: 'cash' | 'bank' | 'credit_card' | 'loan' | 'investment'
+    Account: {
+      /** Format: uuid */
+      id: string
+      name: string
+      kind: components['schemas']['AccountKind']
+      onBudget: boolean
+      closed: boolean
+      /** Format: int32 */
+      sortOrder: number
+      /** Format: int64 */
+      balance: number
+      /** Format: int64 */
+      clearedBalance: number
+      /** @description Whether the account has transactions besides its opening balance (it then cannot be deleted). */
+      hasActivity: boolean
+    }
+    AccountCreate: {
+      name: string
+      kind: components['schemas']['AccountKind']
+      /** @description Ignored for credit cards (always on budget), loans and investments (never). */
+      onBudget: boolean
+      /**
+       * Format: int64
+       * @description Balance on openingDate; negative for money owed (a credit card, a loan).
+       */
+      openingBalance: number
+      /** Format: date */
+      openingDate: string
+    }
+    AccountUpdate: {
+      name: string
+      /** @description A closed account is hidden from pickers; it must have a zero balance. */
+      closed: boolean
+    }
+    /** @enum {string} */
+    CategoryKind: 'expense' | 'income'
+    Category: {
+      /** Format: uuid */
+      id: string
+      /** Format: uuid */
+      parentId: string | null
+      name: string
+      kind: components['schemas']['CategoryKind']
+      /** @description The subcategories share this category's budget (its envelope). */
+      pooled: boolean
+      /** @description Created by the app (e.g. opening balances); cannot be changed. */
+      isSystem: boolean
+      /** Format: int32 */
+      sortOrder: number
+      archived: boolean
+    }
+    CategoryCreate: {
+      /** Format: uuid */
+      parentId: string | null
+      name: string
+      kind: components['schemas']['CategoryKind']
+      /** @description Defaults to true for expense categories (ADR-061); income categories never pool. */
+      pooled?: boolean
+    }
+    CategoryUpdate: {
+      name: string
+      pooled: boolean
+      archived: boolean
+    }
+    Reorder: {
+      ids: string[]
+    }
   }
   responses: {
     /** @description Redirect */
@@ -420,6 +717,9 @@ export interface components {
     }
   }
   parameters: {
+    BudgetId: string
+    AccountId: string
+    CategoryId: string
     Id: string
     ProviderCode: string
     /** @description App path to land on after login (must start with /). */
@@ -761,6 +1061,390 @@ export interface operations {
       }
       400: components['responses']['BadRequest']
       404: components['responses']['NotFound']
+    }
+  }
+  listBudgets: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Budgets */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Budget'][]
+        }
+      }
+      401: components['responses']['Unauthorized']
+    }
+  }
+  createBudget: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BudgetCreate']
+      }
+    }
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Budget']
+        }
+      }
+      400: components['responses']['BadRequest']
+    }
+  }
+  getBudget: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Budget */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Budget']
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  updateBudget: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BudgetUpdate']
+      }
+    }
+    responses: {
+      /** @description Updated */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Budget']
+        }
+      }
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+    }
+  }
+  getBudgetSummary: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Summary */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BudgetSummary']
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  listAccounts: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Accounts */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Account'][]
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  createAccount: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AccountCreate']
+      }
+    }
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Account']
+        }
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  reorderAccounts: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Reorder']
+      }
+    }
+    responses: {
+      /** @description Reordered */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  updateAccount: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AccountUpdate']
+      }
+    }
+    responses: {
+      /** @description Updated */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Account']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  deleteAccount: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  listCategories: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Categories */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Category'][]
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  createCategory: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CategoryCreate']
+      }
+    }
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Category']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  reorderCategories: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Reorder']
+      }
+    }
+    responses: {
+      /** @description Reordered */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  updateCategory: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        categoryId: components['parameters']['CategoryId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CategoryUpdate']
+      }
+    }
+    responses: {
+      /** @description Updated */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Category']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  deleteCategory: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        categoryId: components['parameters']['CategoryId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
     }
   }
 }

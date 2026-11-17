@@ -24,6 +24,7 @@ import (
 	"factual/apps/api/internal/config"
 	"factual/apps/api/internal/database/dbtest"
 	"factual/apps/api/internal/domain/identity"
+	"factual/apps/api/internal/domain/ledger"
 	"factual/apps/api/internal/secretbox"
 )
 
@@ -63,7 +64,7 @@ func newHarness(t *testing.T) *harness {
 	if err != nil || !created {
 		t.Fatalf("bootstrap admin: created=%v err=%v", created, err)
 	}
-	e, err := New(Deps{DB: pool, Identity: svc})
+	e, err := New(Deps{DB: pool, Identity: svc, Ledger: ledger.New(pool)})
 	if err != nil {
 		t.Fatal(err)
 	}

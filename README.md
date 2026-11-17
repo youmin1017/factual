@@ -54,7 +54,7 @@ API 啟動時會自動套用尚未執行的 migration。第一次啟動會建立
 - `apps/web`:TanStack Start(React、SPA 模式)、Tailwind、shadcn/ui、TanStack Query、oxlint、oxfmt。
   - `src/lib/api.gen.ts`:由規格產生的型別;一律透過 `src/lib/api.ts` 呼叫 API。
 
-架構與帳務模型的決策紀錄在 `docs/DECISIONS.md`。
+目標、階段與里程碑在 `docs/PROJECT_BRIEF.md`;架構與帳務模型的決策紀錄在 `docs/DECISIONS.md`。
 
 ## 開發流程:新增一支 API
 

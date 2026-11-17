@@ -22,6 +22,72 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AccountKind.
+const (
+	Bank       AccountKind = "bank"
+	Cash       AccountKind = "cash"
+	CreditCard AccountKind = "credit_card"
+	Investment AccountKind = "investment"
+	Loan       AccountKind = "loan"
+)
+
+// Valid indicates whether the value is a known member of the AccountKind enum.
+func (e AccountKind) Valid() bool {
+	switch e {
+	case Bank:
+		return true
+	case Cash:
+		return true
+	case CreditCard:
+		return true
+	case Investment:
+		return true
+	case Loan:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BudgetRole.
+const (
+	Editor BudgetRole = "editor"
+	Owner  BudgetRole = "owner"
+	Viewer BudgetRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the BudgetRole enum.
+func (e BudgetRole) Valid() bool {
+	switch e {
+	case Editor:
+		return true
+	case Owner:
+		return true
+	case Viewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CategoryKind.
+const (
+	Expense CategoryKind = "expense"
+	Income  CategoryKind = "income"
+)
+
+// Valid indicates whether the value is a known member of the CategoryKind enum.
+func (e CategoryKind) Valid() bool {
+	switch e {
+	case Expense:
+		return true
+	case Income:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	Degraded HealthStatus = "degraded"
@@ -38,6 +104,126 @@ func (e HealthStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// Account defines model for Account.
+type Account struct {
+	Balance        int64 `json:"balance"`
+	ClearedBalance int64 `json:"clearedBalance"`
+	Closed         bool  `json:"closed"`
+
+	// HasActivity Whether the account has transactions besides its opening balance (it then cannot be deleted).
+	HasActivity bool               `json:"hasActivity"`
+	Id          openapi_types.UUID `json:"id"`
+	Kind        AccountKind        `json:"kind"`
+	Name        string             `json:"name"`
+	OnBudget    bool               `json:"onBudget"`
+	SortOrder   int32              `json:"sortOrder"`
+}
+
+// AccountCreate defines model for AccountCreate.
+type AccountCreate struct {
+	Kind AccountKind `json:"kind"`
+	Name string      `json:"name"`
+
+	// OnBudget Ignored for credit cards (always on budget), loans and investments (never).
+	OnBudget bool `json:"onBudget"`
+
+	// OpeningBalance Balance on openingDate; negative for money owed (a credit card, a loan).
+	OpeningBalance int64              `json:"openingBalance"`
+	OpeningDate    openapi_types.Date `json:"openingDate"`
+}
+
+// AccountKind defines model for AccountKind.
+type AccountKind string
+
+// AccountUpdate defines model for AccountUpdate.
+type AccountUpdate struct {
+	// Closed A closed account is hidden from pickers; it must have a zero balance.
+	Closed bool   `json:"closed"`
+	Name   string `json:"name"`
+}
+
+// Budget defines model for Budget.
+type Budget struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Currency ISO 4217 code, e.g. TWD.
+	Currency string             `json:"currency"`
+	Id       openapi_types.UUID `json:"id"`
+
+	// IsDefault The caller's default budget (shared expenses land here).
+	IsDefault bool `json:"isDefault"`
+
+	// MinorUnits Digits after the decimal point in amounts of this budget.
+	MinorUnits int32      `json:"minorUnits"`
+	Name       string     `json:"name"`
+	Role       BudgetRole `json:"role"`
+}
+
+// BudgetCreate defines model for BudgetCreate.
+type BudgetCreate struct {
+	Currency string `json:"currency"`
+	Name     string `json:"name"`
+
+	// StarterCategories Create a common set of categories to start from.
+	StarterCategories bool `json:"starterCategories"`
+}
+
+// BudgetRole defines model for BudgetRole.
+type BudgetRole string
+
+// BudgetSummary defines model for BudgetSummary.
+type BudgetSummary struct {
+	// OffBudgetBalance Sum of the tracking (off-budget) accounts.
+	OffBudgetBalance int64 `json:"offBudgetBalance"`
+
+	// OnBudgetBalance Sum of the on-budget accounts.
+	OnBudgetBalance int64 `json:"onBudgetBalance"`
+
+	// Pool Money not yet given to any envelope.
+	Pool int64 `json:"pool"`
+}
+
+// BudgetUpdate defines model for BudgetUpdate.
+type BudgetUpdate struct {
+	Name string `json:"name"`
+}
+
+// Category defines model for Category.
+type Category struct {
+	Archived bool               `json:"archived"`
+	Id       openapi_types.UUID `json:"id"`
+
+	// IsSystem Created by the app (e.g. opening balances); cannot be changed.
+	IsSystem bool                `json:"isSystem"`
+	Kind     CategoryKind        `json:"kind"`
+	Name     string              `json:"name"`
+	ParentId *openapi_types.UUID `json:"parentId"`
+
+	// Pooled The subcategories share this category's budget (its envelope).
+	Pooled    bool  `json:"pooled"`
+	SortOrder int32 `json:"sortOrder"`
+}
+
+// CategoryCreate defines model for CategoryCreate.
+type CategoryCreate struct {
+	Kind     CategoryKind        `json:"kind"`
+	Name     string              `json:"name"`
+	ParentId *openapi_types.UUID `json:"parentId"`
+
+	// Pooled Defaults to true for expense categories (ADR-061); income categories never pool.
+	Pooled *bool `json:"pooled,omitempty"`
+}
+
+// CategoryKind defines model for CategoryKind.
+type CategoryKind string
+
+// CategoryUpdate defines model for CategoryUpdate.
+type CategoryUpdate struct {
+	Archived bool   `json:"archived"`
+	Name     string `json:"name"`
+	Pooled   bool   `json:"pooled"`
 }
 
 // ChangePasswordRequest defines model for ChangePasswordRequest.
@@ -146,6 +332,20 @@ type OidcProviderList struct {
 	Items                []OidcProvider `json:"items"`
 }
 
+// Reorder defines model for Reorder.
+type Reorder struct {
+	Ids []openapi_types.UUID `json:"ids"`
+}
+
+// AccountId defines model for AccountId.
+type AccountId = openapi_types.UUID
+
+// BudgetId defines model for BudgetId.
+type BudgetId = openapi_types.UUID
+
+// CategoryId defines model for CategoryId.
+type CategoryId = openapi_types.UUID
+
 // Id defines model for Id.
 type Id = openapi_types.UUID
 
@@ -191,6 +391,30 @@ type StartOidcLoginParams struct {
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
+// CreateBudgetJSONRequestBody defines body for CreateBudget for application/json ContentType.
+type CreateBudgetJSONRequestBody = BudgetCreate
+
+// UpdateBudgetJSONRequestBody defines body for UpdateBudget for application/json ContentType.
+type UpdateBudgetJSONRequestBody = BudgetUpdate
+
+// CreateAccountJSONRequestBody defines body for CreateAccount for application/json ContentType.
+type CreateAccountJSONRequestBody = AccountCreate
+
+// ReorderAccountsJSONRequestBody defines body for ReorderAccounts for application/json ContentType.
+type ReorderAccountsJSONRequestBody = Reorder
+
+// UpdateAccountJSONRequestBody defines body for UpdateAccount for application/json ContentType.
+type UpdateAccountJSONRequestBody = AccountUpdate
+
+// CreateCategoryJSONRequestBody defines body for CreateCategory for application/json ContentType.
+type CreateCategoryJSONRequestBody = CategoryCreate
+
+// ReorderCategoriesJSONRequestBody defines body for ReorderCategories for application/json ContentType.
+type ReorderCategoriesJSONRequestBody = Reorder
+
+// UpdateCategoryJSONRequestBody defines body for UpdateCategory for application/json ContentType.
+type UpdateCategoryJSONRequestBody = CategoryUpdate
+
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = ChangePasswordRequest
 
@@ -220,6 +444,51 @@ type ServerInterface interface {
 	// StartOidcLogin Start logging in with an identity provider
 	// (GET /auth/oidc/{code}/login)
 	StartOidcLogin(ctx echo.Context, code ProviderCode, params StartOidcLoginParams) error
+	// ListBudgets Budgets the caller is a member of
+	// (GET /budgets)
+	ListBudgets(ctx echo.Context) error
+	// CreateBudget Create a budget owned by the caller
+	// (POST /budgets)
+	CreateBudget(ctx echo.Context) error
+	// GetBudget One budget
+	// (GET /budgets/{budgetId})
+	GetBudget(ctx echo.Context, budgetId BudgetId) error
+	// UpdateBudget Rename a budget
+	// (PUT /budgets/{budgetId})
+	UpdateBudget(ctx echo.Context, budgetId BudgetId) error
+	// ListAccounts Accounts of a budget with their balances
+	// (GET /budgets/{budgetId}/accounts)
+	ListAccounts(ctx echo.Context, budgetId BudgetId) error
+	// CreateAccount Add an account, with its opening balance
+	// (POST /budgets/{budgetId}/accounts)
+	CreateAccount(ctx echo.Context, budgetId BudgetId) error
+	// ReorderAccounts Set the order of accounts
+	// (PUT /budgets/{budgetId}/accounts/order)
+	ReorderAccounts(ctx echo.Context, budgetId BudgetId) error
+	// DeleteAccount Delete an account that has no transactions besides its opening balance
+	// (DELETE /budgets/{budgetId}/accounts/{accountId})
+	DeleteAccount(ctx echo.Context, budgetId BudgetId, accountId AccountId) error
+	// UpdateAccount Rename, close or reopen an account
+	// (PUT /budgets/{budgetId}/accounts/{accountId})
+	UpdateAccount(ctx echo.Context, budgetId BudgetId, accountId AccountId) error
+	// ListCategories Categories of a budget (flat; build the tree from parentId)
+	// (GET /budgets/{budgetId}/categories)
+	ListCategories(ctx echo.Context, budgetId BudgetId) error
+	// CreateCategory Add a category (at most three levels; children take their parent's kind)
+	// (POST /budgets/{budgetId}/categories)
+	CreateCategory(ctx echo.Context, budgetId BudgetId) error
+	// ReorderCategories Set the order of the categories under one parent
+	// (PUT /budgets/{budgetId}/categories/order)
+	ReorderCategories(ctx echo.Context, budgetId BudgetId) error
+	// DeleteCategory Delete an unused category (archive it otherwise)
+	// (DELETE /budgets/{budgetId}/categories/{categoryId})
+	DeleteCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
+	// UpdateCategory Rename, archive, or share one envelope among the children
+	// (PUT /budgets/{budgetId}/categories/{categoryId})
+	UpdateCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
+	// GetBudgetSummary Totals of a budget
+	// (GET /budgets/{budgetId}/summary)
+	GetBudgetSummary(ctx echo.Context, budgetId BudgetId) error
 	// GetHealth Whether the API is up and can reach its database
 	// (GET /healthz)
 	GetHealth(ctx echo.Context) error
@@ -351,6 +620,264 @@ func (w *ServerInterfaceWrapper) StartOidcLogin(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.StartOidcLogin(ctx, code, params)
+	return err
+}
+
+// ListBudgets converts echo context to params.
+func (w *ServerInterfaceWrapper) ListBudgets(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListBudgets(ctx)
+	return err
+}
+
+// CreateBudget converts echo context to params.
+func (w *ServerInterfaceWrapper) CreateBudget(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.CreateBudget(ctx)
+	return err
+}
+
+// GetBudget converts echo context to params.
+func (w *ServerInterfaceWrapper) GetBudget(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetBudget(ctx, budgetId)
+	return err
+}
+
+// UpdateBudget converts echo context to params.
+func (w *ServerInterfaceWrapper) UpdateBudget(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.UpdateBudget(ctx, budgetId)
+	return err
+}
+
+// ListAccounts converts echo context to params.
+func (w *ServerInterfaceWrapper) ListAccounts(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListAccounts(ctx, budgetId)
+	return err
+}
+
+// CreateAccount converts echo context to params.
+func (w *ServerInterfaceWrapper) CreateAccount(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.CreateAccount(ctx, budgetId)
+	return err
+}
+
+// ReorderAccounts converts echo context to params.
+func (w *ServerInterfaceWrapper) ReorderAccounts(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ReorderAccounts(ctx, budgetId)
+	return err
+}
+
+// DeleteAccount converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteAccount(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "accountId" -------------
+	var accountId AccountId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "accountId", ctx.Param("accountId"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter accountId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeleteAccount(ctx, budgetId, accountId)
+	return err
+}
+
+// UpdateAccount converts echo context to params.
+func (w *ServerInterfaceWrapper) UpdateAccount(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "accountId" -------------
+	var accountId AccountId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "accountId", ctx.Param("accountId"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter accountId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.UpdateAccount(ctx, budgetId, accountId)
+	return err
+}
+
+// ListCategories converts echo context to params.
+func (w *ServerInterfaceWrapper) ListCategories(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListCategories(ctx, budgetId)
+	return err
+}
+
+// CreateCategory converts echo context to params.
+func (w *ServerInterfaceWrapper) CreateCategory(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.CreateCategory(ctx, budgetId)
+	return err
+}
+
+// ReorderCategories converts echo context to params.
+func (w *ServerInterfaceWrapper) ReorderCategories(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ReorderCategories(ctx, budgetId)
+	return err
+}
+
+// DeleteCategory converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteCategory(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "categoryId" -------------
+	var categoryId CategoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "categoryId", ctx.Param("categoryId"), &categoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter categoryId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeleteCategory(ctx, budgetId, categoryId)
+	return err
+}
+
+// UpdateCategory converts echo context to params.
+func (w *ServerInterfaceWrapper) UpdateCategory(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "categoryId" -------------
+	var categoryId CategoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "categoryId", ctx.Param("categoryId"), &categoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter categoryId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.UpdateCategory(ctx, budgetId, categoryId)
+	return err
+}
+
+// GetBudgetSummary converts echo context to params.
+func (w *ServerInterfaceWrapper) GetBudgetSummary(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetBudgetSummary(ctx, budgetId)
 	return err
 }
 
@@ -518,6 +1045,21 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.PUT(options.BaseURL+"/me/password", wrapper.ChangePassword, options.OperationMiddlewares["changePassword"]...)
 	router.GET(options.BaseURL+"/me/identities", wrapper.ListMyIdentities, options.OperationMiddlewares["listMyIdentities"]...)
 	router.DELETE(options.BaseURL+"/me/identities/:id", wrapper.UnlinkMyIdentity, options.OperationMiddlewares["unlinkMyIdentity"]...)
+	router.GET(options.BaseURL+"/budgets", wrapper.ListBudgets, options.OperationMiddlewares["listBudgets"]...)
+	router.POST(options.BaseURL+"/budgets", wrapper.CreateBudget, options.OperationMiddlewares["createBudget"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId", wrapper.GetBudget, options.OperationMiddlewares["getBudget"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId", wrapper.UpdateBudget, options.OperationMiddlewares["updateBudget"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/summary", wrapper.GetBudgetSummary, options.OperationMiddlewares["getBudgetSummary"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/accounts", wrapper.ListAccounts, options.OperationMiddlewares["listAccounts"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/accounts", wrapper.CreateAccount, options.OperationMiddlewares["createAccount"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId/accounts/order", wrapper.ReorderAccounts, options.OperationMiddlewares["reorderAccounts"]...)
+	router.DELETE(options.BaseURL+"/budgets/:budgetId/accounts/:accountId", wrapper.DeleteAccount, options.OperationMiddlewares["deleteAccount"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId/accounts/:accountId", wrapper.UpdateAccount, options.OperationMiddlewares["updateAccount"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/categories", wrapper.ListCategories, options.OperationMiddlewares["listCategories"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/categories", wrapper.CreateCategory, options.OperationMiddlewares["createCategory"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId/categories/order", wrapper.ReorderCategories, options.OperationMiddlewares["reorderCategories"]...)
+	router.DELETE(options.BaseURL+"/budgets/:budgetId/categories/:categoryId", wrapper.DeleteCategory, options.OperationMiddlewares["deleteCategory"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId/categories/:categoryId", wrapper.UpdateCategory, options.OperationMiddlewares["updateCategory"]...)
 
 }
 
@@ -739,6 +1281,742 @@ func (response StartOidcLogin302Response) VisitStartOidcLoginResponse(w http.Res
 	}
 	w.WriteHeader(302)
 	return nil
+}
+
+type ListBudgetsRequestObject struct {
+}
+
+type ListBudgetsResponseObject interface {
+	VisitListBudgetsResponse(w http.ResponseWriter) error
+}
+
+type ListBudgets200JSONResponse []Budget
+
+func (response ListBudgets200JSONResponse) VisitListBudgetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBudgets401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListBudgets401JSONResponse) VisitListBudgetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateBudgetRequestObject struct {
+	Body *CreateBudgetJSONRequestBody
+}
+
+type CreateBudgetResponseObject interface {
+	VisitCreateBudgetResponse(w http.ResponseWriter) error
+}
+
+type CreateBudget201JSONResponse Budget
+
+func (response CreateBudget201JSONResponse) VisitCreateBudgetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateBudget400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateBudget400JSONResponse) VisitCreateBudgetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBudgetRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+}
+
+type GetBudgetResponseObject interface {
+	VisitGetBudgetResponse(w http.ResponseWriter) error
+}
+
+type GetBudget200JSONResponse Budget
+
+func (response GetBudget200JSONResponse) VisitGetBudgetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBudget404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetBudget404JSONResponse) VisitGetBudgetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateBudgetRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Body     *UpdateBudgetJSONRequestBody
+}
+
+type UpdateBudgetResponseObject interface {
+	VisitUpdateBudgetResponse(w http.ResponseWriter) error
+}
+
+type UpdateBudget200JSONResponse Budget
+
+func (response UpdateBudget200JSONResponse) VisitUpdateBudgetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateBudget403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateBudget403JSONResponse) VisitUpdateBudgetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateBudget404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateBudget404JSONResponse) VisitUpdateBudgetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAccountsRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+}
+
+type ListAccountsResponseObject interface {
+	VisitListAccountsResponse(w http.ResponseWriter) error
+}
+
+type ListAccounts200JSONResponse []Account
+
+func (response ListAccounts200JSONResponse) VisitListAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAccounts404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListAccounts404JSONResponse) VisitListAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAccountRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Body     *CreateAccountJSONRequestBody
+}
+
+type CreateAccountResponseObject interface {
+	VisitCreateAccountResponse(w http.ResponseWriter) error
+}
+
+type CreateAccount201JSONResponse Account
+
+func (response CreateAccount201JSONResponse) VisitCreateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAccount400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateAccount400JSONResponse) VisitCreateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAccount403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateAccount403JSONResponse) VisitCreateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAccount404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateAccount404JSONResponse) VisitCreateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAccount409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateAccount409JSONResponse) VisitCreateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderAccountsRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Body     *ReorderAccountsJSONRequestBody
+}
+
+type ReorderAccountsResponseObject interface {
+	VisitReorderAccountsResponse(w http.ResponseWriter) error
+}
+
+type ReorderAccounts204Response struct {
+}
+
+func (response ReorderAccounts204Response) VisitReorderAccountsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ReorderAccounts400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ReorderAccounts400JSONResponse) VisitReorderAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderAccounts404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ReorderAccounts404JSONResponse) VisitReorderAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAccountRequestObject struct {
+	BudgetId  BudgetId  `json:"budgetId"`
+	AccountId AccountId `json:"accountId"`
+}
+
+type DeleteAccountResponseObject interface {
+	VisitDeleteAccountResponse(w http.ResponseWriter) error
+}
+
+type DeleteAccount204Response struct {
+}
+
+func (response DeleteAccount204Response) VisitDeleteAccountResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAccount404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteAccount404JSONResponse) VisitDeleteAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAccount409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteAccount409JSONResponse) VisitDeleteAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAccountRequestObject struct {
+	BudgetId  BudgetId  `json:"budgetId"`
+	AccountId AccountId `json:"accountId"`
+	Body      *UpdateAccountJSONRequestBody
+}
+
+type UpdateAccountResponseObject interface {
+	VisitUpdateAccountResponse(w http.ResponseWriter) error
+}
+
+type UpdateAccount200JSONResponse Account
+
+func (response UpdateAccount200JSONResponse) VisitUpdateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAccount400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateAccount400JSONResponse) VisitUpdateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAccount404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateAccount404JSONResponse) VisitUpdateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAccount409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateAccount409JSONResponse) VisitUpdateAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCategoriesRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+}
+
+type ListCategoriesResponseObject interface {
+	VisitListCategoriesResponse(w http.ResponseWriter) error
+}
+
+type ListCategories200JSONResponse []Category
+
+func (response ListCategories200JSONResponse) VisitListCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCategories404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListCategories404JSONResponse) VisitListCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategoryRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Body     *CreateCategoryJSONRequestBody
+}
+
+type CreateCategoryResponseObject interface {
+	VisitCreateCategoryResponse(w http.ResponseWriter) error
+}
+
+type CreateCategory201JSONResponse Category
+
+func (response CreateCategory201JSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategory400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateCategory400JSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategory404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateCategory404JSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategory409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateCategory409JSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderCategoriesRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Body     *ReorderCategoriesJSONRequestBody
+}
+
+type ReorderCategoriesResponseObject interface {
+	VisitReorderCategoriesResponse(w http.ResponseWriter) error
+}
+
+type ReorderCategories204Response struct {
+}
+
+func (response ReorderCategories204Response) VisitReorderCategoriesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ReorderCategories400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ReorderCategories400JSONResponse) VisitReorderCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderCategories404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ReorderCategories404JSONResponse) VisitReorderCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCategoryRequestObject struct {
+	BudgetId   BudgetId   `json:"budgetId"`
+	CategoryId CategoryId `json:"categoryId"`
+}
+
+type DeleteCategoryResponseObject interface {
+	VisitDeleteCategoryResponse(w http.ResponseWriter) error
+}
+
+type DeleteCategory204Response struct {
+}
+
+func (response DeleteCategory204Response) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCategory400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteCategory400JSONResponse) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCategory404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteCategory404JSONResponse) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCategory409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteCategory409JSONResponse) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategoryRequestObject struct {
+	BudgetId   BudgetId   `json:"budgetId"`
+	CategoryId CategoryId `json:"categoryId"`
+	Body       *UpdateCategoryJSONRequestBody
+}
+
+type UpdateCategoryResponseObject interface {
+	VisitUpdateCategoryResponse(w http.ResponseWriter) error
+}
+
+type UpdateCategory200JSONResponse Category
+
+func (response UpdateCategory200JSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategory400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateCategory400JSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategory404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateCategory404JSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategory409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateCategory409JSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBudgetSummaryRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+}
+
+type GetBudgetSummaryResponseObject interface {
+	VisitGetBudgetSummaryResponse(w http.ResponseWriter) error
+}
+
+type GetBudgetSummary200JSONResponse BudgetSummary
+
+func (response GetBudgetSummary200JSONResponse) VisitGetBudgetSummaryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBudgetSummary404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetBudgetSummary404JSONResponse) VisitGetBudgetSummaryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type GetHealthRequestObject struct {
@@ -1148,6 +2426,51 @@ type StrictServerInterface interface {
 	// StartOidcLogin Start logging in with an identity provider
 	// (GET /auth/oidc/{code}/login)
 	StartOidcLogin(ctx context.Context, request StartOidcLoginRequestObject) (StartOidcLoginResponseObject, error)
+	// ListBudgets Budgets the caller is a member of
+	// (GET /budgets)
+	ListBudgets(ctx context.Context, request ListBudgetsRequestObject) (ListBudgetsResponseObject, error)
+	// CreateBudget Create a budget owned by the caller
+	// (POST /budgets)
+	CreateBudget(ctx context.Context, request CreateBudgetRequestObject) (CreateBudgetResponseObject, error)
+	// GetBudget One budget
+	// (GET /budgets/{budgetId})
+	GetBudget(ctx context.Context, request GetBudgetRequestObject) (GetBudgetResponseObject, error)
+	// UpdateBudget Rename a budget
+	// (PUT /budgets/{budgetId})
+	UpdateBudget(ctx context.Context, request UpdateBudgetRequestObject) (UpdateBudgetResponseObject, error)
+	// ListAccounts Accounts of a budget with their balances
+	// (GET /budgets/{budgetId}/accounts)
+	ListAccounts(ctx context.Context, request ListAccountsRequestObject) (ListAccountsResponseObject, error)
+	// CreateAccount Add an account, with its opening balance
+	// (POST /budgets/{budgetId}/accounts)
+	CreateAccount(ctx context.Context, request CreateAccountRequestObject) (CreateAccountResponseObject, error)
+	// ReorderAccounts Set the order of accounts
+	// (PUT /budgets/{budgetId}/accounts/order)
+	ReorderAccounts(ctx context.Context, request ReorderAccountsRequestObject) (ReorderAccountsResponseObject, error)
+	// DeleteAccount Delete an account that has no transactions besides its opening balance
+	// (DELETE /budgets/{budgetId}/accounts/{accountId})
+	DeleteAccount(ctx context.Context, request DeleteAccountRequestObject) (DeleteAccountResponseObject, error)
+	// UpdateAccount Rename, close or reopen an account
+	// (PUT /budgets/{budgetId}/accounts/{accountId})
+	UpdateAccount(ctx context.Context, request UpdateAccountRequestObject) (UpdateAccountResponseObject, error)
+	// ListCategories Categories of a budget (flat; build the tree from parentId)
+	// (GET /budgets/{budgetId}/categories)
+	ListCategories(ctx context.Context, request ListCategoriesRequestObject) (ListCategoriesResponseObject, error)
+	// CreateCategory Add a category (at most three levels; children take their parent's kind)
+	// (POST /budgets/{budgetId}/categories)
+	CreateCategory(ctx context.Context, request CreateCategoryRequestObject) (CreateCategoryResponseObject, error)
+	// ReorderCategories Set the order of the categories under one parent
+	// (PUT /budgets/{budgetId}/categories/order)
+	ReorderCategories(ctx context.Context, request ReorderCategoriesRequestObject) (ReorderCategoriesResponseObject, error)
+	// DeleteCategory Delete an unused category (archive it otherwise)
+	// (DELETE /budgets/{budgetId}/categories/{categoryId})
+	DeleteCategory(ctx context.Context, request DeleteCategoryRequestObject) (DeleteCategoryResponseObject, error)
+	// UpdateCategory Rename, archive, or share one envelope among the children
+	// (PUT /budgets/{budgetId}/categories/{categoryId})
+	UpdateCategory(ctx context.Context, request UpdateCategoryRequestObject) (UpdateCategoryResponseObject, error)
+	// GetBudgetSummary Totals of a budget
+	// (GET /budgets/{budgetId}/summary)
+	GetBudgetSummary(ctx context.Context, request GetBudgetSummaryRequestObject) (GetBudgetSummaryResponseObject, error)
 	// GetHealth Whether the API is up and can reach its database
 	// (GET /healthz)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -1351,6 +2674,565 @@ func (sh *strictHandler) StartOidcLogin(ctx echo.Context, code ProviderCode, par
 		return err
 	} else if validResponse, ok := response.(StartOidcLoginResponseObject); ok {
 		return validResponse.VisitStartOidcLoginResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListBudgets operation middleware
+func (sh *strictHandler) ListBudgets(ctx echo.Context) error {
+	var request ListBudgetsRequestObject
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBudgets(ctx.Request().Context(), request.(ListBudgetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBudgets")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListBudgetsResponseObject); ok {
+		return validResponse.VisitListBudgetsResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateBudget operation middleware
+func (sh *strictHandler) CreateBudget(ctx echo.Context) error {
+	var request CreateBudgetRequestObject
+
+	var body CreateBudgetJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateBudget(ctx.Request().Context(), request.(CreateBudgetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateBudget")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateBudgetResponseObject); ok {
+		return validResponse.VisitCreateBudgetResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetBudget operation middleware
+func (sh *strictHandler) GetBudget(ctx echo.Context, budgetId BudgetId) error {
+	var request GetBudgetRequestObject
+
+	request.BudgetId = budgetId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBudget(ctx.Request().Context(), request.(GetBudgetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBudget")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetBudgetResponseObject); ok {
+		return validResponse.VisitGetBudgetResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UpdateBudget operation middleware
+func (sh *strictHandler) UpdateBudget(ctx echo.Context, budgetId BudgetId) error {
+	var request UpdateBudgetRequestObject
+
+	request.BudgetId = budgetId
+
+	var body UpdateBudgetJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateBudget(ctx.Request().Context(), request.(UpdateBudgetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateBudget")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UpdateBudgetResponseObject); ok {
+		return validResponse.VisitUpdateBudgetResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListAccounts operation middleware
+func (sh *strictHandler) ListAccounts(ctx echo.Context, budgetId BudgetId) error {
+	var request ListAccountsRequestObject
+
+	request.BudgetId = budgetId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAccounts(ctx.Request().Context(), request.(ListAccountsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAccounts")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListAccountsResponseObject); ok {
+		return validResponse.VisitListAccountsResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateAccount operation middleware
+func (sh *strictHandler) CreateAccount(ctx echo.Context, budgetId BudgetId) error {
+	var request CreateAccountRequestObject
+
+	request.BudgetId = budgetId
+
+	var body CreateAccountJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAccount(ctx.Request().Context(), request.(CreateAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAccount")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateAccountResponseObject); ok {
+		return validResponse.VisitCreateAccountResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ReorderAccounts operation middleware
+func (sh *strictHandler) ReorderAccounts(ctx echo.Context, budgetId BudgetId) error {
+	var request ReorderAccountsRequestObject
+
+	request.BudgetId = budgetId
+
+	var body ReorderAccountsJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ReorderAccounts(ctx.Request().Context(), request.(ReorderAccountsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReorderAccounts")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ReorderAccountsResponseObject); ok {
+		return validResponse.VisitReorderAccountsResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteAccount operation middleware
+func (sh *strictHandler) DeleteAccount(ctx echo.Context, budgetId BudgetId, accountId AccountId) error {
+	var request DeleteAccountRequestObject
+
+	request.BudgetId = budgetId
+	request.AccountId = accountId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAccount(ctx.Request().Context(), request.(DeleteAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAccount")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteAccountResponseObject); ok {
+		return validResponse.VisitDeleteAccountResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UpdateAccount operation middleware
+func (sh *strictHandler) UpdateAccount(ctx echo.Context, budgetId BudgetId, accountId AccountId) error {
+	var request UpdateAccountRequestObject
+
+	request.BudgetId = budgetId
+	request.AccountId = accountId
+
+	var body UpdateAccountJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateAccount(ctx.Request().Context(), request.(UpdateAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateAccount")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UpdateAccountResponseObject); ok {
+		return validResponse.VisitUpdateAccountResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListCategories operation middleware
+func (sh *strictHandler) ListCategories(ctx echo.Context, budgetId BudgetId) error {
+	var request ListCategoriesRequestObject
+
+	request.BudgetId = budgetId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCategories(ctx.Request().Context(), request.(ListCategoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCategories")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListCategoriesResponseObject); ok {
+		return validResponse.VisitListCategoriesResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateCategory operation middleware
+func (sh *strictHandler) CreateCategory(ctx echo.Context, budgetId BudgetId) error {
+	var request CreateCategoryRequestObject
+
+	request.BudgetId = budgetId
+
+	var body CreateCategoryJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCategory(ctx.Request().Context(), request.(CreateCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCategory")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateCategoryResponseObject); ok {
+		return validResponse.VisitCreateCategoryResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ReorderCategories operation middleware
+func (sh *strictHandler) ReorderCategories(ctx echo.Context, budgetId BudgetId) error {
+	var request ReorderCategoriesRequestObject
+
+	request.BudgetId = budgetId
+
+	var body ReorderCategoriesJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ReorderCategories(ctx.Request().Context(), request.(ReorderCategoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReorderCategories")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ReorderCategoriesResponseObject); ok {
+		return validResponse.VisitReorderCategoriesResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteCategory operation middleware
+func (sh *strictHandler) DeleteCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error {
+	var request DeleteCategoryRequestObject
+
+	request.BudgetId = budgetId
+	request.CategoryId = categoryId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCategory(ctx.Request().Context(), request.(DeleteCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCategory")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteCategoryResponseObject); ok {
+		return validResponse.VisitDeleteCategoryResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UpdateCategory operation middleware
+func (sh *strictHandler) UpdateCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error {
+	var request UpdateCategoryRequestObject
+
+	request.BudgetId = budgetId
+	request.CategoryId = categoryId
+
+	var body UpdateCategoryJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCategory(ctx.Request().Context(), request.(UpdateCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCategory")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UpdateCategoryResponseObject); ok {
+		return validResponse.VisitUpdateCategoryResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetBudgetSummary operation middleware
+func (sh *strictHandler) GetBudgetSummary(ctx echo.Context, budgetId BudgetId) error {
+	var request GetBudgetSummaryRequestObject
+
+	request.BudgetId = budgetId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBudgetSummary(ctx.Request().Context(), request.(GetBudgetSummaryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBudgetSummary")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetBudgetSummaryResponseObject); ok {
+		return validResponse.VisitGetBudgetSummaryResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
@@ -1644,51 +3526,79 @@ func (sh *strictHandler) UpdateOidcProvider(ctx echo.Context, id Id) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"zFp7b9s4Ev8qhG6BTQDFdpN2sevisMim7a5x2TRIExwWTa5mxLHMjUSqJBVXDfzdD0PqaUm287z7J4gl",
-	"cmY485sndecFMk6kAGG0N77zEqpoDAaU/TVh+JcLb+wl1Mw93xM0Bm/sceb5noKvKVfAvLFRKfieDuYQ",
-	"U9wxkyqmxht7aWpXmizBXdooLkJvufS9UyVvOQN1JBn08Ajw1ToubapnwLiCwOBbBjpQPDFcIunDJCFI",
-	"nhhJIioYkYLQmQFFIhlyQXbiVBuiDVWGLLiZk+HuwPOdWF9TUFkllyqYrJNliYLrRAoNVpO/UXYGX1PQ",
-	"VrZACgPC/kuTJOIBRTGHf2uU9a5G9gcFM2/s/WNYWWno3urhe6WkcqyaZ52IWxpxRlTOcOl7R1LMIh68",
-	"APN3qSMJ5AYyn0hFzByIAi1TFQDhmmjDo4hwQVINKNsHqa45YyCeX7gTaQiNIrkAhpxPpPkgU8FehvHM",
-	"slqL0rMKWnOgLPfCY+mEacrRQtzS986l/JOKLEeafv5znUtJYioyQo2BODEaz3chaGrmUvHv8AKqPbb+",
-	"W0QJi7iFkiIkgQIGwnAaaRscckrI6GhORQinVOuFVHXHTJRMQBnunDZIlQJhinVte72PE5ORxRyERXmq",
-	"QZE51URIkuSbSAYGI0lMvx2DCM3cG++/+akVEn1PwKLOaHV9zEXx++eugFqFyc8tuZvEr8rt8vpvCFx8",
-	"cDsuNKi2GhjXSUSzExv+7tqSQ0x51PlmTnW/8v49BzMHVWkuoAKjMYYGG4JpqcRBlUOupYyACqTO2Ra5",
-	"xve4PmQxF20BJkIbKgIgFN+/JTHNEMw0BMItckxGkjxP6W4RUG7RrZcVm1jZyuV+Q6mFCitZm6rrspjz",
-	"hzZk83zaPOknQ68jIDEN5lzAngLK7ANc7RMYhAMyFdJ8sSFq6pNpWnPh6aBLqwwM5ZHlSRnjyIhGpzVZ",
-	"XLZuyR2D1jTskPGPNKaiEi1fN/A2gt2VCQXdLl39ATQy87aytKEmtf+BSGMkJm/QNBAqyqCu9x7eOYEu",
-	"nsdc3ACb5DjqMJQCaoAdmgaGGTWwZ7jFxD38bEtPiKg2Nlyu4SrSKEIDrBiwIpKsVG69C06294sGzRUK",
-	"lXNUKmsepVP9+K4oMvvdpB2FtxI6x5xd3Mu9N60k24X5Vx3Kr8eb2tafXm/YuSJ/LQ4l64LMR86CNUqM",
-	"OAjjeoSWpL0afgjwBSKyzqcWgudUf4JAgenPMJQ4UYm2C10RKhUwssPtLwG3oIgCkyoBbPeR6UanTlvb",
-	"ggttE1N10/lKBzIB3f1KqqYSuTAH+5VMXBgIQVncJOx+Su/y0jrqy3P6FQzqtigFz8WsjFietunQlYSb",
-	"gDgRSWrWo7HhVW82epXb2ociV+RJQZyI5AYg0bZqyUHkULVa5I1e/+z3u0WTxYUGhmXPxdmxLvJxKGUY",
-	"gU2+CTUGFC78z2e69/0K/4z2fvmyd3X3yj94tfzh3k5TgfSeqnpI8Knje5XdGrxvXrot/tdE724cNwCx",
-	"BZQ3QfaYd7YXNIquaXBzoaL+VpBcnE2IkURByLXBYGYIRqusXaMOumEQqMwSxRkAD1MFa2rxD4dH5xeH",
-	"x1/enxyd/XV6Pvl48uVf7/+yARPMW/Jx8u4oH5gIAKYJNz2x0kBsz1j+s663a6SZZUmPKkWzdiiyFP2G",
-	"9nqO2TYLEuNiJtsaOJ8DOTyd2KMmEOzNuNJmTMycazLjkZ1cWJ93cww5I0alZk5m+YTjd0k0qFtQl2JH",
-	"0oTvIcpCELsEp024YgHXRR5CqTTZkQkIXGp/Wll2B5fiUhwGAWhNAimMktE4tzdCx3bOhEEQUQWawDca",
-	"mAiDE5Dptz2s2afjSzFN0uuIB1jI4yOESYDBdUp2sFePZBgC23MTGLWLHfPUtkBTssPznuhS2Ce7A1Io",
-	"hknQRMhiSCYRLwuuYUBsK6KRmD3n1P6eEhC3EMkEBpfC8z3DDRaV3gcamJRGSNLzvVtQ2ul/NNgfjND4",
-	"uVK8sXcwGA0OXPibWwwN8TRDiz/8mUjdEa6PbFLRhBINGolbA2gwuf3yh4GUN9y2F6VeMXe40i0fO4I2",
-	"v0mWPdkMo1EWLpvAxmp7dWi4Pxo9Ge96h989RQltDmqOnj6B2Tuymto8fHo9GvUJUZ5qWJuD2i2vNm9p",
-	"jJPspoPNm6qhIu7Y/2XzjtXZGR5Jp3FMVeb0U84liurZAiuphiyGhhojFIqLscc5pDf2nDtaiiWEZWr6",
-	"MXwYLWimiU6DAMPsWxJEQNXWAEbaLSi9brPJje6WP8jqDR29zwNdPn4qJL2XZiRnwbAI7cgz7CrJjmSc",
-	"RIBejvxmkVyQmZJx9StXDrEeN+7z/kuBFizm+RrTrBtWWwgAGjcEN8OWxMWdX0Epqf55mY5GBwGGePsf",
-	"cuLiZnwpGsSGiZKYO36N7DAg31Wka7cTqZfreohfipaVMWUeFWryG9c2n+86ry3yqmfN9Un3Pm2o2bhx",
-	"ZdwEhlxnVpcTdroyHw0wvUQR4k7V1U1mlEfA+m5drGrWinG1AvmD0f5mry8n7k0oF4+JoSoEg+m+p+i6",
-	"P7qLnboG7xUX5vlw47Rc+sjMsFUZ1mDZUYe1kkYl3mogsPVxW1m6LJdcEYn+dX8F3iGUl0N0qt4I8anw",
-	"+Fo4IJ3ejgjdyV286YeDwWC3HV8/GaoMuh96vPc4zD0oAzZUbaUhqAouQkJFpfP8eM1ib52yG6Wit2wF",
-	"lS4ZqyXDxo3u8qrbZEXp9oQ2q4flTRYra7snChO59mUYclHVB3Ur3CdMPE7j/sb11SGsdeZ2Kv69Nwr9",
-	"DiYfnD9jWZpz6Agu7k2GankzOngBhtjoMGroNdW220uFAhrM7TC8afb6zVXeM6aJRSpeYdldhBtdUqsZ",
-	"X2faQNwb5GJYZ456Df+/axXy1y6ePEEIO39MlHJKG+b+lg9WepPqn9mkWvgiKbV5C7RFTnU7SO1AT6Di",
-	"6tQdOYG46vQxSh/ecbZ0AR3L8q5p1izVwFwp6GbuRUH4oyZ4mUMW1Oas/AJ4p3aF7hMh3byhjKsdUf5C",
-	"4DlKC2dbdUBuU9FXPqB/fb15S/mVSdMmjrUd3chZh1l+1HUQPF/enrA8H8QwrN9M5UP2pr6mK58WTNGS",
-	"xRBjpdCnkQLKMvtBRO0q/1J8tKbMWzFdnN7tUUBAMGBvG50kKkkbmumuVqj5McczjW66vxjZaobTATtH",
-	"7eGoe2TNCAZ7r8AK0Y28baYaHUEBa7297fqb+sxXP2c2a83h1zcyLzSU6grP9T5pp3Fjqa1jrNxSrrWN",
-	"/Ypk6ZfzpRWXsTPSumaeyW3a93ZbucyrZxGgs5hxV5AP9sQtBovlt5dNox8y1tkpkB30SHcrRdxXqXiv",
-	"4O5eGNeBxEHENtZve2RHnm4C45193gLGpnjmtrHHpkRHpkcrWFBHq8WR9QsFsbzd2iHunxz9IheuFBz2",
-	"Ovj/14lGL+ZEThMvVEQ9zuucqD0Qo4KAveyv3/+27/ulgK3cDxnbK0EHtVRF3tgb0oRbTOXb78o5q+sM",
-	"l375xJJbXi3/OwA=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

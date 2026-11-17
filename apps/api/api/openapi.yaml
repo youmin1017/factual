@@ -1,19 +1,22 @@
 openapi: 3.0.3
 info:
   title: Factual API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     The API is spec-first: this file is the source of truth for the Go server
     (oapi-codegen) and the web client types (openapi-typescript).
 
     Access control: every operation declares exactly one `x-auth`:
     `public`, `authenticated` (any logged-in user) or `admin` (instance
-    admin). The API does not start otherwise. Errors use the `Error` envelope.
+    admin). The API does not start otherwise. Operations inside a budget
+    also declare `x-budget: read | write | manage`, the permission the
+    caller's role in that budget must grant. Errors use the `Error` envelope.
 servers:
   - url: /api
 tags:
   - name: system
   - name: auth
+  - name: ledger
 paths:
   /healthz:
     get:
@@ -305,8 +308,356 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  # --- Budgets. Operations inside a budget declare `x-budget`: the
+  # permission the caller's role in that budget must grant (ADR-017).
+  /budgets:
+    get:
+      operationId: listBudgets
+      tags: [ledger]
+      summary: Budgets the caller is a member of
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Budgets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Budget'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: createBudget
+      tags: [ledger]
+      summary: Create a budget owned by the caller
+      description: The first budget a user creates becomes their default one.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /budgets/{budgetId}:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: getBudget
+      tags: [ledger]
+      summary: One budget
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: updateBudget
+      tags: [ledger]
+      summary: Rename a budget
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetUpdate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/summary:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: getBudgetSummary
+      tags: [ledger]
+      summary: Totals of a budget
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # --- Accounts
+  /budgets/{budgetId}/accounts:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: listAccounts
+      tags: [ledger]
+      summary: Accounts of a budget with their balances
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Account'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: createAccount
+      tags: [ledger]
+      summary: Add an account, with its opening balance
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /budgets/{budgetId}/accounts/order:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    put:
+      operationId: reorderAccounts
+      tags: [ledger]
+      summary: Set the order of accounts
+      description: Accounts are shown in the order of `ids`; accounts not listed keep their place after them.
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Reorder'
+      responses:
+        '204':
+          description: Reordered
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/accounts/{accountId}:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/AccountId'
+    put:
+      operationId: updateAccount
+      tags: [ledger]
+      summary: Rename, close or reopen an account
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountUpdate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteAccount
+      tags: [ledger]
+      summary: Delete an account that has no transactions besides its opening balance
+      x-auth: authenticated
+      x-budget: manage
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # --- Categories
+  /budgets/{budgetId}/categories:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: listCategories
+      tags: [ledger]
+      summary: Categories of a budget (flat; build the tree from parentId)
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: createCategory
+      tags: [ledger]
+      summary: Add a category (at most three levels; children take their parent's kind)
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /budgets/{budgetId}/categories/order:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    put:
+      operationId: reorderCategories
+      tags: [ledger]
+      summary: Set the order of the categories under one parent
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Reorder'
+      responses:
+        '204':
+          description: Reordered
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/categories/{categoryId}:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/CategoryId'
+    put:
+      operationId: updateCategory
+      tags: [ledger]
+      summary: Rename, archive, or share one envelope among the children
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryUpdate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteCategory
+      tags: [ledger]
+      summary: Delete an unused category (archive it otherwise)
+      x-auth: authenticated
+      x-budget: manage
+      responses:
+        '204':
+          description: Deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
 components:
   parameters:
+    BudgetId:
+      name: budgetId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     Id:
       name: id
       in: path
@@ -502,6 +853,203 @@ components:
           type: string
           format: date-time
           nullable: true
+    # --- Ledger. Amounts are integers in the budget's minor unit (minorUnits
+    # digits after the decimal point; 0 for TWD).
+    BudgetRole:
+      type: string
+      enum: [owner, editor, viewer]
+    Budget:
+      type: object
+      required: [id, name, currency, minorUnits, role, isDefault, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        currency:
+          type: string
+          description: ISO 4217 code, e.g. TWD.
+        minorUnits:
+          type: integer
+          format: int32
+          description: Digits after the decimal point in amounts of this budget.
+        role:
+          $ref: '#/components/schemas/BudgetRole'
+        isDefault:
+          type: boolean
+          description: The caller's default budget (shared expenses land here).
+        createdAt:
+          type: string
+          format: date-time
+    BudgetCreate:
+      type: object
+      required: [name, currency, starterCategories]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        starterCategories:
+          type: boolean
+          description: Create a common set of categories to start from.
+    BudgetUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+    BudgetSummary:
+      type: object
+      required: [pool, onBudgetBalance, offBudgetBalance]
+      properties:
+        pool:
+          type: integer
+          format: int64
+          description: Money not yet given to any envelope.
+        onBudgetBalance:
+          type: integer
+          format: int64
+          description: Sum of the on-budget accounts.
+        offBudgetBalance:
+          type: integer
+          format: int64
+          description: Sum of the tracking (off-budget) accounts.
+    AccountKind:
+      type: string
+      enum: [cash, bank, credit_card, loan, investment]
+    Account:
+      type: object
+      required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AccountKind'
+        onBudget:
+          type: boolean
+        closed:
+          type: boolean
+        sortOrder:
+          type: integer
+          format: int32
+        balance:
+          type: integer
+          format: int64
+        clearedBalance:
+          type: integer
+          format: int64
+        hasActivity:
+          type: boolean
+          description: Whether the account has transactions besides its opening balance (it then cannot be deleted).
+    AccountCreate:
+      type: object
+      required: [name, kind, onBudget, openingBalance, openingDate]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        kind:
+          $ref: '#/components/schemas/AccountKind'
+        onBudget:
+          type: boolean
+          description: Ignored for credit cards (always on budget), loans and investments (never).
+        openingBalance:
+          type: integer
+          format: int64
+          description: Balance on openingDate; negative for money owed (a credit card, a loan).
+        openingDate:
+          type: string
+          format: date
+    AccountUpdate:
+      type: object
+      required: [name, closed]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        closed:
+          type: boolean
+          description: A closed account is hidden from pickers; it must have a zero balance.
+    CategoryKind:
+      type: string
+      enum: [expense, income]
+    Category:
+      type: object
+      required: [id, parentId, name, kind, pooled, isSystem, sortOrder, archived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/CategoryKind'
+        pooled:
+          type: boolean
+          description: The subcategories share this category's budget (its envelope).
+        isSystem:
+          type: boolean
+          description: Created by the app (e.g. opening balances); cannot be changed.
+        sortOrder:
+          type: integer
+          format: int32
+        archived:
+          type: boolean
+    CategoryCreate:
+      type: object
+      required: [parentId, name, kind]
+      properties:
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+        kind:
+          $ref: '#/components/schemas/CategoryKind'
+        pooled:
+          type: boolean
+          description: Defaults to true for expense categories (ADR-061); income categories never pool.
+    CategoryUpdate:
+      type: object
+      required: [name, pooled, archived]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+        pooled:
+          type: boolean
+        archived:
+          type: boolean
+    Reorder:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
   responses:
     Redirect:
       description: Redirect
