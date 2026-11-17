@@ -1,0 +1,12 @@
+version: "2"
+linters:
+  default: standard
+  exclusions:
+    paths:
+      - internal/api/api.gen.go
+formatters:
+  enable:
+    - goimports
+  exclusions:
+    paths:
+      - internal/api/api.gen.go

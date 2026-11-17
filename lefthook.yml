@@ -1,0 +1,25 @@
+# Hooks run from the tracked .githooks/pre-commit (core.hooksPath);
+# don't let `lefthook run` try to install its own hooks.
+no_auto_install: true
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: go-fmt
+      root: apps/api/
+      glob: "*.go"
+      run: mise exec -- golangci-lint fmt {staged_files}
+      stage_fixed: true
+    - name: go-lint
+      root: apps/api/
+      glob: "*.go"
+      run: mise exec -- golangci-lint run
+    - name: web-fmt
+      root: apps/web/
+      glob: "*.{ts,tsx,js,mjs,json,css,md}"
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: web-lint
+      root: apps/web/
+      glob: "*.{ts,tsx,js,mjs}"
+      run: pnpm exec oxlint {staged_files}

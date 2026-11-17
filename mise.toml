@@ -1,0 +1,86 @@
+# Root mise config: shared tools + repo-wide tasks.
+# Project tasks live next to each project: apps/api/mise.toml, apps/web/mise.toml
+# (referenced here as //apps/api:<task> and //apps/web:<task>).
+monorepo_root = true
+
+[settings]
+experimental = true # required for monorepo tasks
+
+[monorepo]
+config_roots = ["apps/api", "apps/web"]
+
+[tools]
+node = "24"
+pnpm = "12.15.0"
+lefthook = "2.2.2"
+dekit = "0.10.3" # process manager for `mise run dev` (dekit.yaml)
+
+[tasks.setup]
+description = "Install tools/dependencies and enable git hooks"
+run = [
+  "mise install",
+  "pnpm install",
+  "git config core.hooksPath .githooks",
+]
+depends = ["//apps/api:setup"]
+
+[tasks.dev]
+description = "Start DB, API and web in the dekit console (q q stops all, d detaches)"
+raw = true # the console is an interactive TUI
+run = "dekit"
+
+[tasks."dev:down"]
+description = "Stop the dev stack started by dev"
+run = "dekit down"
+
+[tasks."dev:plain"]
+description = "API and web dev servers with interleaved output (no dekit)"
+depends = ["//apps/api:dev", "//apps/web:dev"]
+
+[tasks.gen]
+description = "Generate all code (oapi-codegen, sqlc, web API types)"
+run = ["mise run //apps/api:gen", "mise run //apps/web:gen"]
+
+[tasks.lint]
+description = "Lint everything"
+depends = ["//apps/api:lint", "//apps/web:lint"]
+
+[tasks.fmt]
+description = "Format everything"
+depends = ["//apps/api:fmt", "//apps/web:fmt"]
+
+[tasks.test]
+description = "Run all tests"
+depends = ["//apps/api:test"]
+
+[tasks.check]
+description = "Lint, test and build (CI-equivalent)"
+run = [
+  "mise run lint",
+  "mise run //apps/web:fmt:check",
+  "mise run //apps/web:typecheck",
+  "mise run test",
+  "mise run //apps/api:build",
+  "mise run //apps/web:build",
+]
+
+[tasks."db:up"]
+description = "Start PostgreSQL and wait until healthy"
+run = "docker compose up -d --wait postgres"
+
+[tasks."db:migrate"]
+description = "Apply pending migrations (the API also does this on startup)"
+run = "mise run //apps/api:db:migrate"
+
+[tasks."db:down"]
+description = "Stop PostgreSQL (keeps data)"
+run = "docker compose down"
+
+[tasks."db:reset"]
+description = "Delete PostgreSQL data, then recreate and migrate the schema"
+run = ["docker compose down -v", "docker compose up -d --wait postgres", "mise run //apps/api:db:migrate"]
+
+[tasks."db:shell"]
+description = "Open psql in the app database"
+raw = true
+run = "docker compose exec postgres psql -U factual factual"

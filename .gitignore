@@ -1,0 +1,31 @@
+# secrets and local overrides
+.env
+.env.*
+!.env.example
+mise.local.toml
+mise.*.local.toml
+
+# go
+/apps/api/bin/
+/apps/api/tmp/
+*.exe
+*.test
+*.out
+
+# node / vite / tanstack
+node_modules
+dist
+.output
+.nitro
+.tanstack
+.vinxi
+.cache
+*.tsbuildinfo
+
+# misc
+*.log
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

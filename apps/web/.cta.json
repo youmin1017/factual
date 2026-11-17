@@ -1,0 +1,19 @@
+{
+  "projectName": "web",
+  "mode": "file-router",
+  "bundler": "vite",
+  "typescript": true,
+  "tailwind": true,
+  "packageManager": "pnpm",
+  "git": false,
+  "install": false,
+  "intent": false,
+  "addOnOptions": {},
+  "projectPreset": "default",
+  "routerOnly": false,
+  "includeExamples": false,
+  "version": 1,
+  "addOns": true,
+  "framework": "react",
+  "chosenAddOns": ["tanstack-query", "compiler", "eslint", "shadcn"]
+}

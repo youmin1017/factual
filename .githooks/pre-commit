@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs lefthook (installed by mise) for staged files. Enabled by `mise run setup` (core.hooksPath).
+exec mise exec -- lefthook run pre-commit "$@"

@@ -1,0 +1,38 @@
+# AGENTS.md
+
+Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets fed from a pool, credit card statements, savings goals, loans, schedules, splitting between friends and groups, a Vim-style transaction editor). Go API + PostgreSQL + TanStack Start (React, SPA mode) monorepo. UI text is Traditional Chinese (zh-TW).
+
+## Map
+- `apps/api` Go module `factual/apps/api` (echo, oapi-codegen, sqlc on pgx/v5, goose).
+- `apps/web` TanStack Start in SPA mode (pnpm workspace member): React 19 + React Compiler, Tailwind, shadcn/ui (Radix), TanStack Query, openapi-fetch.
+- `docs/DECISIONS.md` the decisions (ADRs) behind the architecture and the ledger model; read the relevant ones before changing either.
+
+## Commands (run from repo root)
+- Tasks are mise tasks: repo-wide in `mise.toml`, per project in `apps/api/mise.toml` and `apps/web/mise.toml` (`mise run //apps/api:test`). `mise tasks ls --all` lists them.
+- `mise run setup` install tools/deps and enable git hooks (`.githooks` -> lefthook).
+- `mise run dev` opens the dekit console (`dekit.yaml`: db, API :8080 with air, web :3000); `mise run dev:down` stops a detached stack. Non-interactive: `dekit up`, `dekit ls`, `dekit down` (don't pipe `dekit up`: the runner keeps the pipe open).
+- `mise run gen` regenerates oapi-codegen + sqlc + web API types.
+- `mise run check` lint + format check + typecheck + test + build.
+- `mise run //apps/api:test:db` then `//apps/api:test:integration` runs the DB integration tests against the local container (database `factual_test`, wiped by the tests). They include the login and OIDC flows against a fake identity provider (`internal/server/auth_test.go`).
+- The first start creates the admin from `FACTUAL_BOOTSTRAP_ADMIN_*` (dev values in `apps/api/mise.toml`).
+
+## Conventions
+- API is spec-first: edit `apps/api/api/openapi.yaml`, run `mise run gen`, implement the generated method on the owning domain's `Handlers` (embedded into `internal/server`, so two domains implementing one operation do not compile). Web calls go through `apps/web/src/lib/api.ts` (`api` / `$api`), never hand-written response types.
+- Every operation declares exactly one `x-auth`: `public`, `authenticated` or `admin` (instance admin); the API does not start otherwise. The session middleware puts the caller in the context: read it with `reqctx.Caller(ctx)`, never parse cookies or check `IsAdmin` in handlers. Browser-navigated endpoints (the OIDC flow) answer with redirects carrying `?error=<code>`, not JSON.
+- Never hand-edit generated files: `internal/api/api.gen.go`, sqlc output (`internal/domain/*/internal/db/`), `apps/web/src/lib/api.gen.ts`, `apps/web/src/routeTree.gen.ts`.
+- Schema changes are goose SQL migrations in `apps/api/db/migrations` (`mise run //apps/api:db:new <name>`); never edit an applied migration. They are embedded in the binary and applied on startup; sqlc reads the same directory as its schema. Wrap function bodies in `-- +goose StatementBegin/End`.
+- Domains live in `apps/api/internal/domain/<name>` with their SQL in `queries/*.sql`, generated into their private `internal/db` (one `sqlc.yaml` entry per domain). Shared helpers in `internal/shared`.
+- Handlers return `apperr.New(status, code, message)` for expected failures (`apperr.FromDB` maps not-found/duplicate/FK/check errors); everything is rendered as the `Error` envelope.
+- Config is environment variables (`FACTUAL_*`, `internal/config`); local dev values come from `apps/api/mise.toml`.
+- Authorization is plain Go (role -> permission map plus SQL scoping by `budget_id`); no casbin.
+- Login (ADR-014, ADR-046..051): sessions are rows in `sessions` keyed by the SHA-256 of the cookie token; CSRF protection is SameSite=Lax plus the cross-site guard, so keep state changes off GET. OIDC identities are matched by (provider, subject), never by email, and only log in after their owner linked them; do not add auto-provisioning or email matching. Client secrets are sealed with `internal/secretbox` and never returned by the API.
+- Never put real secrets in the repo: the values in `apps/api/mise.toml` are local-development defaults only.
+- Record architectural changes in `docs/DECISIONS.md`: append a new ADR, never rewrite an old one (a replacing entry says which it supersedes); drop the *(planned)* mark when a planned decision is implemented.
+- Web UI: shadcn/ui components live in `apps/web/src/components/ui` (add with `pnpm dlx shadcn@latest add <name>` from `apps/web`; vendored, excluded from oxlint). Never run `tanstack add`: it regenerates the whole template over modified files. Pages under `src/routes/_app` need a session (`beforeLoad` in `_app.tsx`); show API errors with `apiErrorMessage()` and add a zh-TW message to `src/lib/apiError.ts` for every new error code.
+- Styling (ADR-053..055): use the theme tokens (`bg-background`, `text-muted-foreground`, `border-rule`, `bg-kraft`, `text-positive`, `text-destructive`...), never raw colours, and check both themes (dark is the default). Money is shown with `.amount` (monospaced tabular figures). Settings pages use `PageHeader` and `Section` from `src/components/section.tsx`; give each page `staticData: { crumb, section? }` for the status line.
+- Use pnpm, not npm/yarn. Web is linted with oxlint (`oxlint.config.ts`, type-aware, extends `@tanstack/oxlint-config`) and formatted with oxfmt (`oxfmt.config.ts`, extends `@tanstack/oxfmt-config`); Go with golangci-lint. lefthook enforces both on commit.
+
+## Ledger model (ADR-020..033; details in the comments of the first migration)
+- Money is `bigint` minor units; entry amounts are the change in the account's balance.
+- A transaction has entries `(account, category?, amount)`. The database rejects a transaction unless its entries on on-budget accounts without a category sum to zero; entries on off-budget accounts (loans, investments) never carry a category. This guarantees: on-budget total = pool + all envelope balances.
+- Income goes to the pool, not to a month; `allocations` move it into envelopes. Envelope balances are cumulative sums (no month close). Credit card reserve and goal progress are derived, never stored.

@@ -1,0 +1,101 @@
+// Package server wires echo, middleware and the generated OpenAPI handlers.
+package server
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	echomw "github.com/oapi-codegen/echo-middleware"
+
+	"factual/apps/api/internal/api"
+	"factual/apps/api/internal/apispec"
+	"factual/apps/api/internal/domain/identity"
+)
+
+// Pinger reports whether the database answers (*pgxpool.Pool).
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
+// Deps are the collaborators of the server: the database for the health
+// check and the domains whose operations it serves. Identity may be nil in
+// tests without a database: then nobody is authenticated.
+type Deps struct {
+	DB       Pinger
+	Identity *identity.Service
+}
+
+// The domains' operations are promoted into server by embedding their
+// Handlers; the aliases give the embedded fields distinct names. Two domains
+// implementing the same operation do not compile (ambiguous selector).
+type (
+	identityHandlers = identity.Handlers
+)
+
+// server implements api.StrictServerInterface: the domains' operations and
+// the health check.
+type server struct {
+	*identityHandlers
+	deps Deps
+}
+
+var _ api.StrictServerInterface = (*server)(nil)
+
+func (s *server) GetHealth(ctx context.Context, _ api.GetHealthRequestObject) (api.GetHealthResponseObject, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	if err := s.deps.DB.Ping(ctx); err != nil {
+		slog.Warn("health check: database unreachable", "err", err)
+		return api.GetHealth503JSONResponse{Status: api.Degraded}, nil
+	}
+	return api.GetHealth200JSONResponse{Status: api.Ok}, nil
+}
+
+// New builds the echo instance.
+//
+// Request flow: recover/log -> cross-site guard -> session -> access check
+// (x-auth) -> login rate limit -> OpenAPI validation -> handler.
+func New(d Deps) (*echo.Echo, error) {
+	swagger, err := api.GetSwagger()
+	if err != nil {
+		return nil, err
+	}
+	ops, err := apispec.Operations(swagger)
+	if err != nil {
+		return nil, fmt.Errorf("openapi access rules: %w", err)
+	}
+	s := &server{identityHandlers: d.Identity.Handlers(), deps: d}
+
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	e.HTTPErrorHandler = errorHandler
+	// The client address is the last X-Forwarded-For entry not added by a
+	// loopback or private-network proxy; used for the login rate limit and
+	// recorded with sessions.
+	e.IPExtractor = echo.ExtractIPFromXFFHeader()
+	e.Use(middleware.Recover(), middleware.RequestLogger())
+
+	e.GET(apispec.BaseURL+"/openapi.json", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, swagger)
+	})
+
+	g := e.Group("")
+	g.Use(crossSiteGuard, s.session, checkAccess(accessRules(ops)), loginRateLimit())
+	g.Use(echomw.OapiRequestValidatorWithOptions(swagger, &echomw.Options{
+		SilenceServersWarning: true,
+		Skipper: func(c echo.Context) bool {
+			return strings.HasPrefix(c.Request().URL.Path, apispec.BaseURL+"/openapi")
+		},
+	}))
+
+	api.RegisterHandlersWithBaseURL(g, api.NewStrictHandler(s, nil), apispec.BaseURL)
+	return e, nil
+}

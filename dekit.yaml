@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://dekit.run/schemas/dekit.json
+# Local dev stack for `mise run dev`. Each task has its own screen in the dekit
+# console, so an API startup error is not buried under the web server's output,
+# and a task that never becomes ready is marked as failed.
+#
+# Console: q then q stops everything, d detaches and leaves it running;
+# `mise run dev` (or `dekit attach`) reopens it, `mise run dev:down` stops it.
+tasks:
+  db:
+    type: job
+    cmd: mise run db:up
+    autostart: true
+
+  # Applies pending migrations on startup, then serves with hot reload (air).
+  api:
+    cmd: mise run //apps/api:dev
+    deps: [db]
+    ready:
+      http: http://localhost:8080/api/healthz
+      timeout: 2m
+    autostart: true
+
+  # Independent of the API: Vite proxies /api to :8080.
+  web:
+    cmd: mise run //apps/web:dev
+    ready:
+      http: http://localhost:3000/
+      timeout: 2m
+    autostart: true

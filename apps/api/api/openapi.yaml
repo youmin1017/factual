@@ -1,0 +1,547 @@
+openapi: 3.0.3
+info:
+  title: Factual API
+  version: 0.2.0
+  description: |
+    The API is spec-first: this file is the source of truth for the Go server
+    (oapi-codegen) and the web client types (openapi-typescript).
+
+    Access control: every operation declares exactly one `x-auth`:
+    `public`, `authenticated` (any logged-in user) or `admin` (instance
+    admin). The API does not start otherwise. Errors use the `Error` envelope.
+servers:
+  - url: /api
+tags:
+  - name: system
+  - name: auth
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      tags: [system]
+      summary: Whether the API is up and can reach its database
+      x-auth: public
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: The database is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  # --- Sessions ---
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in with username and password
+      description: Creates a session and sets the session cookie.
+      x-auth: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: End the current session
+      description: Always succeeds; clears the session cookie.
+      x-auth: public
+      responses:
+        '204':
+          description: Logged out
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+
+  # --- OpenID Connect. The browser navigates to the flow endpoints (no
+  # fetch); results come back as redirects to web pages with ?error=<code>.
+  /auth/oidc/providers:
+    get:
+      operationId: listLoginProviders
+      tags: [auth]
+      summary: Enabled identity providers for the login page
+      x-auth: public
+      responses:
+        '200':
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LoginProvider'
+  /auth/oidc/{code}/login:
+    parameters:
+      - $ref: '#/components/parameters/ProviderCode'
+      - $ref: '#/components/parameters/Redirect'
+    get:
+      operationId: startOidcLogin
+      tags: [auth]
+      summary: Start logging in with an identity provider
+      description: Sets the flow cookie and redirects to the IdP (or to /login?error=...).
+      x-auth: public
+      responses:
+        '302':
+          $ref: '#/components/responses/Redirect'
+  /auth/oidc/{code}/link:
+    parameters:
+      - $ref: '#/components/parameters/ProviderCode'
+    get:
+      operationId: startOidcLink
+      tags: [auth]
+      summary: Start linking an identity to the logged-in user
+      description: Sets the flow cookie and redirects to the IdP (or to /profile?error=...).
+      x-auth: authenticated
+      responses:
+        '302':
+          $ref: '#/components/responses/Redirect'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/oidc/callback:
+    get:
+      operationId: oidcCallback
+      tags: [auth]
+      summary: Redirect target of every identity provider
+      description: |
+        Completes the flow from the flow cookie. Login: sets the session cookie
+        and redirects to the requested page, or to /login?error=<code>. Link:
+        redirects to /profile?linked=<provider> or /profile?error=<code>.
+      x-auth: public
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          description: Set by the IdP when the user cancelled or the request failed.
+          schema:
+            type: string
+      responses:
+        '302':
+          $ref: '#/components/responses/Redirect'
+
+  # --- Identity provider settings (instance admin) ---
+  /oidc-providers:
+    get:
+      operationId: listOidcProviders
+      tags: [auth]
+      summary: Identity providers (client secrets are never returned)
+      x-auth: admin
+      responses:
+        '200':
+          description: Providers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcProviderList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createOidcProvider
+      tags: [auth]
+      summary: Add an identity provider (the issuer must serve OIDC discovery)
+      x-auth: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcProviderInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcProvider'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /oidc-providers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      operationId: updateOidcProvider
+      tags: [auth]
+      summary: Update an identity provider (an empty clientSecret keeps the stored one)
+      x-auth: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcProviderInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcProvider'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteOidcProvider
+      tags: [auth]
+      summary: Delete an identity provider (its linked identities are removed)
+      x-auth: admin
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # --- The logged-in user ---
+  /me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: The logged-in user
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /me/password:
+    put:
+      operationId: changePassword
+      tags: [auth]
+      summary: Set or change the logged-in user's password
+      description: |
+        `currentPassword` is required when the user already has a password.
+        Other sessions of the user are ended; the current one stays.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Changed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /me/identities:
+    get:
+      operationId: listMyIdentities
+      tags: [auth]
+      summary: Identities the logged-in user linked
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Linked identities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LinkedIdentity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /me/identities/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      operationId: unlinkMyIdentity
+      tags: [auth]
+      summary: Unlink one of the logged-in user's identities
+      description: Refused when it is the user's last way to log in (no password, no other identity).
+      x-auth: authenticated
+      responses:
+        '204':
+          description: Unlinked
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProviderCode:
+      name: code
+      in: path
+      required: true
+      schema:
+        type: string
+    Redirect:
+      name: redirect
+      in: query
+      description: App path to land on after login (must start with /).
+      schema:
+        type: string
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable code, e.g. `not_found`, `unauthorized`.
+        message:
+          type: string
+          description: Human-readable message.
+        details:
+          type: object
+          additionalProperties: true
+
+    # --- Auth ---
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          maxLength: 256
+          description: Empty when the user has no password yet.
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 256
+    CurrentUser:
+      type: object
+      required: [id, username, displayName, email, isAdmin, hasPassword]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+        isAdmin:
+          type: boolean
+          description: Instance admin; may manage identity providers.
+        hasPassword:
+          type: boolean
+          description: Whether the user can log in with a password.
+    LoginProvider:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+    OidcProvider:
+      type: object
+      required: [id, code, name, issuer, clientId, hasSecret, scopes, sort, enabled, remark, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        issuer:
+          type: string
+        clientId:
+          type: string
+        hasSecret:
+          type: boolean
+          description: Whether a client secret is stored (it is never returned).
+        scopes:
+          type: string
+        sort:
+          type: integer
+          format: int32
+        enabled:
+          type: boolean
+        remark:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    OidcProviderInput:
+      type: object
+      required: [code, name, issuer, clientId, clientSecret, scopes, sort, enabled, remark]
+      properties:
+        code:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{1,31}$'
+          description: Used in URLs, e.g. `google`.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        issuer:
+          type: string
+          minLength: 1
+          maxLength: 255
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        clientSecret:
+          type: string
+          maxLength: 2048
+          description: Empty on update keeps the stored secret.
+        scopes:
+          type: string
+          maxLength: 255
+        sort:
+          type: integer
+          format: int32
+        enabled:
+          type: boolean
+        remark:
+          type: string
+          maxLength: 255
+    OidcProviderList:
+      type: object
+      required: [items, callbackUrl, encryptionConfigured]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OidcProvider'
+        callbackUrl:
+          type: string
+          description: Redirect URI to register at every identity provider.
+        encryptionConfigured:
+          type: boolean
+          description: Whether FACTUAL_ENCRYPTION_KEY is set; OIDC login needs it.
+    LinkedIdentity:
+      type: object
+      required: [id, providerCode, providerName, email, createdAt, lastLoginAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        providerCode:
+          type: string
+        providerName:
+          type: string
+        email:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+  responses:
+    Redirect:
+      description: Redirect
+      headers:
+        Location:
+          schema:
+            type: string
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Login required, or wrong credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Not allowed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Duplicate key, or the resource is still in use
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Too many attempts
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

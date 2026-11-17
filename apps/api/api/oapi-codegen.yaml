@@ -1,0 +1,10 @@
+package: api
+output: internal/api/api.gen.go
+generate:
+  models: true
+  echo-server: true
+  strict-server: true
+  embedded-spec: true
+output-options:
+  # Keep shared schemas (the Error envelope) even while no operation references them.
+  skip-prune: true

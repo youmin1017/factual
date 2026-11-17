@@ -1,0 +1,29 @@
+# TanStack Start web tasks. Run from the repo root as `mise run //apps/web:<task>`,
+# or from this directory as `mise run <task>`.
+[tasks.dev]
+description = "Run the Vite dev server on :3000 (proxies /api to the Go API)"
+run = "pnpm dev"
+
+[tasks.build]
+description = "Production build (static SPA in dist/client)"
+run = "pnpm build"
+
+[tasks.lint]
+description = "oxlint (type-aware)"
+run = "pnpm lint"
+
+[tasks.fmt]
+description = "Format with oxfmt"
+run = "pnpm fmt"
+
+[tasks."fmt:check"]
+description = "Check formatting"
+run = "pnpm fmt:check"
+
+[tasks.typecheck]
+description = "tsc --noEmit"
+run = "pnpm typecheck"
+
+[tasks.gen]
+description = "Generate API types from apps/api/api/openapi.yaml"
+run = "pnpm gen:api"

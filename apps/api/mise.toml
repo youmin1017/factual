@@ -1,0 +1,99 @@
+# Go API tools and tasks. Run from the repo root as `mise run //apps/api:<task>`,
+# or from this directory as `mise run <task>`.
+[tools]
+# Go toolchain; keep in step with the `go` line in go.mod. The `go:` tools
+# below are compiled with it.
+go = "1.27.2"
+golangci-lint = "2.15.0"
+air = "1.67.4"
+sqlc = "1.31.1"
+"go:github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen" = "2.8.1"
+"go:github.com/pressly/goose/v3/cmd/goose" = "3.30.1"
+
+# Local development defaults (docker-compose.yml); not secrets. Override in a
+# git-ignored mise.local.toml. Production sets FACTUAL_* itself.
+[env]
+FACTUAL_DATABASE_URL = "postgres://factual:factual@localhost:5432/factual?sslmode=disable"
+# Origin of the web dev server; identity providers redirect back to
+# <FACTUAL_PUBLIC_URL>/api/auth/oidc/callback. Cookies are not Secure over http.
+FACTUAL_PUBLIC_URL = "http://localhost:3000"
+# Dev-only key for OIDC client secrets and the flow cookie; every deployment
+# needs its own (openssl rand -base64 32).
+FACTUAL_ENCRYPTION_KEY = "SQeEjaShvZuovCLhHE3qew8DIzf+TVZDs1oBVfTYOPs="
+# Created on first start while nobody can log in; change the password after logging in.
+FACTUAL_BOOTSTRAP_ADMIN_USERNAME = "admin"
+FACTUAL_BOOTSTRAP_ADMIN_PASSWORD = "admin12345"
+# goose CLI (db:* tasks); keep GOOSE_DBSTRING equal to FACTUAL_DATABASE_URL.
+GOOSE_DRIVER = "postgres"
+GOOSE_DBSTRING = "postgres://factual:factual@localhost:5432/factual?sslmode=disable"
+GOOSE_MIGRATION_DIR = "db/migrations"
+
+[tasks.setup]
+description = "Download Go modules"
+run = "go mod download"
+
+[tasks.dev]
+description = "Run the API with hot reload (air); pending migrations are applied on startup"
+run = "air"
+
+[tasks.run]
+description = "Run the API once (no reload)"
+run = "go run ./cmd/api"
+
+[tasks.build]
+description = "Build the API binary"
+run = "go build -o bin/api ./cmd/api"
+
+[tasks.test]
+description = "Run Go tests (set FACTUAL_TEST_DATABASE_URL to include DB integration tests)"
+# -p 1: integration tests of different packages share (and wipe) one database.
+run = "go test -p 1 ./..."
+
+[tasks."test:db"]
+description = "Create the local test database (factual_test)"
+shell = "bash -c"
+run = """
+set -e
+docker exec factual-postgres psql -U factual -d factual -tc "select 1 from pg_database where datname = 'factual_test'" | grep -q 1 \
+  || docker exec factual-postgres psql -U factual -d factual -c "create database factual_test"
+"""
+
+[tasks."test:integration"]
+description = "All tests including DB integration tests, against the local docker database (run test:db first)"
+env = { FACTUAL_TEST_DATABASE_URL = "postgres://factual:factual@localhost:5432/factual_test?sslmode=disable" }
+run = "go test -p 1 -count=1 ./..."
+
+[tasks.gen]
+description = "Generate oapi-codegen and sqlc code"
+run = [
+  "oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml",
+  "sqlc generate",
+]
+
+[tasks.lint]
+description = "golangci-lint"
+run = "golangci-lint run"
+
+[tasks.fmt]
+description = "golangci-lint fmt"
+run = "golangci-lint fmt"
+
+# --- Database migrations (goose) ---
+# Plain SQL files in db/migrations, embedded in the binary and applied on
+# startup. sqlc reads the same files as its schema.
+[tasks."db:new"]
+description = "Create an empty migration: mise run //apps/api:db:new <name>"
+usage = 'arg "<name>" help="migration name, e.g. add_notifications"'
+run = "goose create {{usage.name}} sql"
+
+[tasks."db:migrate"]
+description = "Apply pending migrations"
+run = "goose up"
+
+[tasks."db:status"]
+description = "Show applied/pending migrations"
+run = "goose status"
+
+[tasks."db:rollback"]
+description = "Roll back the latest migration"
+run = "goose down"

@@ -1,0 +1,21 @@
+# Hot reload for the Go API. Run with `mise run //apps/api:dev`.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/api.exe ./cmd/api"
+  entrypoint = ["./tmp/api.exe"]
+  # sql: migrations are embedded in the binary.
+  include_ext = ["go", "sql"]
+  # Generated code is rebuilt by `mise run gen`; ignore tests to avoid needless restarts.
+  exclude_regex = ["_test\\.go"]
+  exclude_dir = ["tmp", "bin", "api"]
+  send_interrupt = true
+  kill_delay = "500ms"
+  delay = 300
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true
