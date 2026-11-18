@@ -38,3 +38,9 @@ update users set last_login_at = sqlc.arg(last_login_at)::timestamptz where id =
 
 -- name: UpdateUserPassword :exec
 update users set password_hash = sqlc.arg(password_hash)::text where id = sqlc.arg(id);
+
+-- name: GetPreferences :one
+select editor_keymap from users where id = $1;
+
+-- name: UpdatePreferences :exec
+update users set editor_keymap = sqlc.arg(editor_keymap) where id = sqlc.arg(id);

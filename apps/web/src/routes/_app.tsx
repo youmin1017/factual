@@ -4,10 +4,16 @@ import {
   Outlet,
   createFileRoute,
   redirect,
+  useMatches,
   useParams,
   useRouter,
 } from '@tanstack/react-router'
-import { CheckIcon, ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
+import {
+  CheckIcon,
+  ChevronsUpDownIcon,
+  PlusIcon,
+  SettingsIcon,
+} from 'lucide-react'
 import { Statusline } from '#/components/statusline'
 import { ThemeMenuItems } from '#/components/theme'
 import {
@@ -21,9 +27,13 @@ import {
 import { Wordmark } from '#/components/wordmark'
 import { $api } from '#/lib/api'
 import { meQueryOptions } from '#/lib/auth'
-import { budgetsQueryOptions, homeBudget } from '#/lib/budget'
+import { accountsQuery, budgetsQueryOptions, homeBudget } from '#/lib/budget'
+import { formatAmount } from '#/lib/money'
+import { useListKeys, usePaneNavigation } from '#/lib/panes'
+import { useKeymap } from '#/lib/preferences'
+import { cn } from '#/lib/utils'
 import type { CurrentUser } from '#/lib/auth'
-import type { Budget } from '#/lib/budget'
+import type { Account, Budget } from '#/lib/budget'
 
 // Everything under this layout needs a session; /login is the only page
 // outside it. The check is only for the UI: the API enforces access itself.
@@ -47,28 +57,47 @@ function AppLayout() {
   const budgets = useQuery(budgetsQueryOptions).data ?? []
   // The budget in the URL, or the one the wordmark leads to.
   const { budgetId } = useParams({ strict: false })
+  // The register takes the whole page and scrolls inside itself.
+  const wide = useMatches().some((m) => m.staticData.wide)
   const budget = budgets.find((b) => b.id === budgetId) ?? homeBudget(budgets)
+  const keymap = useKeymap()
+  usePaneNavigation(keymap)
+  const onSidebarKeyDown = useListKeys(keymap, 'sidebar')
 
   return (
     <div className="flex h-dvh flex-col">
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <aside className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-sidebar px-4 pt-2 md:w-56 md:flex-col md:flex-nowrap md:items-stretch md:gap-6 md:border-r md:border-b-0 md:px-3 md:py-4">
+        <aside
+          data-pane="sidebar"
+          data-editor
+          onKeyDown={onSidebarKeyDown}
+          className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-sidebar px-4 pt-2 md:w-60 md:flex-col md:flex-nowrap md:items-stretch md:gap-6 md:border-r md:border-b-0 md:px-3 md:py-4"
+        >
           <Link to="/" className="px-2 text-lg md:pt-1">
             <Wordmark />
           </Link>
 
           <nav
             aria-label="主選單"
-            className="order-last -mx-2 flex w-full items-center gap-1 overflow-x-auto pb-1 text-sm [scrollbar-width:none] md:order-none md:mx-0 md:w-auto md:flex-1 md:flex-col md:items-stretch md:gap-5 md:overflow-visible md:pb-0"
+            className="order-last -mx-2 flex w-full items-center gap-1 overflow-x-auto pb-1 text-sm [scrollbar-width:none] md:order-none md:mx-0 md:w-auto md:min-h-0 md:flex-1 md:flex-col md:items-stretch md:gap-5 md:overflow-y-auto md:pb-0"
           >
             <div className="flex items-center gap-1 md:flex-col md:items-stretch">
               {budget ? (
                 <>
                   <BudgetSwitcher budgets={budgets} current={budget} />
+                  {/* Narrow screens have no room for the accounts list. */}
+                  <Link
+                    to="/b/$budgetId/accounts/$accountId"
+                    params={{ budgetId: budget.id, accountId: 'all' }}
+                    className={cn(navLinkClass, 'md:hidden')}
+                  >
+                    明細
+                  </Link>
                   <Link
                     to="/b/$budgetId/accounts"
                     params={{ budgetId: budget.id }}
-                    className={navLinkClass}
+                    activeOptions={{ exact: true }}
+                    className={cn(navLinkClass, 'md:hidden')}
                   >
                     帳戶
                   </Link>
@@ -79,6 +108,13 @@ function AppLayout() {
                   >
                     類別
                   </Link>
+                  <Link
+                    to="/b/$budgetId/payees"
+                    params={{ budgetId: budget.id }}
+                    className={navLinkClass}
+                  >
+                    收付款對象
+                  </Link>
                 </>
               ) : (
                 <Link to="/setup" className={navLinkClass}>
@@ -86,12 +122,16 @@ function AppLayout() {
                 </Link>
               )}
             </div>
+            {budget && <AccountsNav budget={budget} />}
             <div className="flex items-center gap-1 md:flex-col md:items-stretch">
               <p className="hidden px-2 pb-1 text-xs text-muted-foreground md:block">
                 設定
               </p>
               <Link to="/profile" className={navLinkClass}>
                 個人資料
+              </Link>
+              <Link to="/settings/editor" className={navLinkClass}>
+                編輯器
               </Link>
               {user.isAdmin && (
                 <Link to="/settings/oidc-providers" className={navLinkClass}>
@@ -104,8 +144,22 @@ function AppLayout() {
           <UserMenu user={user} />
         </aside>
 
-        <main className="min-w-0 flex-1 overflow-y-auto">
-          <div className="w-full max-w-4xl px-6 py-8 md:px-10">
+        <main
+          data-pane="main"
+          tabIndex={-1}
+          className={cn(
+            'outline-none',
+            'min-w-0 flex-1',
+            wide ? 'overflow-hidden' : 'overflow-y-auto',
+          )}
+        >
+          <div
+            className={
+              wide
+                ? 'h-full w-full px-4 py-5 md:px-8'
+                : 'w-full max-w-4xl px-6 py-8 md:px-10'
+            }
+          >
             <Outlet />
           </div>
         </main>
@@ -116,10 +170,111 @@ function AppLayout() {
   )
 }
 
-// The kraft bar marks the current place, like a cursor in the margin. The
+// The kraft bar marks the current place, like a cursor in the margin; the
+// keyboard focus is a kraft tint, as the selection in the register is. The
 // router sets data-status="active" on the current link.
 const navLinkClass =
-  'rounded-md border-l-2 border-transparent px-2 py-1.5 whitespace-nowrap text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:rounded-l-none data-[status=active]:border-kraft data-[status=active]:bg-sidebar-accent data-[status=active]:text-sidebar-accent-foreground'
+  'rounded-md border-l-2 border-transparent px-2 py-1.5 whitespace-nowrap text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:bg-kraft/20 focus-visible:text-foreground data-[status=active]:rounded-l-none data-[status=active]:border-kraft data-[status=active]:font-medium data-[status=active]:text-foreground'
+
+/**
+ * The accounts, as in Actual: all of them, the budget accounts and the
+ * tracking accounts, each a register one click away (ADR-071).
+ */
+function AccountsNav({ budget }: { budget: Budget }) {
+  const { data } = useQuery(accountsQuery(budget.id))
+  const open = (data ?? []).filter((a) => !a.closed)
+  const groups = [
+    {
+      id: 'on-budget',
+      label: '預算內',
+      accounts: open.filter((a) => a.onBudget),
+    },
+    {
+      id: 'off-budget',
+      label: '追蹤',
+      accounts: open.filter((a) => !a.onBudget),
+    },
+  ].filter((g) => g.accounts.length > 0)
+  const total = (list: Array<Account>) =>
+    list.reduce((sum, a) => sum + a.balance, 0)
+
+  return (
+    <div className="hidden flex-col gap-0.5 md:flex" aria-label="帳戶">
+      <AccountLink
+        budget={budget}
+        accountId="all"
+        label="所有帳戶"
+        balance={total(open)}
+        strong
+      />
+      {groups.map((g) => (
+        <div key={g.id} className="mt-2 flex flex-col gap-0.5">
+          <AccountLink
+            budget={budget}
+            accountId={g.id}
+            label={g.label}
+            balance={total(g.accounts)}
+            strong
+          />
+          {g.accounts.map((a) => (
+            <AccountLink
+              key={a.id}
+              budget={budget}
+              accountId={a.id}
+              label={a.name}
+              balance={a.balance}
+            />
+          ))}
+        </div>
+      ))}
+      <Link
+        to="/b/$budgetId/accounts"
+        params={{ budgetId: budget.id }}
+        activeOptions={{ exact: true }}
+        className={cn(navLinkClass, 'mt-2 flex items-center gap-1.5 text-xs')}
+      >
+        <SettingsIcon className="size-3.5" />
+        管理帳戶
+      </Link>
+    </div>
+  )
+}
+
+function AccountLink({
+  budget,
+  accountId,
+  label,
+  balance,
+  strong = false,
+}: {
+  budget: Budget
+  accountId: string
+  label: string
+  balance: number
+  strong?: boolean
+}) {
+  return (
+    <Link
+      to="/b/$budgetId/accounts/$accountId"
+      params={{ budgetId: budget.id, accountId }}
+      className={cn(
+        navLinkClass,
+        'flex items-baseline justify-between gap-3 py-1',
+        strong ? 'text-foreground' : 'pl-4',
+      )}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+      <span
+        className={cn(
+          'amount shrink-0 text-xs',
+          balance < 0 ? 'amount-negative' : 'text-muted-foreground',
+        )}
+      >
+        {formatAmount(balance, budget.minorUnits)}
+      </span>
+    </Link>
+  )
+}
 
 /** The budget being looked at; switches between budgets and creates one. */
 function BudgetSwitcher({
@@ -133,7 +288,7 @@ function BudgetSwitcher({
     <DropdownMenu>
       <DropdownMenuTrigger
         data-testid="budget-switcher"
-        className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-xs text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring md:pb-1"
+        className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-xs text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:bg-kraft/20 focus-visible:text-foreground md:pb-1"
       >
         <span className="truncate">{current.name}</span>
         <ChevronsUpDownIcon className="size-3.5 shrink-0" />
@@ -144,7 +299,7 @@ function BudgetSwitcher({
         </DropdownMenuLabel>
         {budgets.map((b) => (
           <DropdownMenuItem key={b.id} asChild>
-            <Link to="/b/$budgetId/accounts" params={{ budgetId: b.id }}>
+            <Link to="/b/$budgetId" params={{ budgetId: b.id }}>
               <CheckIcon className={b.id === current.id ? '' : 'invisible'} />
               <span className="truncate">{b.name}</span>
             </Link>
@@ -178,7 +333,7 @@ function UserMenu({ user }: { user: CurrentUser }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         data-testid="user-menu"
-        className="ml-auto flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring md:ml-0"
+        className="ml-auto flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-sidebar-accent focus-visible:bg-kraft/20 md:ml-0"
       >
         <span className="truncate">{user.displayName || user.username}</span>
         <ChevronsUpDownIcon className="size-4 shrink-0 text-muted-foreground" />

@@ -37,6 +37,11 @@ const messages: Record<string, string> = {
   invalid_pooled: '只有支出類別可以讓子類別共用預算',
   system_category: '這是系統類別，不能修改',
   category_in_use: '類別底下還有子類別，或已有交易、預算；可以改為封存',
+  invalid_payee_name: '收付款對象的名稱是 1 到 64 個字',
+  payee_exists: '已經有同名的收付款對象；要合併請用「合併」',
+  payee_in_use: '還有交易或排程用到這個收付款對象；可以把它合併到別的對象',
+  invalid_merge: '不能把收付款對象合併到自己',
+  keymap_too_long: '自訂快捷鍵太長了',
   too_many_requests: '嘗試次數過多，請稍後再試',
   internal: '系統發生錯誤，請稍後再試',
 }

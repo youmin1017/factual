@@ -47,5 +47,5 @@ values ($1, $2, '期初餘額', true, $3)
 returning id;
 
 -- name: CreateEntry :exec
-insert into entries (budget_id, transaction_id, account_id, category_id, amount, cleared)
-values ($1, $2, $3, $4, $5, $6);
+insert into entries (budget_id, transaction_id, account_id, category_id, amount, memo, cleared)
+values ($1, $2, $3, $4, $5, $6, $7);

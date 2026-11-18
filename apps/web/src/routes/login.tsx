@@ -68,30 +68,32 @@ function LoginPage() {
   }
 
   return (
-    // A page of the ledger: ruled paper, the margin line, and the first entry
-    // to make is who you are.
-    <main className="ledger-paper relative flex min-h-dvh flex-col [--ledger-margin:1.5rem] sm:[--ledger-margin:4rem]">
-      <div className="absolute top-3 right-3">
-        <ThemeToggle />
+    <main className="relative flex min-h-dvh flex-col md:flex-row">
+      {/* A page of the ledger: ruled paper, the margin line, a few entries. */}
+      <div className="ledger-paper flex flex-col justify-center px-10 pt-16 pb-8 [--ledger-margin:1.5rem] sm:px-20 sm:[--ledger-margin:4rem] md:flex-1 md:py-16">
+        <h1 className="text-5xl leading-[4rem] sm:text-6xl">
+          <Wordmark blink />
+        </h1>
+        <p className="leading-8 text-muted-foreground">
+          多人記帳與分帳：預算、信用卡、存錢目標和朋友間的帳。
+        </p>
+        <SampleEntries />
       </div>
 
-      <div className="flex flex-1 items-center px-10 py-16 sm:px-28">
-        <div className="w-full max-w-xs">
-          <h1 className="text-5xl leading-[4rem] sm:text-6xl">
-            <Wordmark blink />
-          </h1>
-          <p className="leading-8 text-muted-foreground">
-            多人記帳與分帳。登入後繼續。
-          </p>
+      {/* The form: the first entry to make is who you are. */}
+      <div className="flex shrink-0 items-center border-t border-rule bg-card px-10 py-12 sm:px-20 md:w-[28rem] md:border-t-0 md:border-l md:px-12">
+        <div className="mx-auto w-full max-w-sm">
+          <h2 className="text-xl font-semibold">登入</h2>
+          <p className="mt-1 text-sm text-muted-foreground">登入後繼續。</p>
 
           {error && (
-            <Alert variant="destructive" role="alert" className="mt-4 bg-card">
+            <Alert variant="destructive" role="alert" className="mt-4">
               <CircleAlertIcon />
               <AlertTitle>{error}</AlertTitle>
             </Alert>
           )}
 
-          <form className="mt-8 space-y-4" onSubmit={onSubmit}>
+          <form className="mt-6 space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
               <Label htmlFor="username">帳號</Label>
               <Input
@@ -101,7 +103,7 @@ function LoginPage() {
                 autoFocus
                 required
                 maxLength={64}
-                className="bg-card font-mono dark:bg-card"
+                className="font-mono"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />
@@ -115,7 +117,7 @@ function LoginPage() {
                 autoComplete="current-password"
                 required
                 maxLength={256}
-                className="bg-card font-mono dark:bg-card"
+                className="font-mono"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -135,7 +137,7 @@ function LoginPage() {
                   key={p.code}
                   asChild
                   variant="outline"
-                  className="w-full justify-start bg-card dark:bg-card"
+                  className="w-full justify-start"
                 >
                   <a href={oidcLoginUrl(p.code, target)}>
                     <KeyRoundIcon />
@@ -147,6 +149,47 @@ function LoginPage() {
           )}
         </div>
       </div>
+
+      <div className="absolute top-3 right-3">
+        <ThemeToggle />
+      </div>
     </main>
+  )
+}
+
+// What a page of the register looks like, written on the ruled lines.
+const sample = [
+  { date: '11/05', payee: '全聯', category: '飲食/食材', amount: '-1,730' },
+  { date: '11/05', payee: '⇄ 台新活存', category: '—', amount: '5,000' },
+  { date: '11/03', payee: '鼎泰豐', category: '飲食/外食', amount: '-2,400' },
+  { date: '11/01', payee: '公司', category: '薪資', amount: '52,000' },
+]
+
+function SampleEntries() {
+  return (
+    <div
+      aria-hidden="true"
+      className="mt-8 hidden max-w-lg font-mono text-sm md:block"
+    >
+      {sample.map((row) => (
+        <div
+          key={row.payee}
+          className="grid h-8 grid-cols-[3.5rem_1fr_1fr_6rem] items-end pb-1 text-muted-foreground"
+        >
+          <span>{row.date}</span>
+          <span className="truncate text-foreground">{row.payee}</span>
+          <span className="truncate">{row.category}</span>
+          <span
+            className={
+              row.amount.startsWith('-')
+                ? 'amount text-right text-foreground'
+                : 'amount text-right text-positive'
+            }
+          >
+            {row.amount}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }

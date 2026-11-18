@@ -53,6 +53,17 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (uuid.UU
 	return id, err
 }
 
+const getPreferences = `-- name: GetPreferences :one
+select editor_keymap from users where id = $1
+`
+
+func (q *Queries) GetPreferences(ctx context.Context, id uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getPreferences, id)
+	var editor_keymap string
+	err := row.Scan(&editor_keymap)
+	return editor_keymap, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 select id,
        coalesce(username, '')::text      as username,
@@ -138,6 +149,20 @@ type SetUserLastLoginParams struct {
 
 func (q *Queries) SetUserLastLogin(ctx context.Context, arg SetUserLastLoginParams) error {
 	_, err := q.db.Exec(ctx, setUserLastLogin, arg.LastLoginAt, arg.ID)
+	return err
+}
+
+const updatePreferences = `-- name: UpdatePreferences :exec
+update users set editor_keymap = $1 where id = $2
+`
+
+type UpdatePreferencesParams struct {
+	EditorKeymap string
+	ID           uuid.UUID
+}
+
+func (q *Queries) UpdatePreferences(ctx context.Context, arg UpdatePreferencesParams) error {
+	_, err := q.db.Exec(ctx, updatePreferences, arg.EditorKeymap, arg.ID)
 	return err
 }
 

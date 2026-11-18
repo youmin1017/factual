@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { EllipsisIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -42,9 +42,10 @@ import {
   summaryQuery,
 } from '#/lib/budget'
 import { parseAmount } from '#/lib/money'
+import { cn } from '#/lib/utils'
 import type { Account, AccountKind, Budget } from '#/lib/budget'
 
-export const Route = createFileRoute('/_app/b/$budgetId/accounts')({
+export const Route = createFileRoute('/_app/b/$budgetId/accounts/')({
   staticData: { crumb: '帳戶' },
   component: AccountsPage,
 })
@@ -274,9 +275,16 @@ function AccountRow({
       data-testid={`account-${account.name}`}
     >
       <div className="min-w-0 flex-1">
-        <p className={account.closed ? 'text-muted-foreground' : ''}>
+        <Link
+          to="/b/$budgetId/accounts/$accountId"
+          params={{ budgetId: budget.id, accountId: account.id }}
+          className={cn(
+            'underline-offset-4 outline-none hover:underline focus-visible:underline',
+            account.closed && 'text-muted-foreground',
+          )}
+        >
           {account.name}
-        </p>
+        </Link>
         <p className="text-xs text-muted-foreground">
           {accountKindLabel(account.kind)}
         </p>

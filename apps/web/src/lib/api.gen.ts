@@ -262,6 +262,24 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/me/preferences': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** The logged-in user's preferences */
+    get: operations['getPreferences']
+    /** Replace the logged-in user's preferences */
+    put: operations['updatePreferences']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/budgets': {
     parameters: {
       query?: never
@@ -445,6 +463,146 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/accounts/{accountId}/register': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    /**
+     * Every transaction touching an account, with all of their entries
+     * @description Oldest first. Balances are computed by the client from the entries.
+     */
+    get: operations['getRegister']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/register': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /**
+     * Transactions on a group of accounts, oldest first
+     * @description Every transaction with an entry on an account in the scope: all
+     *     accounts, the budget accounts, or the tracking accounts (ADR-071).
+     *     Each comes with all of its entries, as in an account's register.
+     */
+    get: operations['getScopeRegister']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/payees': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /** Payees, with the category last used for each */
+    get: operations['listPayees']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/payees/{payeeId}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        payeeId: components['parameters']['PayeeId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Rename a payee
+     * @description Answers 409 `payee_exists` when another payee has the name; merge them instead.
+     */
+    put: operations['renamePayee']
+    post?: never
+    /** Delete a payee no transaction or schedule uses */
+    delete: operations['deletePayee']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/payees/{payeeId}/merge': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        payeeId: components['parameters']['PayeeId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Merge other payees into this one
+     * @description Transactions and schedules of the source payees move to this payee,
+     *     then the sources are deleted, in one database transaction.
+     */
+    post: operations['mergePayees']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/transactions/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply an editor buffer in one database transaction (:w)
+     * @description Upserts are keyed by the client-generated transaction id (ADR-021):
+     *     an unknown id creates the transaction, a known one replaces its date,
+     *     payee, note and entries. Payees are given by name and created when
+     *     missing. Either everything is applied or nothing is, and every problem
+     *     found is reported against the transaction it belongs to (ADR-044).
+     */
+    post: operations['saveTransactions']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
 }
 export type webhooks = Record<string, never>
 export interface components {
@@ -481,6 +639,14 @@ export interface components {
       isAdmin: boolean
       /** @description Whether the user can log in with a password. */
       hasPassword: boolean
+    }
+    Preferences: {
+      /**
+       * @description Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
+       *     `nnoremap H 0`, `let mapleader = ","`). Parsed by the web app;
+       *     the server only stores it.
+       */
+      editorKeymap: string
     }
     LoginProvider: {
       code: string
@@ -651,6 +817,102 @@ export interface components {
     Reorder: {
       ids: string[]
     }
+    /** @enum {string} */
+    RegisterScope: 'all' | 'onBudget' | 'offBudget'
+    /** @enum {string} */
+    ClearedState: 'uncleared' | 'cleared' | 'reconciled'
+    Entry: {
+      /** Format: uuid */
+      id: string
+      /** Format: uuid */
+      accountId: string
+      /** Format: uuid */
+      categoryId: string | null
+      /**
+       * Format: int64
+       * @description Change in the account's balance.
+       */
+      amount: number
+      memo: string
+      cleared: components['schemas']['ClearedState']
+    }
+    Transaction: {
+      /** Format: uuid */
+      id: string
+      /** Format: date */
+      date: string
+      /** Format: uuid */
+      payeeId: string | null
+      payeeName: string | null
+      note: string
+      needsReview: boolean
+      /** @description The opening balance of an account. */
+      isOpening: boolean
+      entries: components['schemas']['Entry'][]
+    }
+    Payee: {
+      /** Format: uuid */
+      id: string
+      name: string
+      /**
+       * Format: uuid
+       * @description The category of the payee's most recent categorized entry, to fill in new rows.
+       */
+      lastCategoryId: string | null
+      /** Format: int32 */
+      transactionCount: number
+    }
+    PayeeUpdate: {
+      name: string
+    }
+    PayeeMerge: {
+      sourceIds: string[]
+    }
+    EntryInput: {
+      /** Format: uuid */
+      accountId: string
+      /** Format: uuid */
+      categoryId: string | null
+      /** Format: int64 */
+      amount: number
+      memo: string
+      cleared: components['schemas']['ClearedState']
+    }
+    TransactionInput: {
+      /** Format: uuid */
+      id: string
+      /** Format: date */
+      date: string
+      /** @description Payee name; empty for none (e.g. a transfer). Created when it does not exist. */
+      payee: string
+      note: string
+      entries: components['schemas']['EntryInput'][]
+    }
+    TransactionBatch: {
+      upserts: components['schemas']['TransactionInput'][]
+      deletes: string[]
+    }
+    BatchSaved: {
+      /** Format: int32 */
+      upserted: number
+      /** Format: int32 */
+      deleted: number
+    }
+    BatchProblem: {
+      /**
+       * Format: uuid
+       * @description The transaction the problem belongs to.
+       */
+      id: string
+      /** @description Which part is wrong (date, payee, note, category, amount, account, entries), or empty. */
+      field: string
+      /** @description Stable code, e.g. category_required. */
+      code: string
+      message: string
+    }
+    BatchErrors: {
+      errors: components['schemas']['BatchProblem'][]
+    }
   }
   responses: {
     /** @description Redirect */
@@ -719,6 +981,7 @@ export interface components {
   parameters: {
     BudgetId: string
     AccountId: string
+    PayeeId: string
     CategoryId: string
     Id: string
     ProviderCode: string
@@ -1061,6 +1324,53 @@ export interface operations {
       }
       400: components['responses']['BadRequest']
       404: components['responses']['NotFound']
+    }
+  }
+  getPreferences: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Preferences */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Preferences']
+        }
+      }
+      401: components['responses']['Unauthorized']
+    }
+  }
+  updatePreferences: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Preferences']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Preferences']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
     }
   }
   listBudgets: {
@@ -1445,6 +1755,199 @@ export interface operations {
       400: components['responses']['BadRequest']
       404: components['responses']['NotFound']
       409: components['responses']['Conflict']
+    }
+  }
+  getRegister: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Transactions */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Transaction'][]
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  getScopeRegister: {
+    parameters: {
+      query: {
+        scope: components['schemas']['RegisterScope']
+      }
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Transactions */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Transaction'][]
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  listPayees: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Payees */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Payee'][]
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  renamePayee: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        payeeId: components['parameters']['PayeeId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PayeeUpdate']
+      }
+    }
+    responses: {
+      /** @description Renamed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Payee']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  deletePayee: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        payeeId: components['parameters']['PayeeId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  mergePayees: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        payeeId: components['parameters']['PayeeId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PayeeMerge']
+      }
+    }
+    responses: {
+      /** @description Merged */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Payee']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  saveTransactions: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TransactionBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      /** @description Nothing was saved; the transactions listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
     }
   }
 }

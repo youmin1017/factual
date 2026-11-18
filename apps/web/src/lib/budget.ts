@@ -6,6 +6,7 @@ export type Budget = Schemas['Budget']
 export type Account = Schemas['Account']
 export type AccountKind = Schemas['AccountKind']
 export type Category = Schemas['Category']
+export type Payee = Schemas['Payee']
 
 /** The caller's budgets; empty until they create one. */
 export const budgetsQueryOptions = queryOptions({
@@ -36,6 +37,12 @@ export function summaryQuery(budgetId: string) {
 
 export function categoriesQuery(budgetId: string) {
   return $api.queryOptions('get', '/budgets/{budgetId}/categories', {
+    params: { path: { budgetId } },
+  })
+}
+
+export function payeesQuery(budgetId: string) {
+  return $api.queryOptions('get', '/budgets/{budgetId}/payees', {
     params: { path: { budgetId } },
   })
 }

@@ -79,7 +79,7 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 		}
 		return q.CreateEntry(ctx, db.CreateEntryParams{
 			BudgetID: req.BudgetId, TransactionID: txID, AccountID: id, CategoryID: category,
-			Amount: b.OpeningBalance, Cleared: db.ClearedStateCleared,
+			Amount: b.OpeningBalance, Memo: "", Cleared: db.ClearedStateCleared,
 		})
 	})
 	if err != nil {

@@ -39,8 +39,8 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (u
 }
 
 const createEntry = `-- name: CreateEntry :exec
-insert into entries (budget_id, transaction_id, account_id, category_id, amount, cleared)
-values ($1, $2, $3, $4, $5, $6)
+insert into entries (budget_id, transaction_id, account_id, category_id, amount, memo, cleared)
+values ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type CreateEntryParams struct {
@@ -49,6 +49,7 @@ type CreateEntryParams struct {
 	AccountID     uuid.UUID
 	CategoryID    uuid.NullUUID
 	Amount        int64
+	Memo          string
 	Cleared       ClearedState
 }
 
@@ -59,6 +60,7 @@ func (q *Queries) CreateEntry(ctx context.Context, arg CreateEntryParams) error 
 		arg.AccountID,
 		arg.CategoryID,
 		arg.Amount,
+		arg.Memo,
 		arg.Cleared,
 	)
 	return err

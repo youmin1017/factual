@@ -5,8 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"factual/apps/api/internal/api"
+	"factual/apps/api/internal/domain/identity/internal/db"
 	"factual/apps/api/internal/shared/apperr"
 	"factual/apps/api/internal/shared/reqctx"
 )
@@ -78,4 +80,27 @@ func currentUser(u User) api.CurrentUser {
 		Id: u.ID, Username: u.Username, DisplayName: u.DisplayName, Email: u.Email,
 		IsAdmin: u.IsAdmin, HasPassword: u.PasswordHash != "",
 	}
+}
+
+// maxKeymapLen matches the column's check and the spec's maxLength.
+const maxKeymapLen = 8000
+
+func (h *Handlers) GetPreferences(ctx context.Context, _ api.GetPreferencesRequestObject) (api.GetPreferencesResponseObject, error) {
+	keymap, err := h.s.q.GetPreferences(ctx, reqctx.Caller(ctx).UserID)
+	if err != nil {
+		return nil, apperr.FromDB(err)
+	}
+	return api.GetPreferences200JSONResponse{EditorKeymap: keymap}, nil
+}
+
+func (h *Handlers) UpdatePreferences(ctx context.Context, req api.UpdatePreferencesRequestObject) (api.UpdatePreferencesResponseObject, error) {
+	keymap := strings.ReplaceAll(req.Body.EditorKeymap, "\r\n", "\n")
+	if len(keymap) > maxKeymapLen {
+		return nil, apperr.BadRequest("keymap_too_long", "the key mappings are at most 8000 bytes")
+	}
+	err := h.s.q.UpdatePreferences(ctx, db.UpdatePreferencesParams{ID: reqctx.Caller(ctx).UserID, EditorKeymap: keymap})
+	if err != nil {
+		return nil, err
+	}
+	return api.UpdatePreferences200JSONResponse{EditorKeymap: keymap}, nil
 }

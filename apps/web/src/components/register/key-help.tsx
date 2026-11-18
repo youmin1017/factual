@@ -1,0 +1,195 @@
+import { Link } from '@tanstack/react-router'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
+import type { Keymap, Pane } from '#/lib/keymap'
+
+/** One line of the reference: the keys, and what they do. */
+type Entry = [keys: string, does: string]
+
+const groups: Array<{ title: string; entries: Array<Entry> }> = [
+  {
+    title: '移動',
+    entries: [
+      ['h j k l', '左、下、上、右（方向鍵也可以）'],
+      ['w b  Tab', '下一欄、上一欄'],
+      ['0 $', '第一欄、最後一欄'],
+      ['gg G', '第一列、最後一列；5G 到第 5 列'],
+      ['Ctrl-d Ctrl-u', '往下、往上半頁'],
+      ['Ctrl-f Ctrl-b', '往下、往上一頁'],
+      ['5j', '數字加移動：往下 5 列'],
+    ],
+  },
+  {
+    title: '修改',
+    entries: [
+      ['i a Enter', '編輯這一格'],
+      ['c s', '清空這一格再編輯'],
+      ['o O', '在下面、上面新增一筆'],
+      ['x', '核對 / 取消核對'],
+      ['dd', '刪除（再按一次取消）；3dd 刪三筆'],
+      ['yy p P', '複製，貼在下面、上面'],
+      ['u Ctrl-r', '復原、重做'],
+      ['.', '重複上一個動作'],
+    ],
+  },
+  {
+    title: '選取多列',
+    entries: [
+      ['V', '開始選取（Shift-點擊也可以）'],
+      ['o', '跳到選取的另一端'],
+      ['d y x', '刪除、複製、核對選取的交易'],
+      ['c', '修改選取交易的這一欄'],
+      ['gv', '選回上一次的範圍'],
+      ['Esc', '取消選取'],
+    ],
+  },
+  {
+    title: '編輯中',
+    entries: [
+      ['Tab Shift-Tab', '存下這一格，到下一格、上一格'],
+      ['↓ ↑', '在建議清單裡移動'],
+      ['Ctrl-n Ctrl-p', '同上；Chrome 不讓網頁用 Ctrl-n，可以對應成別的鍵'],
+      ['Enter', '採用建議的項目'],
+      ['Esc', '回到一般模式'],
+      ['Ctrl-c', '放棄這一格的修改'],
+    ],
+  },
+  {
+    title: '指令',
+    entries: [
+      [':w  Ctrl-s', '儲存'],
+      [':q  :wq', '離開、儲存後離開'],
+      [':e!', '放棄所有未儲存的變更'],
+      [':sp', '把這筆交易拆分成多個類別'],
+      [':12', '跳到第 12 列'],
+    ],
+  },
+  {
+    title: '拆分視窗',
+    entries: [
+      ['o O', '新增一行（帶入還沒分的金額）'],
+      ['dd', '刪除這一行'],
+      ['q Esc', '完成，回到明細'],
+    ],
+  },
+  {
+    title: '側欄',
+    entries: [
+      ['j k', '下一個、上一個帳戶'],
+      ['gg G', '第一個、最後一個'],
+      ['Enter', '打開'],
+    ],
+  },
+]
+
+const modeNames: Record<keyof Keymap, string> = {
+  normal: '一般',
+  visual: '選取',
+  insert: '插入',
+}
+
+const paneNames: Record<Pane, string> = {
+  sidebar: '側欄',
+  register: '明細',
+  split: '拆分視窗',
+  main: '其他頁面',
+}
+
+/**
+ * Every key of the register and its split window (`?`), with the user's
+ * own mappings, so the status line only needs the basics.
+ */
+export function KeyHelp({
+  open,
+  onClose,
+  keymap,
+}: {
+  open: boolean
+  onClose: () => void
+  keymap: Keymap
+}) {
+  const mappings = (Object.keys(modeNames) as Array<keyof Keymap>).flatMap(
+    (mode) =>
+      keymap[mode].map((m) => ({
+        mode,
+        pane: m.pane,
+        lhs: m.lhs.join(''),
+        rhs: m.rhs.join(''),
+      })),
+  )
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        className="max-h-[85dvh] overflow-y-auto sm:max-w-3xl"
+        onKeyDown={(e) => {
+          // `?` and `q` close it again, as Esc does.
+          if (e.key === '?' || e.key === 'q') {
+            e.preventDefault()
+            onClose()
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>快捷鍵</DialogTitle>
+          <DialogDescription>
+            和 Vim 一樣，數字可以放在動作前面。按 ? 或 Esc 關閉。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+          {groups.map((g) => (
+            <section key={g.title}>
+              <h3 className="mb-1.5 text-sm font-semibold">{g.title}</h3>
+              <dl className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-3 gap-y-1 text-sm">
+                {g.entries.map(([keys, does]) => (
+                  <div key={keys} className="contents">
+                    <dt className="font-mono text-kraft">{keys}</dt>
+                    <dd className="text-muted-foreground">{does}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+          <section className="sm:col-span-2">
+            <h3 className="mb-1.5 text-sm font-semibold">你的自訂快捷鍵</h3>
+            {mappings.length > 0 ? (
+              <div className="grid grid-cols-[auto_minmax(7rem,auto)_1fr] gap-x-3 gap-y-1 text-sm">
+                {mappings.map((m) => (
+                  <div
+                    key={`${m.mode}:${m.pane ?? ''}:${m.lhs}`}
+                    className="contents"
+                  >
+                    <span className="text-muted-foreground">
+                      {modeNames[m.mode]}
+                      {m.pane && `（${paneNames[m.pane]}）`}
+                    </span>
+                    <span className="font-mono text-kraft">{m.lhs}</span>
+                    <span className="font-mono text-muted-foreground">
+                      {m.rhs}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                還沒有設定。可以在「設定 → 編輯器」用 vimrc 的寫法加上，例如{' '}
+                <code className="font-mono">inoremap jk &lt;Esc&gt;</code>。
+              </p>
+            )}
+            <Link
+              to="/settings/editor"
+              className="mt-2 inline-block text-sm text-kraft underline-offset-4 hover:underline"
+            >
+              編輯自訂快捷鍵
+            </Link>
+          </section>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

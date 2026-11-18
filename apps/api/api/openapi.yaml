@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Factual API
-  version: 0.3.0
+  version: 0.5.0
   description: |
     The API is spec-first: this file is the source of truth for the Go server
     (oapi-codegen) and the web client types (openapi-typescript).
@@ -307,6 +307,43 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+  /me/preferences:
+    get:
+      operationId: getPreferences
+      tags: [auth]
+      summary: The logged-in user's preferences
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      operationId: updatePreferences
+      tags: [auth]
+      summary: Replace the logged-in user's preferences
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Preferences'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   # --- Budgets. Operations inside a budget declare `x-budget`: the
   # permission the caller's role in that budget must grant (ADR-017).
@@ -635,6 +672,195 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  # --- Transactions (M4: the account register and :w)
+  /budgets/{budgetId}/accounts/{accountId}/register:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      operationId: getRegister
+      tags: [ledger]
+      summary: Every transaction touching an account, with all of their entries
+      description: Oldest first. Balances are computed by the client from the entries.
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/register:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: getScopeRegister
+      tags: [ledger]
+      summary: Transactions on a group of accounts, oldest first
+      description: |
+        Every transaction with an entry on an account in the scope: all
+        accounts, the budget accounts, or the tracking accounts (ADR-071).
+        Each comes with all of its entries, as in an account's register.
+      x-auth: authenticated
+      x-budget: read
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/RegisterScope'
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/payees:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: listPayees
+      tags: [ledger]
+      summary: Payees, with the category last used for each
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Payees
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Payee'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/payees/{payeeId}:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/PayeeId'
+    put:
+      operationId: renamePayee
+      tags: [ledger]
+      summary: Rename a payee
+      description: Answers 409 `payee_exists` when another payee has the name; merge them instead.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayeeUpdate'
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payee'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deletePayee
+      tags: [ledger]
+      summary: Delete a payee no transaction or schedule uses
+      x-auth: authenticated
+      x-budget: write
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /budgets/{budgetId}/payees/{payeeId}/merge:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/PayeeId'
+    post:
+      operationId: mergePayees
+      tags: [ledger]
+      summary: Merge other payees into this one
+      description: |
+        Transactions and schedules of the source payees move to this payee,
+        then the sources are deleted, in one database transaction.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayeeMerge'
+      responses:
+        '200':
+          description: Merged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payee'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/transactions/batch:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    post:
+      operationId: saveTransactions
+      tags: [ledger]
+      summary: Apply an editor buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated transaction id (ADR-021):
+        an unknown id creates the transaction, a known one replaces its date,
+        payee, note and entries. Payees are given by name and created when
+        missing. Either everything is applied or nothing is, and every problem
+        found is reported against the transaction it belongs to (ADR-044).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Nothing was saved; the transactions listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
+
 components:
   parameters:
     BudgetId:
@@ -646,6 +872,13 @@ components:
         format: uuid
     AccountId:
       name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PayeeId:
+      name: payeeId
       in: path
       required: true
       schema:
@@ -743,6 +976,17 @@ components:
         hasPassword:
           type: boolean
           description: Whether the user can log in with a password.
+    Preferences:
+      type: object
+      required: [editorKeymap]
+      properties:
+        editorKeymap:
+          type: string
+          maxLength: 8000
+          description: |
+            Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
+            `nnoremap H 0`, `let mapleader = ","`). Parsed by the web app;
+            the server only stores it.
     LoginProvider:
       type: object
       required: [code, name]
@@ -1050,6 +1294,189 @@ components:
           items:
             type: string
             format: uuid
+    RegisterScope:
+      type: string
+      enum: [all, onBudget, offBudget]
+    ClearedState:
+      type: string
+      enum: [uncleared, cleared, reconciled]
+    Entry:
+      type: object
+      required: [id, accountId, categoryId, amount, memo, cleared]
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        amount:
+          type: integer
+          format: int64
+          description: Change in the account's balance.
+        memo:
+          type: string
+        cleared:
+          $ref: '#/components/schemas/ClearedState'
+    Transaction:
+      type: object
+      required: [id, date, payeeId, payeeName, note, needsReview, isOpening, entries]
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        payeeId:
+          type: string
+          format: uuid
+          nullable: true
+        payeeName:
+          type: string
+          nullable: true
+        note:
+          type: string
+        needsReview:
+          type: boolean
+        isOpening:
+          type: boolean
+          description: The opening balance of an account.
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entry'
+    Payee:
+      type: object
+      required: [id, name, lastCategoryId, transactionCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        lastCategoryId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The category of the payee's most recent categorized entry, to fill in new rows.
+        transactionCount:
+          type: integer
+          format: int32
+    PayeeUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+    PayeeMerge:
+      type: object
+      required: [sourceIds]
+      properties:
+        sourceIds:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: string
+            format: uuid
+    EntryInput:
+      type: object
+      required: [accountId, categoryId, amount, memo, cleared]
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        amount:
+          type: integer
+          format: int64
+        memo:
+          type: string
+          maxLength: 255
+        cleared:
+          $ref: '#/components/schemas/ClearedState'
+    TransactionInput:
+      type: object
+      required: [id, date, payee, note, entries]
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        payee:
+          type: string
+          maxLength: 64
+          description: Payee name; empty for none (e.g. a transfer). Created when it does not exist.
+        note:
+          type: string
+          maxLength: 255
+        entries:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/EntryInput'
+    TransactionBatch:
+      type: object
+      required: [upserts, deletes]
+      properties:
+        upserts:
+          type: array
+          maxItems: 2000
+          items:
+            $ref: '#/components/schemas/TransactionInput'
+        deletes:
+          type: array
+          maxItems: 2000
+          items:
+            type: string
+            format: uuid
+    BatchSaved:
+      type: object
+      required: [upserted, deleted]
+      properties:
+        upserted:
+          type: integer
+          format: int32
+        deleted:
+          type: integer
+          format: int32
+    BatchProblem:
+      type: object
+      required: [id, field, code, message]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The transaction the problem belongs to.
+        field:
+          type: string
+          description: Which part is wrong (date, payee, note, category, amount, account, entries), or empty.
+        code:
+          type: string
+          description: Stable code, e.g. category_required.
+        message:
+          type: string
+    BatchErrors:
+      type: object
+      required: [errors]
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchProblem'
   responses:
     Redirect:
       description: Redirect

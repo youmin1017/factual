@@ -88,6 +88,27 @@ func (e CategoryKind) Valid() bool {
 	}
 }
 
+// Defines values for ClearedState.
+const (
+	Cleared    ClearedState = "cleared"
+	Reconciled ClearedState = "reconciled"
+	Uncleared  ClearedState = "uncleared"
+)
+
+// Valid indicates whether the value is a known member of the ClearedState enum.
+func (e ClearedState) Valid() bool {
+	switch e {
+	case Cleared:
+		return true
+	case Reconciled:
+		return true
+	case Uncleared:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	Degraded HealthStatus = "degraded"
@@ -100,6 +121,27 @@ func (e HealthStatus) Valid() bool {
 	case Degraded:
 		return true
 	case Ok:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RegisterScope.
+const (
+	All       RegisterScope = "all"
+	OffBudget RegisterScope = "offBudget"
+	OnBudget  RegisterScope = "onBudget"
+)
+
+// Valid indicates whether the value is a known member of the RegisterScope enum.
+func (e RegisterScope) Valid() bool {
+	switch e {
+	case All:
+		return true
+	case OffBudget:
+		return true
+	case OnBudget:
 		return true
 	default:
 		return false
@@ -142,6 +184,30 @@ type AccountUpdate struct {
 	// Closed A closed account is hidden from pickers; it must have a zero balance.
 	Closed bool   `json:"closed"`
 	Name   string `json:"name"`
+}
+
+// BatchErrors defines model for BatchErrors.
+type BatchErrors struct {
+	Errors []BatchProblem `json:"errors"`
+}
+
+// BatchProblem defines model for BatchProblem.
+type BatchProblem struct {
+	// Code Stable code, e.g. category_required.
+	Code string `json:"code"`
+
+	// Field Which part is wrong (date, payee, note, category, amount, account, entries), or empty.
+	Field string `json:"field"`
+
+	// Id The transaction the problem belongs to.
+	Id      openapi_types.UUID `json:"id"`
+	Message string             `json:"message"`
+}
+
+// BatchSaved defines model for BatchSaved.
+type BatchSaved struct {
+	Deleted  int32 `json:"deleted"`
+	Upserted int32 `json:"upserted"`
 }
 
 // Budget defines model for Budget.
@@ -233,6 +299,9 @@ type ChangePasswordRequest struct {
 	NewPassword     string `json:"newPassword"`
 }
 
+// ClearedState defines model for ClearedState.
+type ClearedState string
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	DisplayName string `json:"displayName"`
@@ -245,6 +314,27 @@ type CurrentUser struct {
 	// IsAdmin Instance admin; may manage identity providers.
 	IsAdmin  bool   `json:"isAdmin"`
 	Username string `json:"username"`
+}
+
+// Entry defines model for Entry.
+type Entry struct {
+	AccountId openapi_types.UUID `json:"accountId"`
+
+	// Amount Change in the account's balance.
+	Amount     int64               `json:"amount"`
+	CategoryId *openapi_types.UUID `json:"categoryId"`
+	Cleared    ClearedState        `json:"cleared"`
+	Id         openapi_types.UUID  `json:"id"`
+	Memo       string              `json:"memo"`
+}
+
+// EntryInput defines model for EntryInput.
+type EntryInput struct {
+	AccountId  openapi_types.UUID  `json:"accountId"`
+	Amount     int64               `json:"amount"`
+	CategoryId *openapi_types.UUID `json:"categoryId"`
+	Cleared    ClearedState        `json:"cleared"`
+	Memo       string              `json:"memo"`
 }
 
 // Error defines model for Error.
@@ -332,9 +422,71 @@ type OidcProviderList struct {
 	Items                []OidcProvider `json:"items"`
 }
 
+// Payee defines model for Payee.
+type Payee struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// LastCategoryId The category of the payee's most recent categorized entry, to fill in new rows.
+	LastCategoryId   *openapi_types.UUID `json:"lastCategoryId"`
+	Name             string              `json:"name"`
+	TransactionCount int32               `json:"transactionCount"`
+}
+
+// PayeeMerge defines model for PayeeMerge.
+type PayeeMerge struct {
+	SourceIds []openapi_types.UUID `json:"sourceIds"`
+}
+
+// PayeeUpdate defines model for PayeeUpdate.
+type PayeeUpdate struct {
+	Name string `json:"name"`
+}
+
+// Preferences defines model for Preferences.
+type Preferences struct {
+	// EditorKeymap Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
+	// `nnoremap H 0`, `let mapleader = ","`). Parsed by the web app;
+	// the server only stores it.
+	EditorKeymap string `json:"editorKeymap"`
+}
+
+// RegisterScope defines model for RegisterScope.
+type RegisterScope string
+
 // Reorder defines model for Reorder.
 type Reorder struct {
 	Ids []openapi_types.UUID `json:"ids"`
+}
+
+// Transaction defines model for Transaction.
+type Transaction struct {
+	Date    openapi_types.Date `json:"date"`
+	Entries []Entry            `json:"entries"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// IsOpening The opening balance of an account.
+	IsOpening   bool                `json:"isOpening"`
+	NeedsReview bool                `json:"needsReview"`
+	Note        string              `json:"note"`
+	PayeeId     *openapi_types.UUID `json:"payeeId"`
+	PayeeName   *string             `json:"payeeName"`
+}
+
+// TransactionBatch defines model for TransactionBatch.
+type TransactionBatch struct {
+	Deletes []openapi_types.UUID `json:"deletes"`
+	Upserts []TransactionInput   `json:"upserts"`
+}
+
+// TransactionInput defines model for TransactionInput.
+type TransactionInput struct {
+	Date    openapi_types.Date `json:"date"`
+	Entries []EntryInput       `json:"entries"`
+	Id      openapi_types.UUID `json:"id"`
+	Note    string             `json:"note"`
+
+	// Payee Payee name; empty for none (e.g. a transfer). Created when it does not exist.
+	Payee string `json:"payee"`
 }
 
 // AccountId defines model for AccountId.
@@ -348,6 +500,9 @@ type CategoryId = openapi_types.UUID
 
 // Id defines model for Id.
 type Id = openapi_types.UUID
+
+// PayeeId defines model for PayeeId.
+type PayeeId = openapi_types.UUID
 
 // ProviderCode defines model for ProviderCode.
 type ProviderCode = string
@@ -388,6 +543,11 @@ type StartOidcLoginParams struct {
 	Redirect *Redirect `form:"redirect,omitempty" json:"redirect,omitempty"`
 }
 
+// GetScopeRegisterParams defines parameters for GetScopeRegister.
+type GetScopeRegisterParams struct {
+	Scope RegisterScope `form:"scope" json:"scope"`
+}
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -415,8 +575,20 @@ type ReorderCategoriesJSONRequestBody = Reorder
 // UpdateCategoryJSONRequestBody defines body for UpdateCategory for application/json ContentType.
 type UpdateCategoryJSONRequestBody = CategoryUpdate
 
+// RenamePayeeJSONRequestBody defines body for RenamePayee for application/json ContentType.
+type RenamePayeeJSONRequestBody = PayeeUpdate
+
+// MergePayeesJSONRequestBody defines body for MergePayees for application/json ContentType.
+type MergePayeesJSONRequestBody = PayeeMerge
+
+// SaveTransactionsJSONRequestBody defines body for SaveTransactions for application/json ContentType.
+type SaveTransactionsJSONRequestBody = TransactionBatch
+
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = ChangePasswordRequest
+
+// UpdatePreferencesJSONRequestBody defines body for UpdatePreferences for application/json ContentType.
+type UpdatePreferencesJSONRequestBody = Preferences
 
 // CreateOidcProviderJSONRequestBody defines body for CreateOidcProvider for application/json ContentType.
 type CreateOidcProviderJSONRequestBody = OidcProviderInput
@@ -471,6 +643,9 @@ type ServerInterface interface {
 	// UpdateAccount Rename, close or reopen an account
 	// (PUT /budgets/{budgetId}/accounts/{accountId})
 	UpdateAccount(ctx echo.Context, budgetId BudgetId, accountId AccountId) error
+	// GetRegister Every transaction touching an account, with all of their entries
+	// (GET /budgets/{budgetId}/accounts/{accountId}/register)
+	GetRegister(ctx echo.Context, budgetId BudgetId, accountId AccountId) error
 	// ListCategories Categories of a budget (flat; build the tree from parentId)
 	// (GET /budgets/{budgetId}/categories)
 	ListCategories(ctx echo.Context, budgetId BudgetId) error
@@ -486,9 +661,27 @@ type ServerInterface interface {
 	// UpdateCategory Rename, archive, or share one envelope among the children
 	// (PUT /budgets/{budgetId}/categories/{categoryId})
 	UpdateCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
+	// ListPayees Payees, with the category last used for each
+	// (GET /budgets/{budgetId}/payees)
+	ListPayees(ctx echo.Context, budgetId BudgetId) error
+	// DeletePayee Delete a payee no transaction or schedule uses
+	// (DELETE /budgets/{budgetId}/payees/{payeeId})
+	DeletePayee(ctx echo.Context, budgetId BudgetId, payeeId PayeeId) error
+	// RenamePayee Rename a payee
+	// (PUT /budgets/{budgetId}/payees/{payeeId})
+	RenamePayee(ctx echo.Context, budgetId BudgetId, payeeId PayeeId) error
+	// MergePayees Merge other payees into this one
+	// (POST /budgets/{budgetId}/payees/{payeeId}/merge)
+	MergePayees(ctx echo.Context, budgetId BudgetId, payeeId PayeeId) error
+	// GetScopeRegister Transactions on a group of accounts, oldest first
+	// (GET /budgets/{budgetId}/register)
+	GetScopeRegister(ctx echo.Context, budgetId BudgetId, params GetScopeRegisterParams) error
 	// GetBudgetSummary Totals of a budget
 	// (GET /budgets/{budgetId}/summary)
 	GetBudgetSummary(ctx echo.Context, budgetId BudgetId) error
+	// SaveTransactions Apply an editor buffer in one database transaction (:w)
+	// (POST /budgets/{budgetId}/transactions/batch)
+	SaveTransactions(ctx echo.Context, budgetId BudgetId) error
 	// GetHealth Whether the API is up and can reach its database
 	// (GET /healthz)
 	GetHealth(ctx echo.Context) error
@@ -504,6 +697,12 @@ type ServerInterface interface {
 	// ChangePassword Set or change the logged-in user's password
 	// (PUT /me/password)
 	ChangePassword(ctx echo.Context) error
+	// GetPreferences The logged-in user's preferences
+	// (GET /me/preferences)
+	GetPreferences(ctx echo.Context) error
+	// UpdatePreferences Replace the logged-in user's preferences
+	// (PUT /me/preferences)
+	UpdatePreferences(ctx echo.Context) error
 	// ListOidcProviders Identity providers (client secrets are never returned)
 	// (GET /oidc-providers)
 	ListOidcProviders(ctx echo.Context) error
@@ -769,6 +968,30 @@ func (w *ServerInterfaceWrapper) UpdateAccount(ctx echo.Context) error {
 	return err
 }
 
+// GetRegister converts echo context to params.
+func (w *ServerInterfaceWrapper) GetRegister(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "accountId" -------------
+	var accountId AccountId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "accountId", ctx.Param("accountId"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter accountId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetRegister(ctx, budgetId, accountId)
+	return err
+}
+
 // ListCategories converts echo context to params.
 func (w *ServerInterfaceWrapper) ListCategories(ctx echo.Context) error {
 	var err error
@@ -865,6 +1088,119 @@ func (w *ServerInterfaceWrapper) UpdateCategory(ctx echo.Context) error {
 	return err
 }
 
+// ListPayees converts echo context to params.
+func (w *ServerInterfaceWrapper) ListPayees(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListPayees(ctx, budgetId)
+	return err
+}
+
+// DeletePayee converts echo context to params.
+func (w *ServerInterfaceWrapper) DeletePayee(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "payeeId" -------------
+	var payeeId PayeeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "payeeId", ctx.Param("payeeId"), &payeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter payeeId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeletePayee(ctx, budgetId, payeeId)
+	return err
+}
+
+// RenamePayee converts echo context to params.
+func (w *ServerInterfaceWrapper) RenamePayee(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "payeeId" -------------
+	var payeeId PayeeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "payeeId", ctx.Param("payeeId"), &payeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter payeeId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.RenamePayee(ctx, budgetId, payeeId)
+	return err
+}
+
+// MergePayees converts echo context to params.
+func (w *ServerInterfaceWrapper) MergePayees(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "payeeId" -------------
+	var payeeId PayeeId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "payeeId", ctx.Param("payeeId"), &payeeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter payeeId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.MergePayees(ctx, budgetId, payeeId)
+	return err
+}
+
+// GetScopeRegister converts echo context to params.
+func (w *ServerInterfaceWrapper) GetScopeRegister(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetScopeRegisterParams
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", ctx.QueryParams(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter scope: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetScopeRegister(ctx, budgetId, params)
+	return err
+}
+
 // GetBudgetSummary converts echo context to params.
 func (w *ServerInterfaceWrapper) GetBudgetSummary(ctx echo.Context) error {
 	var err error
@@ -878,6 +1214,22 @@ func (w *ServerInterfaceWrapper) GetBudgetSummary(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.GetBudgetSummary(ctx, budgetId)
+	return err
+}
+
+// SaveTransactions converts echo context to params.
+func (w *ServerInterfaceWrapper) SaveTransactions(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.SaveTransactions(ctx, budgetId)
 	return err
 }
 
@@ -930,6 +1282,24 @@ func (w *ServerInterfaceWrapper) ChangePassword(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.ChangePassword(ctx)
+	return err
+}
+
+// GetPreferences converts echo context to params.
+func (w *ServerInterfaceWrapper) GetPreferences(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetPreferences(ctx)
+	return err
+}
+
+// UpdatePreferences converts echo context to params.
+func (w *ServerInterfaceWrapper) UpdatePreferences(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.UpdatePreferences(ctx)
 	return err
 }
 
@@ -1045,6 +1415,8 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.PUT(options.BaseURL+"/me/password", wrapper.ChangePassword, options.OperationMiddlewares["changePassword"]...)
 	router.GET(options.BaseURL+"/me/identities", wrapper.ListMyIdentities, options.OperationMiddlewares["listMyIdentities"]...)
 	router.DELETE(options.BaseURL+"/me/identities/:id", wrapper.UnlinkMyIdentity, options.OperationMiddlewares["unlinkMyIdentity"]...)
+	router.GET(options.BaseURL+"/me/preferences", wrapper.GetPreferences, options.OperationMiddlewares["getPreferences"]...)
+	router.PUT(options.BaseURL+"/me/preferences", wrapper.UpdatePreferences, options.OperationMiddlewares["updatePreferences"]...)
 	router.GET(options.BaseURL+"/budgets", wrapper.ListBudgets, options.OperationMiddlewares["listBudgets"]...)
 	router.POST(options.BaseURL+"/budgets", wrapper.CreateBudget, options.OperationMiddlewares["createBudget"]...)
 	router.GET(options.BaseURL+"/budgets/:budgetId", wrapper.GetBudget, options.OperationMiddlewares["getBudget"]...)
@@ -1060,6 +1432,13 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.PUT(options.BaseURL+"/budgets/:budgetId/categories/order", wrapper.ReorderCategories, options.OperationMiddlewares["reorderCategories"]...)
 	router.DELETE(options.BaseURL+"/budgets/:budgetId/categories/:categoryId", wrapper.DeleteCategory, options.OperationMiddlewares["deleteCategory"]...)
 	router.PUT(options.BaseURL+"/budgets/:budgetId/categories/:categoryId", wrapper.UpdateCategory, options.OperationMiddlewares["updateCategory"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/accounts/:accountId/register", wrapper.GetRegister, options.OperationMiddlewares["getRegister"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/register", wrapper.GetScopeRegister, options.OperationMiddlewares["getScopeRegister"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/payees", wrapper.ListPayees, options.OperationMiddlewares["listPayees"]...)
+	router.DELETE(options.BaseURL+"/budgets/:budgetId/payees/:payeeId", wrapper.DeletePayee, options.OperationMiddlewares["deletePayee"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId/payees/:payeeId", wrapper.RenamePayee, options.OperationMiddlewares["renamePayee"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/payees/:payeeId/merge", wrapper.MergePayees, options.OperationMiddlewares["mergePayees"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/transactions/batch", wrapper.SaveTransactions, options.OperationMiddlewares["saveTransactions"]...)
 
 }
 
@@ -1712,6 +2091,43 @@ func (response UpdateAccount409JSONResponse) VisitUpdateAccountResponse(w http.R
 	return err
 }
 
+type GetRegisterRequestObject struct {
+	BudgetId  BudgetId  `json:"budgetId"`
+	AccountId AccountId `json:"accountId"`
+}
+
+type GetRegisterResponseObject interface {
+	VisitGetRegisterResponse(w http.ResponseWriter) error
+}
+
+type GetRegister200JSONResponse []Transaction
+
+func (response GetRegister200JSONResponse) VisitGetRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRegister404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetRegister404JSONResponse) VisitGetRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListCategoriesRequestObject struct {
 	BudgetId BudgetId `json:"budgetId"`
 }
@@ -1983,6 +2399,256 @@ func (response UpdateCategory409JSONResponse) VisitUpdateCategoryResponse(w http
 	return err
 }
 
+type ListPayeesRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+}
+
+type ListPayeesResponseObject interface {
+	VisitListPayeesResponse(w http.ResponseWriter) error
+}
+
+type ListPayees200JSONResponse []Payee
+
+func (response ListPayees200JSONResponse) VisitListPayeesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPayees404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListPayees404JSONResponse) VisitListPayeesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePayeeRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	PayeeId  PayeeId  `json:"payeeId"`
+}
+
+type DeletePayeeResponseObject interface {
+	VisitDeletePayeeResponse(w http.ResponseWriter) error
+}
+
+type DeletePayee204Response struct {
+}
+
+func (response DeletePayee204Response) VisitDeletePayeeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeletePayee404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeletePayee404JSONResponse) VisitDeletePayeeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePayee409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeletePayee409JSONResponse) VisitDeletePayeeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenamePayeeRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	PayeeId  PayeeId  `json:"payeeId"`
+	Body     *RenamePayeeJSONRequestBody
+}
+
+type RenamePayeeResponseObject interface {
+	VisitRenamePayeeResponse(w http.ResponseWriter) error
+}
+
+type RenamePayee200JSONResponse Payee
+
+func (response RenamePayee200JSONResponse) VisitRenamePayeeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenamePayee400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RenamePayee400JSONResponse) VisitRenamePayeeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenamePayee404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RenamePayee404JSONResponse) VisitRenamePayeeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenamePayee409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RenamePayee409JSONResponse) VisitRenamePayeeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergePayeesRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	PayeeId  PayeeId  `json:"payeeId"`
+	Body     *MergePayeesJSONRequestBody
+}
+
+type MergePayeesResponseObject interface {
+	VisitMergePayeesResponse(w http.ResponseWriter) error
+}
+
+type MergePayees200JSONResponse Payee
+
+func (response MergePayees200JSONResponse) VisitMergePayeesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergePayees400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response MergePayees400JSONResponse) VisitMergePayeesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergePayees404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response MergePayees404JSONResponse) VisitMergePayeesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetScopeRegisterRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Params   GetScopeRegisterParams
+}
+
+type GetScopeRegisterResponseObject interface {
+	VisitGetScopeRegisterResponse(w http.ResponseWriter) error
+}
+
+type GetScopeRegister200JSONResponse []Transaction
+
+func (response GetScopeRegister200JSONResponse) VisitGetScopeRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetScopeRegister400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetScopeRegister400JSONResponse) VisitGetScopeRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetScopeRegister404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetScopeRegister404JSONResponse) VisitGetScopeRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetBudgetSummaryRequestObject struct {
 	BudgetId BudgetId `json:"budgetId"`
 }
@@ -2015,6 +2681,85 @@ func (response GetBudgetSummary404JSONResponse) VisitGetBudgetSummaryResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveTransactionsRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Body     *SaveTransactionsJSONRequestBody
+}
+
+type SaveTransactionsResponseObject interface {
+	VisitSaveTransactionsResponse(w http.ResponseWriter) error
+}
+
+type SaveTransactions200JSONResponse BatchSaved
+
+func (response SaveTransactions200JSONResponse) VisitSaveTransactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveTransactions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SaveTransactions400JSONResponse) VisitSaveTransactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveTransactions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SaveTransactions403JSONResponse) VisitSaveTransactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveTransactions404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SaveTransactions404JSONResponse) VisitSaveTransactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveTransactions422JSONResponse BatchErrors
+
+func (response SaveTransactions422JSONResponse) VisitSaveTransactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2201,6 +2946,91 @@ func (response ChangePassword400JSONResponse) VisitChangePasswordResponse(w http
 type ChangePassword401JSONResponse struct{ UnauthorizedJSONResponse }
 
 func (response ChangePassword401JSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreferencesRequestObject struct {
+}
+
+type GetPreferencesResponseObject interface {
+	VisitGetPreferencesResponse(w http.ResponseWriter) error
+}
+
+type GetPreferences200JSONResponse Preferences
+
+func (response GetPreferences200JSONResponse) VisitGetPreferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreferences401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetPreferences401JSONResponse) VisitGetPreferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePreferencesRequestObject struct {
+	Body *UpdatePreferencesJSONRequestBody
+}
+
+type UpdatePreferencesResponseObject interface {
+	VisitUpdatePreferencesResponse(w http.ResponseWriter) error
+}
+
+type UpdatePreferences200JSONResponse Preferences
+
+func (response UpdatePreferences200JSONResponse) VisitUpdatePreferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePreferences400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdatePreferences400JSONResponse) VisitUpdatePreferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePreferences401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdatePreferences401JSONResponse) VisitUpdatePreferencesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2453,6 +3283,9 @@ type StrictServerInterface interface {
 	// UpdateAccount Rename, close or reopen an account
 	// (PUT /budgets/{budgetId}/accounts/{accountId})
 	UpdateAccount(ctx context.Context, request UpdateAccountRequestObject) (UpdateAccountResponseObject, error)
+	// GetRegister Every transaction touching an account, with all of their entries
+	// (GET /budgets/{budgetId}/accounts/{accountId}/register)
+	GetRegister(ctx context.Context, request GetRegisterRequestObject) (GetRegisterResponseObject, error)
 	// ListCategories Categories of a budget (flat; build the tree from parentId)
 	// (GET /budgets/{budgetId}/categories)
 	ListCategories(ctx context.Context, request ListCategoriesRequestObject) (ListCategoriesResponseObject, error)
@@ -2468,9 +3301,27 @@ type StrictServerInterface interface {
 	// UpdateCategory Rename, archive, or share one envelope among the children
 	// (PUT /budgets/{budgetId}/categories/{categoryId})
 	UpdateCategory(ctx context.Context, request UpdateCategoryRequestObject) (UpdateCategoryResponseObject, error)
+	// ListPayees Payees, with the category last used for each
+	// (GET /budgets/{budgetId}/payees)
+	ListPayees(ctx context.Context, request ListPayeesRequestObject) (ListPayeesResponseObject, error)
+	// DeletePayee Delete a payee no transaction or schedule uses
+	// (DELETE /budgets/{budgetId}/payees/{payeeId})
+	DeletePayee(ctx context.Context, request DeletePayeeRequestObject) (DeletePayeeResponseObject, error)
+	// RenamePayee Rename a payee
+	// (PUT /budgets/{budgetId}/payees/{payeeId})
+	RenamePayee(ctx context.Context, request RenamePayeeRequestObject) (RenamePayeeResponseObject, error)
+	// MergePayees Merge other payees into this one
+	// (POST /budgets/{budgetId}/payees/{payeeId}/merge)
+	MergePayees(ctx context.Context, request MergePayeesRequestObject) (MergePayeesResponseObject, error)
+	// GetScopeRegister Transactions on a group of accounts, oldest first
+	// (GET /budgets/{budgetId}/register)
+	GetScopeRegister(ctx context.Context, request GetScopeRegisterRequestObject) (GetScopeRegisterResponseObject, error)
 	// GetBudgetSummary Totals of a budget
 	// (GET /budgets/{budgetId}/summary)
 	GetBudgetSummary(ctx context.Context, request GetBudgetSummaryRequestObject) (GetBudgetSummaryResponseObject, error)
+	// SaveTransactions Apply an editor buffer in one database transaction (:w)
+	// (POST /budgets/{budgetId}/transactions/batch)
+	SaveTransactions(ctx context.Context, request SaveTransactionsRequestObject) (SaveTransactionsResponseObject, error)
 	// GetHealth Whether the API is up and can reach its database
 	// (GET /healthz)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -2486,6 +3337,12 @@ type StrictServerInterface interface {
 	// ChangePassword Set or change the logged-in user's password
 	// (PUT /me/password)
 	ChangePassword(ctx context.Context, request ChangePasswordRequestObject) (ChangePasswordResponseObject, error)
+	// GetPreferences The logged-in user's preferences
+	// (GET /me/preferences)
+	GetPreferences(ctx context.Context, request GetPreferencesRequestObject) (GetPreferencesResponseObject, error)
+	// UpdatePreferences Replace the logged-in user's preferences
+	// (PUT /me/preferences)
+	UpdatePreferences(ctx context.Context, request UpdatePreferencesRequestObject) (UpdatePreferencesResponseObject, error)
 	// ListOidcProviders Identity providers (client secrets are never returned)
 	// (GET /oidc-providers)
 	ListOidcProviders(ctx context.Context, request ListOidcProvidersRequestObject) (ListOidcProvidersResponseObject, error)
@@ -3018,6 +3875,32 @@ func (sh *strictHandler) UpdateAccount(ctx echo.Context, budgetId BudgetId, acco
 	return nil
 }
 
+// GetRegister operation middleware
+func (sh *strictHandler) GetRegister(ctx echo.Context, budgetId BudgetId, accountId AccountId) error {
+	var request GetRegisterRequestObject
+
+	request.BudgetId = budgetId
+	request.AccountId = accountId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRegister(ctx.Request().Context(), request.(GetRegisterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRegister")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetRegisterResponseObject); ok {
+		return validResponse.VisitGetRegisterResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // ListCategories operation middleware
 func (sh *strictHandler) ListCategories(ctx echo.Context, budgetId BudgetId) error {
 	var request ListCategoriesRequestObject
@@ -3214,6 +4097,181 @@ func (sh *strictHandler) UpdateCategory(ctx echo.Context, budgetId BudgetId, cat
 	return nil
 }
 
+// ListPayees operation middleware
+func (sh *strictHandler) ListPayees(ctx echo.Context, budgetId BudgetId) error {
+	var request ListPayeesRequestObject
+
+	request.BudgetId = budgetId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPayees(ctx.Request().Context(), request.(ListPayeesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPayees")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListPayeesResponseObject); ok {
+		return validResponse.VisitListPayeesResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeletePayee operation middleware
+func (sh *strictHandler) DeletePayee(ctx echo.Context, budgetId BudgetId, payeeId PayeeId) error {
+	var request DeletePayeeRequestObject
+
+	request.BudgetId = budgetId
+	request.PayeeId = payeeId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePayee(ctx.Request().Context(), request.(DeletePayeeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePayee")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeletePayeeResponseObject); ok {
+		return validResponse.VisitDeletePayeeResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// RenamePayee operation middleware
+func (sh *strictHandler) RenamePayee(ctx echo.Context, budgetId BudgetId, payeeId PayeeId) error {
+	var request RenamePayeeRequestObject
+
+	request.BudgetId = budgetId
+	request.PayeeId = payeeId
+
+	var body RenamePayeeJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.RenamePayee(ctx.Request().Context(), request.(RenamePayeeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenamePayee")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(RenamePayeeResponseObject); ok {
+		return validResponse.VisitRenamePayeeResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// MergePayees operation middleware
+func (sh *strictHandler) MergePayees(ctx echo.Context, budgetId BudgetId, payeeId PayeeId) error {
+	var request MergePayeesRequestObject
+
+	request.BudgetId = budgetId
+	request.PayeeId = payeeId
+
+	var body MergePayeesJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.MergePayees(ctx.Request().Context(), request.(MergePayeesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MergePayees")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(MergePayeesResponseObject); ok {
+		return validResponse.VisitMergePayeesResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetScopeRegister operation middleware
+func (sh *strictHandler) GetScopeRegister(ctx echo.Context, budgetId BudgetId, params GetScopeRegisterParams) error {
+	var request GetScopeRegisterRequestObject
+
+	request.BudgetId = budgetId
+	request.Params = params
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetScopeRegister(ctx.Request().Context(), request.(GetScopeRegisterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetScopeRegister")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetScopeRegisterResponseObject); ok {
+		return validResponse.VisitGetScopeRegisterResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // GetBudgetSummary operation middleware
 func (sh *strictHandler) GetBudgetSummary(ctx echo.Context, budgetId BudgetId) error {
 	var request GetBudgetSummaryRequestObject
@@ -3233,6 +4291,54 @@ func (sh *strictHandler) GetBudgetSummary(ctx echo.Context, budgetId BudgetId) e
 		return err
 	} else if validResponse, ok := response.(GetBudgetSummaryResponseObject); ok {
 		return validResponse.VisitGetBudgetSummaryResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SaveTransactions operation middleware
+func (sh *strictHandler) SaveTransactions(ctx echo.Context, budgetId BudgetId) error {
+	var request SaveTransactionsRequestObject
+
+	request.BudgetId = budgetId
+
+	var body SaveTransactionsJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.SaveTransactions(ctx.Request().Context(), request.(SaveTransactionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SaveTransactions")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SaveTransactionsResponseObject); ok {
+		return validResponse.VisitSaveTransactionsResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
@@ -3373,6 +4479,75 @@ func (sh *strictHandler) ChangePassword(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(ChangePasswordResponseObject); ok {
 		return validResponse.VisitChangePasswordResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetPreferences operation middleware
+func (sh *strictHandler) GetPreferences(ctx echo.Context) error {
+	var request GetPreferencesRequestObject
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPreferences(ctx.Request().Context(), request.(GetPreferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPreferences")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetPreferencesResponseObject); ok {
+		return validResponse.VisitGetPreferencesResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UpdatePreferences operation middleware
+func (sh *strictHandler) UpdatePreferences(ctx echo.Context) error {
+	var request UpdatePreferencesRequestObject
+
+	var body UpdatePreferencesJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdatePreferences(ctx.Request().Context(), request.(UpdatePreferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdatePreferences")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UpdatePreferencesResponseObject); ok {
+		return validResponse.VisitUpdatePreferencesResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
@@ -3526,79 +4701,104 @@ func (sh *strictHandler) UpdateOidcProvider(ctx echo.Context, id Id) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
