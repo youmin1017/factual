@@ -547,14 +547,21 @@ export function RegisterGrid({
 
   /**
    * dd, or d on a selection: marks saved transactions deleted and drops
-   * unsaved ones; every row of a transaction goes with it. When all of them
-   * are marked already, the marks come off instead.
+   * unsaved ones; every row of a transaction goes with it. As in Vim, what
+   * is deleted is also yanked, so p puts it back elsewhere. When all of them
+   * are marked already, the marks come off instead (and nothing is yanked).
    */
   function deleteRange({ from, to }: Range) {
     const targets = rows.slice(from, to + 1)
     if (targets.length === 0) return
     const restore = targets.every((t) => t.deleted)
     const ids = new Set(targets.map((t) => t.id))
+    if (!restore) {
+      const keys = new Set(transactionKeys({ from, to }))
+      yanked.current = rows
+        .filter((r) => keys.has(r.key))
+        .map((r) => ({ ...r, deleted: false }))
+    }
     const next = rows.flatMap((r) => {
       if (!ids.has(r.id)) return [r]
       return r.base ? [{ ...r, deleted: !restore }] : []
@@ -569,7 +576,7 @@ export function RegisterGrid({
       saved > 0 && `標記刪除 ${saved} 筆（:w 儲存後才會刪除）`,
       ids.size > saved && `移除 ${ids.size - saved} 筆未儲存的`,
     ].filter(Boolean)
-    say(`已${parts.join('、')}，u 可以復原`)
+    say(`已${parts.join('、')}，u 可以復原，p 可以貼上`)
   }
 
   /** yy, or y on a selection: copies the transactions for p. */
