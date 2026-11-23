@@ -64,6 +64,23 @@ run = [
   "mise run //apps/web:build",
 ]
 
+[tasks.build]
+description = "Build one binary with the web app embedded (apps/api/bin/factual)"
+depends = ["//apps/web:build"]
+shell = "bash -c"
+run = """
+set -e
+static="$PWD/apps/api/internal/webui/static"
+trap 'find "$static" -mindepth 1 ! -name .gitkeep -delete' EXIT
+cp -r apps/web/dist/client/. "$static"/
+cd apps/api && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git rev-parse --short HEAD)" -o bin/factual ./cmd/api
+"""
+
+[tasks."docker:build"]
+description = "Build the container image factual:latest (Dockerfile)"
+shell = "bash -c"
+run = "docker build --build-arg VERSION=$(git rev-parse --short HEAD) -t factual:latest ."
+
 [tasks."db:up"]
 description = "Start PostgreSQL and wait until healthy"
 run = "docker compose up -d --wait postgres"

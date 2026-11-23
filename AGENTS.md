@@ -5,6 +5,7 @@ Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets
 ## Map
 - `apps/api` Go module `factual/apps/api` (echo, oapi-codegen, sqlc on pgx/v5, goose).
 - `apps/web` TanStack Start in SPA mode (pnpm workspace member): React 19 + React Compiler, Tailwind, shadcn/ui (Radix), TanStack Query, openapi-fetch.
+- `Dockerfile` (repo root) builds the one image; `deploy/` holds the production `docker-compose.yml` and `.env.example`; `docs/DEPLOYMENT.md` documents running, backing up and upgrading it (ADR-083).
 - `docs/PROJECT_BRIEF.md` goal, phases, milestones and what is out of scope.
 - `docs/DECISIONS.md` the decisions (ADRs) behind the architecture and the ledger model; read the relevant ones before changing either.
 
@@ -15,6 +16,7 @@ Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets
 - `mise run gen` regenerates oapi-codegen + sqlc + web API types.
 - `mise run check` lint + format check + typecheck + test + build.
 - `mise run //apps/api:test:db` then `//apps/api:test:integration` runs the DB integration tests against the local container (database `factual_test`, wiped by the tests). They include the login and OIDC flows against a fake identity provider (`internal/server/auth_test.go`).
+- `mise run build` builds one binary with the web app embedded (`apps/api/bin/factual`); `mise run docker:build` builds the image `factual:latest`.
 - The first start creates the admin from `FACTUAL_BOOTSTRAP_ADMIN_*` (dev values in `apps/api/mise.toml`).
 
 ## Conventions
@@ -26,7 +28,8 @@ Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets
 - Schema changes are goose SQL migrations in `apps/api/db/migrations` (`mise run //apps/api:db:new <name>`); never edit an applied migration. They are embedded in the binary and applied on startup; sqlc reads the same directory as its schema. Wrap function bodies in `-- +goose StatementBegin/End`.
 - Domains live in `apps/api/internal/domain/<name>` with their SQL in `queries/*.sql`, generated into their private `internal/db` (one `sqlc.yaml` entry per domain). Shared helpers in `internal/shared`.
 - Handlers return `apperr.New(status, code, message)` for expected failures (`apperr.FromDB` maps not-found/duplicate/FK/check errors); everything is rendered as the `Error` envelope.
-- Config is environment variables (`FACTUAL_*`, `internal/config`); local dev values come from `apps/api/mise.toml`.
+- Config is environment variables (`FACTUAL_*`, `internal/config`); local dev values come from `apps/api/mise.toml`. A new variable also goes into the table of `docs/DEPLOYMENT.md` (and `deploy/` when Compose must pass it).
+- The binary serves the web app from `internal/webui` (ADR-083): the build copies `apps/web/dist/client` into `internal/webui/static`, which is git-ignored except its placeholder; never commit the copy. Every path outside `/api` is the app (`internal/server/web.go`).
 - Authorization is plain Go (role -> permission map plus SQL scoping by `budget_id`); no casbin.
 - Login (ADR-014, ADR-046..051): sessions are rows in `sessions` keyed by the SHA-256 of the cookie token; CSRF protection is SameSite=Lax plus the cross-site guard, so keep state changes off GET. OIDC identities are matched by (provider, subject), never by email, and only log in after their owner linked them; do not add auto-provisioning or email matching. Client secrets are sealed with `internal/secretbox` and never returned by the API.
 - Never put real secrets in the repo: the values in `apps/api/mise.toml` are local-development defaults only.

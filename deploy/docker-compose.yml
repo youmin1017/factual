@@ -1,0 +1,47 @@
+# Factual and its PostgreSQL on one server (docs/DEPLOYMENT.md).
+#   cp deploy/.env.example deploy/.env   # then fill it in
+#   docker compose -f deploy/docker-compose.yml up -d --build
+# The app listens on 127.0.0.1:8080; put an HTTPS reverse proxy in front.
+# Not "factual": that is the development stack's project (docker-compose.yml
+# at the root), whose database this would otherwise take over.
+name: factual-server
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: factual
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: factual
+    volumes:
+      # PostgreSQL 18+ images keep the data in a versioned subdirectory of this path.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factual -d factual"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  factual:
+    build:
+      context: ..
+      args:
+        VERSION: ${FACTUAL_VERSION:-dev}
+    image: factual:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FACTUAL_DATABASE_URL: postgres://factual:${POSTGRES_PASSWORD}@postgres:5432/factual?sslmode=disable
+      FACTUAL_PUBLIC_URL: ${FACTUAL_PUBLIC_URL:?set FACTUAL_PUBLIC_URL in deploy/.env}
+      FACTUAL_ENCRYPTION_KEY: ${FACTUAL_ENCRYPTION_KEY:?set FACTUAL_ENCRYPTION_KEY in deploy/.env}
+      FACTUAL_BOOTSTRAP_ADMIN_USERNAME: ${FACTUAL_BOOTSTRAP_ADMIN_USERNAME:-}
+      FACTUAL_BOOTSTRAP_ADMIN_PASSWORD: ${FACTUAL_BOOTSTRAP_ADMIN_PASSWORD:-}
+      FACTUAL_PASSWORD_LOGIN: ${FACTUAL_PASSWORD_LOGIN:-true}
+    ports:
+      - "${FACTUAL_LISTEN:-127.0.0.1:8080}:8080"
+
+volumes:
+  postgres-data:

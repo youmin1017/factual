@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -25,12 +26,15 @@ type Pinger interface {
 }
 
 // Deps are the collaborators of the server: the database for the health
-// check and the domains whose operations it serves. Identity may be nil in
-// tests without a database: then nobody is authenticated.
+// check, the domains whose operations it serves and the built web app.
+// Identity may be nil in tests without a database: then nobody is
+// authenticated. Web is nil when the binary was built without the app
+// (development: Vite serves it).
 type Deps struct {
 	DB       Pinger
 	Identity *identity.Service
 	Ledger   *ledger.Service
+	Web      fs.FS
 }
 
 // The domains' operations are promoted into server by embedding their
@@ -66,7 +70,7 @@ func (s *server) GetHealth(ctx context.Context, _ api.GetHealthRequestObject) (a
 //
 // Request flow: recover/log -> cross-site guard -> session -> access check
 // (x-auth) -> budget membership (x-budget) -> login rate limit -> OpenAPI
-// validation -> handler.
+// validation -> handler. Every other path is the web app (serveWeb).
 func New(d Deps) (*echo.Echo, error) {
 	swagger, err := api.GetSwagger()
 	if err != nil {
@@ -86,7 +90,11 @@ func New(d Deps) (*echo.Echo, error) {
 	// loopback or private-network proxy; used for the login rate limit and
 	// recorded with sessions.
 	e.IPExtractor = echo.ExtractIPFromXFFHeader()
-	e.Use(middleware.Recover(), middleware.RequestLogger())
+	e.Use(middleware.Recover(), middleware.RequestLogger(), middleware.SecureWithConfig(middleware.SecureConfig{
+		ContentTypeNosniff: "nosniff",
+		XFrameOptions:      "DENY",
+		ReferrerPolicy:     "same-origin",
+	}))
 
 	e.GET(apispec.BaseURL+"/openapi.json", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, swagger)
@@ -103,5 +111,10 @@ func New(d Deps) (*echo.Echo, error) {
 	}))
 
 	api.RegisterHandlersWithBaseURL(g, api.NewStrictHandler(s, nil), apispec.BaseURL)
+	if d.Web != nil {
+		if err := serveWeb(e, d.Web); err != nil {
+			return nil, err
+		}
+	}
 	return e, nil
 }

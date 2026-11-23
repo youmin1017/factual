@@ -1,0 +1,15 @@
+# Only sources go into the build context.
+.git
+**/node_modules
+**/dist
+**/.tanstack
+**/.output
+**/.env
+**/.env.*
+**/mise.local.toml
+apps/api/bin
+apps/api/tmp
+apps/api/internal/webui/static/*
+!apps/api/internal/webui/static/.gitkeep
+deploy
+docs

@@ -20,16 +20,7 @@ API 啟動時會自動套用尚未執行的 migration。第一次啟動會建立
 - 站台管理員可以在網頁的「第三方登入」頁新增任何支援 OpenID Connect discovery 的身分提供者(Google、Microsoft Entra ID、Keycloak、Authentik、Pocket ID 等),不需要改設定檔或重新啟動。
 - 使用者先用密碼登入,到「個人資料」連結自己的第三方帳號,之後登入頁就能用它登入。尚未連結的第三方帳號無法登入,也不會自動建立使用者。
 
-部署時需要設定的環境變數:
-
-| 變數 | 說明 |
-|---|---|
-| `FACTUAL_DATABASE_URL` | PostgreSQL 連線字串(必填) |
-| `FACTUAL_PUBLIC_URL` | 瀏覽器連到本站的網址,例如 `https://money.example.com`。OIDC 回呼網址由它決定;是 https 時 cookie 會自動加上 Secure |
-| `FACTUAL_ENCRYPTION_KEY` | 32 bytes 的 base64 金鑰(`openssl rand -base64 32`),用來加密 IdP 的 client secret 與登入流程 cookie。沒有設定就無法使用第三方登入 |
-| `FACTUAL_BOOTSTRAP_ADMIN_USERNAME`、`FACTUAL_BOOTSTRAP_ADMIN_PASSWORD` | 還沒有任何人能登入時,啟動時建立的第一位管理員(密碼至少 8 個字元) |
-| `FACTUAL_PASSWORD_LOGIN` | 設為 `false` 可關閉密碼登入(確定每個人都能用第三方登入之後再關) |
-| `FACTUAL_SESSION_IDLE_TIMEOUT`、`FACTUAL_SESSION_MAX_AGE` | session 閒置與最長有效時間,預設 `720h` 與 `2160h` |
+部署方式、環境變數、備份與升級見 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
 ## 常用指令
 
@@ -42,6 +33,8 @@ API 啟動時會自動套用尚未執行的 migration。第一次啟動會建立
 | `mise run db:up` / `db:down` / `db:reset` / `db:shell` | 本機 PostgreSQL |
 | `mise run //apps/api:db:new <name>` | 新增一支 migration |
 | `mise run //apps/api:test:db` 後 `//apps/api:test:integration` | 含資料庫的整合測試 |
+| `mise run build` | 建置內嵌網頁的單一執行檔 `apps/api/bin/factual` |
+| `mise run docker:build` | 建置容器映像檔 `factual:latest` |
 
 `mise tasks ls --all` 可列出全部。
 
@@ -53,6 +46,8 @@ API 啟動時會自動套用尚未執行的 migration。第一次啟動會建立
   - `internal/domain/<name>`:各領域的服務與 SQL。
 - `apps/web`:TanStack Start(React、SPA 模式)、Tailwind、shadcn/ui、TanStack Query、oxlint、oxfmt。
   - `src/lib/api.gen.ts`:由規格產生的型別;一律透過 `src/lib/api.ts` 呼叫 API。
+
+- `deploy`:正式環境的 `docker-compose.yml` 範例與 `.env.example`;映像檔由根目錄的 `Dockerfile` 建置。
 
 目標、階段與里程碑在 `docs/PROJECT_BRIEF.md`;架構與帳務模型的決策紀錄在 `docs/DECISIONS.md`。
 

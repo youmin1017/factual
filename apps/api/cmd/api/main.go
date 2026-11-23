@@ -16,9 +16,16 @@ import (
 	"factual/apps/api/internal/domain/ledger"
 	"factual/apps/api/internal/secretbox"
 	"factual/apps/api/internal/server"
+	"factual/apps/api/internal/webui"
 )
 
+// version is set by the container build (-ldflags "-X main.version=...").
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
@@ -71,7 +78,11 @@ func run() error {
 	}
 	go identitySvc.RunCleanup(ctx, time.Hour)
 
-	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc, Ledger: ledger.New(pool)})
+	web := webui.FS()
+	if web == nil {
+		slog.Info("built without the web app; only the API is served")
+	}
+	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc, Ledger: ledger.New(pool), Web: web})
 	if err != nil {
 		return err
 	}
@@ -83,7 +94,7 @@ func run() error {
 		_ = e.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("listening", "addr", cfg.HTTPAddr, "public_url", cfg.PublicURL)
+	slog.Info("listening", "addr", cfg.HTTPAddr, "public_url", cfg.PublicURL, "version", version)
 	if err := e.Start(cfg.HTTPAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
