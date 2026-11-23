@@ -85,6 +85,14 @@ function AppLayout() {
               {budget ? (
                 <>
                   <BudgetSwitcher budgets={budgets} current={budget} />
+                  <Link
+                    to="/b/$budgetId"
+                    params={{ budgetId: budget.id }}
+                    activeOptions={{ exact: true, includeSearch: false }}
+                    className={navLinkClass}
+                  >
+                    預算
+                  </Link>
                   {/* Narrow screens have no room for the accounts list. */}
                   <Link
                     to="/b/$budgetId/accounts/$accountId"
@@ -100,13 +108,6 @@ function AppLayout() {
                     className={cn(navLinkClass, 'md:hidden')}
                   >
                     帳戶
-                  </Link>
-                  <Link
-                    to="/b/$budgetId/categories"
-                    params={{ budgetId: budget.id }}
-                    className={navLinkClass}
-                  >
-                    類別
                   </Link>
                   <Link
                     to="/b/$budgetId/payees"

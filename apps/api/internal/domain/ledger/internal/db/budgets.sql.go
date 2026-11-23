@@ -82,6 +82,10 @@ func (q *Queries) GetBudgetForUser(ctx context.Context, arg GetBudgetForUserPara
 
 const getBudgetSummary = `-- name: GetBudgetSummary :one
 select p.pool,
+       ( coalesce((select sum(al.amount) from allocations al where al.budget_id = p.budget_id), 0)
+       + coalesce((select sum(e.amount) from entries e join categories c on c.id = e.category_id
+                    where e.budget_id = p.budget_id and c.kind = 'expense'), 0)
+       )::bigint as envelope_balance,
        coalesce((select sum(b.balance) from account_balances b join accounts a on a.id = b.account_id
                   where a.budget_id = p.budget_id and a.on_budget), 0)::bigint as on_budget_balance,
        coalesce((select sum(b.balance) from account_balances b join accounts a on a.id = b.account_id
@@ -92,6 +96,7 @@ select p.pool,
 
 type GetBudgetSummaryRow struct {
 	Pool             int64
+	EnvelopeBalance  int64
 	OnBudgetBalance  int64
 	OffBudgetBalance int64
 }
@@ -99,7 +104,12 @@ type GetBudgetSummaryRow struct {
 func (q *Queries) GetBudgetSummary(ctx context.Context, budgetID uuid.UUID) (GetBudgetSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getBudgetSummary, budgetID)
 	var i GetBudgetSummaryRow
-	err := row.Scan(&i.Pool, &i.OnBudgetBalance, &i.OffBudgetBalance)
+	err := row.Scan(
+		&i.Pool,
+		&i.EnvelopeBalance,
+		&i.OnBudgetBalance,
+		&i.OffBudgetBalance,
+	)
 	return i, err
 }
 

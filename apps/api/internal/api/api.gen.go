@@ -186,6 +186,17 @@ type AccountUpdate struct {
 	Name   string `json:"name"`
 }
 
+// AllocationBatch defines model for AllocationBatch.
+type AllocationBatch struct {
+	Allocations []AllocationInput `json:"allocations"`
+}
+
+// AllocationInput defines model for AllocationInput.
+type AllocationInput struct {
+	Amount     int64              `json:"amount"`
+	CategoryId openapi_types.UUID `json:"categoryId"`
+}
+
 // BatchErrors defines model for BatchErrors.
 type BatchErrors struct {
 	Errors []BatchProblem `json:"errors"`
@@ -236,11 +247,33 @@ type BudgetCreate struct {
 	StarterCategories bool `json:"starterCategories"`
 }
 
+// BudgetMonth defines model for BudgetMonth.
+type BudgetMonth struct {
+	Envelopes []EnvelopeMonth `json:"envelopes"`
+
+	// Income Income recorded in the month (it went to the pool).
+	Income int64 `json:"income"`
+
+	// Incomes Income recorded in the month per income category (only those with any).
+	Incomes []IncomeMonth `json:"incomes"`
+
+	// Month YYYY-MM
+	Month string `json:"month"`
+
+	// Pool Money not given to any envelope in any month (ADR-025).
+	Pool int64 `json:"pool"`
+}
+
 // BudgetRole defines model for BudgetRole.
 type BudgetRole string
 
 // BudgetSummary defines model for BudgetSummary.
 type BudgetSummary struct {
+	// EnvelopeBalance What all envelopes hold together: every allocation plus every
+	// expense recorded in a category. The on-budget accounts always
+	// sum to pool + envelopeBalance (ADR-020).
+	EnvelopeBalance int64 `json:"envelopeBalance"`
+
 	// OffBudgetBalance Sum of the tracking (off-budget) accounts.
 	OffBudgetBalance int64 `json:"offBudgetBalance"`
 
@@ -284,6 +317,15 @@ type CategoryCreate struct {
 
 // CategoryKind defines model for CategoryKind.
 type CategoryKind string
+
+// CategoryMove defines model for CategoryMove.
+type CategoryMove struct {
+	// Index Position among the new siblings of the same kind (past the end = last).
+	Index int32 `json:"index"`
+
+	// ParentId The new parent; null for the top level.
+	ParentId *openapi_types.UUID `json:"parentId"`
+}
 
 // CategoryUpdate defines model for CategoryUpdate.
 type CategoryUpdate struct {
@@ -337,6 +379,21 @@ type EntryInput struct {
 	Memo       string              `json:"memo"`
 }
 
+// EnvelopeMonth defines model for EnvelopeMonth.
+type EnvelopeMonth struct {
+	// Activity Recorded in the category this month (negative = spent).
+	Activity int64 `json:"activity"`
+
+	// Allocated Given from the pool this month.
+	Allocated int64 `json:"allocated"`
+
+	// Carried Balance at the start of the month: every earlier allocation and
+	// activity, positive or negative (ADR-026). The balance at the end
+	// is carried + allocated + activity.
+	Carried    int64              `json:"carried"`
+	CategoryId openapi_types.UUID `json:"categoryId"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code Stable machine-readable code, e.g. `not_found`, `unauthorized`.
@@ -354,6 +411,12 @@ type Health struct {
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// IncomeMonth defines model for IncomeMonth.
+type IncomeMonth struct {
+	CategoryId openapi_types.UUID `json:"categoryId"`
+	Received   int64              `json:"received"`
+}
 
 // LinkedIdentity defines model for LinkedIdentity.
 type LinkedIdentity struct {
@@ -501,6 +564,9 @@ type CategoryId = openapi_types.UUID
 // Id defines model for Id.
 type Id = openapi_types.UUID
 
+// Month defines model for Month.
+type Month = string
+
 // PayeeId defines model for PayeeId.
 type PayeeId = openapi_types.UUID
 
@@ -574,6 +640,12 @@ type ReorderCategoriesJSONRequestBody = Reorder
 
 // UpdateCategoryJSONRequestBody defines body for UpdateCategory for application/json ContentType.
 type UpdateCategoryJSONRequestBody = CategoryUpdate
+
+// MoveCategoryJSONRequestBody defines body for MoveCategory for application/json ContentType.
+type MoveCategoryJSONRequestBody = CategoryMove
+
+// SetAllocationsJSONRequestBody defines body for SetAllocations for application/json ContentType.
+type SetAllocationsJSONRequestBody = AllocationBatch
 
 // RenamePayeeJSONRequestBody defines body for RenamePayee for application/json ContentType.
 type RenamePayeeJSONRequestBody = PayeeUpdate
@@ -661,6 +733,15 @@ type ServerInterface interface {
 	// UpdateCategory Rename, archive, or share one envelope among the children
 	// (PUT /budgets/{budgetId}/categories/{categoryId})
 	UpdateCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
+	// MoveCategory Move a category, with its subcategories, under another parent
+	// (POST /budgets/{budgetId}/categories/{categoryId}/move)
+	MoveCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
+	// GetBudgetMonth The envelopes of one month (ADR-025, ADR-026)
+	// (GET /budgets/{budgetId}/months/{month})
+	GetBudgetMonth(ctx echo.Context, budgetId BudgetId, month Month) error
+	// SetAllocations Set how much the pool gives each envelope in a month
+	// (PUT /budgets/{budgetId}/months/{month}/allocations)
+	SetAllocations(ctx echo.Context, budgetId BudgetId, month Month) error
 	// ListPayees Payees, with the category last used for each
 	// (GET /budgets/{budgetId}/payees)
 	ListPayees(ctx echo.Context, budgetId BudgetId) error
@@ -1088,6 +1169,78 @@ func (w *ServerInterfaceWrapper) UpdateCategory(ctx echo.Context) error {
 	return err
 }
 
+// MoveCategory converts echo context to params.
+func (w *ServerInterfaceWrapper) MoveCategory(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "categoryId" -------------
+	var categoryId CategoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "categoryId", ctx.Param("categoryId"), &categoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter categoryId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.MoveCategory(ctx, budgetId, categoryId)
+	return err
+}
+
+// GetBudgetMonth converts echo context to params.
+func (w *ServerInterfaceWrapper) GetBudgetMonth(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "month" -------------
+	var month Month
+
+	err = runtime.BindStyledParameterWithOptions("simple", "month", ctx.Param("month"), &month, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter month: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetBudgetMonth(ctx, budgetId, month)
+	return err
+}
+
+// SetAllocations converts echo context to params.
+func (w *ServerInterfaceWrapper) SetAllocations(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "month" -------------
+	var month Month
+
+	err = runtime.BindStyledParameterWithOptions("simple", "month", ctx.Param("month"), &month, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter month: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.SetAllocations(ctx, budgetId, month)
+	return err
+}
+
 // ListPayees converts echo context to params.
 func (w *ServerInterfaceWrapper) ListPayees(ctx echo.Context) error {
 	var err error
@@ -1422,6 +1575,8 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.GET(options.BaseURL+"/budgets/:budgetId", wrapper.GetBudget, options.OperationMiddlewares["getBudget"]...)
 	router.PUT(options.BaseURL+"/budgets/:budgetId", wrapper.UpdateBudget, options.OperationMiddlewares["updateBudget"]...)
 	router.GET(options.BaseURL+"/budgets/:budgetId/summary", wrapper.GetBudgetSummary, options.OperationMiddlewares["getBudgetSummary"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/months/:month", wrapper.GetBudgetMonth, options.OperationMiddlewares["getBudgetMonth"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId/months/:month/allocations", wrapper.SetAllocations, options.OperationMiddlewares["setAllocations"]...)
 	router.GET(options.BaseURL+"/budgets/:budgetId/accounts", wrapper.ListAccounts, options.OperationMiddlewares["listAccounts"]...)
 	router.POST(options.BaseURL+"/budgets/:budgetId/accounts", wrapper.CreateAccount, options.OperationMiddlewares["createAccount"]...)
 	router.PUT(options.BaseURL+"/budgets/:budgetId/accounts/order", wrapper.ReorderAccounts, options.OperationMiddlewares["reorderAccounts"]...)
@@ -1432,6 +1587,7 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.PUT(options.BaseURL+"/budgets/:budgetId/categories/order", wrapper.ReorderCategories, options.OperationMiddlewares["reorderCategories"]...)
 	router.DELETE(options.BaseURL+"/budgets/:budgetId/categories/:categoryId", wrapper.DeleteCategory, options.OperationMiddlewares["deleteCategory"]...)
 	router.PUT(options.BaseURL+"/budgets/:budgetId/categories/:categoryId", wrapper.UpdateCategory, options.OperationMiddlewares["updateCategory"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/categories/:categoryId/move", wrapper.MoveCategory, options.OperationMiddlewares["moveCategory"]...)
 	router.GET(options.BaseURL+"/budgets/:budgetId/accounts/:accountId/register", wrapper.GetRegister, options.OperationMiddlewares["getRegister"]...)
 	router.GET(options.BaseURL+"/budgets/:budgetId/register", wrapper.GetScopeRegister, options.OperationMiddlewares["getScopeRegister"]...)
 	router.GET(options.BaseURL+"/budgets/:budgetId/payees", wrapper.ListPayees, options.OperationMiddlewares["listPayees"]...)
@@ -2399,6 +2555,183 @@ func (response UpdateCategory409JSONResponse) VisitUpdateCategoryResponse(w http
 	return err
 }
 
+type MoveCategoryRequestObject struct {
+	BudgetId   BudgetId   `json:"budgetId"`
+	CategoryId CategoryId `json:"categoryId"`
+	Body       *MoveCategoryJSONRequestBody
+}
+
+type MoveCategoryResponseObject interface {
+	VisitMoveCategoryResponse(w http.ResponseWriter) error
+}
+
+type MoveCategory200JSONResponse Category
+
+func (response MoveCategory200JSONResponse) VisitMoveCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCategory400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response MoveCategory400JSONResponse) VisitMoveCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCategory404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response MoveCategory404JSONResponse) VisitMoveCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCategory409JSONResponse struct{ ConflictJSONResponse }
+
+func (response MoveCategory409JSONResponse) VisitMoveCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBudgetMonthRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Month    Month    `json:"month"`
+}
+
+type GetBudgetMonthResponseObject interface {
+	VisitGetBudgetMonthResponse(w http.ResponseWriter) error
+}
+
+type GetBudgetMonth200JSONResponse BudgetMonth
+
+func (response GetBudgetMonth200JSONResponse) VisitGetBudgetMonthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBudgetMonth400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetBudgetMonth400JSONResponse) VisitGetBudgetMonthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBudgetMonth404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetBudgetMonth404JSONResponse) VisitGetBudgetMonthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAllocationsRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Month    Month    `json:"month"`
+	Body     *SetAllocationsJSONRequestBody
+}
+
+type SetAllocationsResponseObject interface {
+	VisitSetAllocationsResponse(w http.ResponseWriter) error
+}
+
+type SetAllocations204Response struct {
+}
+
+func (response SetAllocations204Response) VisitSetAllocationsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetAllocations400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetAllocations400JSONResponse) VisitSetAllocationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAllocations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SetAllocations403JSONResponse) VisitSetAllocationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAllocations404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetAllocations404JSONResponse) VisitSetAllocationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPayeesRequestObject struct {
 	BudgetId BudgetId `json:"budgetId"`
 }
@@ -3301,6 +3634,15 @@ type StrictServerInterface interface {
 	// UpdateCategory Rename, archive, or share one envelope among the children
 	// (PUT /budgets/{budgetId}/categories/{categoryId})
 	UpdateCategory(ctx context.Context, request UpdateCategoryRequestObject) (UpdateCategoryResponseObject, error)
+	// MoveCategory Move a category, with its subcategories, under another parent
+	// (POST /budgets/{budgetId}/categories/{categoryId}/move)
+	MoveCategory(ctx context.Context, request MoveCategoryRequestObject) (MoveCategoryResponseObject, error)
+	// GetBudgetMonth The envelopes of one month (ADR-025, ADR-026)
+	// (GET /budgets/{budgetId}/months/{month})
+	GetBudgetMonth(ctx context.Context, request GetBudgetMonthRequestObject) (GetBudgetMonthResponseObject, error)
+	// SetAllocations Set how much the pool gives each envelope in a month
+	// (PUT /budgets/{budgetId}/months/{month}/allocations)
+	SetAllocations(ctx context.Context, request SetAllocationsRequestObject) (SetAllocationsResponseObject, error)
 	// ListPayees Payees, with the category last used for each
 	// (GET /budgets/{budgetId}/payees)
 	ListPayees(ctx context.Context, request ListPayeesRequestObject) (ListPayeesResponseObject, error)
@@ -4097,6 +4439,130 @@ func (sh *strictHandler) UpdateCategory(ctx echo.Context, budgetId BudgetId, cat
 	return nil
 }
 
+// MoveCategory operation middleware
+func (sh *strictHandler) MoveCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error {
+	var request MoveCategoryRequestObject
+
+	request.BudgetId = budgetId
+	request.CategoryId = categoryId
+
+	var body MoveCategoryJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveCategory(ctx.Request().Context(), request.(MoveCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveCategory")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(MoveCategoryResponseObject); ok {
+		return validResponse.VisitMoveCategoryResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetBudgetMonth operation middleware
+func (sh *strictHandler) GetBudgetMonth(ctx echo.Context, budgetId BudgetId, month Month) error {
+	var request GetBudgetMonthRequestObject
+
+	request.BudgetId = budgetId
+	request.Month = month
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBudgetMonth(ctx.Request().Context(), request.(GetBudgetMonthRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBudgetMonth")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetBudgetMonthResponseObject); ok {
+		return validResponse.VisitGetBudgetMonthResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SetAllocations operation middleware
+func (sh *strictHandler) SetAllocations(ctx echo.Context, budgetId BudgetId, month Month) error {
+	var request SetAllocationsRequestObject
+
+	request.BudgetId = budgetId
+	request.Month = month
+
+	var body SetAllocationsJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAllocations(ctx.Request().Context(), request.(SetAllocationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAllocations")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SetAllocationsResponseObject); ok {
+		return validResponse.VisitSetAllocationsResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // ListPayees operation middleware
 func (sh *strictHandler) ListPayees(ctx echo.Context, budgetId BudgetId) error {
 	var request ListPayeesRequestObject
@@ -4701,104 +5167,121 @@ func (sh *strictHandler) UpdateOidcProvider(ctx echo.Context, id Id) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

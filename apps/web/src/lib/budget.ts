@@ -35,6 +35,21 @@ export function summaryQuery(budgetId: string) {
   })
 }
 
+/** One month of the budget page (M6); every month shares the key prefix. */
+export function budgetMonthQuery(budgetId: string, month: string) {
+  return queryOptions({
+    queryKey: ['budget-month', budgetId, month],
+    queryFn: async ({ signal }) => {
+      const { data, error } = await api.GET(
+        '/budgets/{budgetId}/months/{month}',
+        { params: { path: { budgetId, month } }, signal },
+      )
+      if (error) throw error
+      return data
+    },
+  })
+}
+
 export function categoriesQuery(budgetId: string) {
   return $api.queryOptions('get', '/budgets/{budgetId}/categories', {
     params: { path: { budgetId } },

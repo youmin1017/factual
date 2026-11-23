@@ -1,8 +1,10 @@
 package ledger
 
 import (
+	"cmp"
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -188,6 +190,98 @@ func (h *Handlers) ReorderCategories(ctx context.Context, req api.ReorderCategor
 		return nil, err
 	}
 	return api.ReorderCategories204Response{}, nil
+}
+
+// MoveCategory puts a category, with everything under it, under another
+// parent of the same kind, at a position among its new siblings.
+func (h *Handlers) MoveCategory(ctx context.Context, req api.MoveCategoryRequestObject) (api.MoveCategoryResponseObject, error) {
+	rows, err := h.s.q.ListCategories(ctx, req.BudgetId)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[uuid.UUID]db.ListCategoriesRow, len(rows))
+	children := map[uuid.UUID][]uuid.UUID{}
+	for _, r := range rows {
+		byID[r.ID] = r
+		if r.ParentID.Valid {
+			children[r.ParentID.UUID] = append(children[r.ParentID.UUID], r.ID)
+		}
+	}
+	cur, ok := byID[req.CategoryId]
+	if !ok {
+		return nil, notFound("category")
+	}
+	if cur.IsSystem {
+		return nil, systemCategory()
+	}
+	// How many levels the category takes with its subcategories.
+	var height func(id uuid.UUID) int
+	height = func(id uuid.UUID) int {
+		levels := 1
+		for _, c := range children[id] {
+			levels = max(levels, 1+height(c))
+		}
+		return levels
+	}
+	parentDepth := 0
+	newParent := nullID(req.Body.ParentId)
+	if newParent.Valid {
+		parent, ok := byID[newParent.UUID]
+		if !ok {
+			return nil, notFound("category")
+		}
+		if parent.IsSystem {
+			return nil, systemCategory()
+		}
+		if parent.Kind != cur.Kind {
+			return nil, apperr.BadRequest("category_kind_mismatch", "a category can only move under one of the same kind")
+		}
+		for p := newParent; p.Valid; p = byID[p.UUID].ParentID {
+			if p.UUID == cur.ID {
+				return nil, apperr.BadRequest("category_cycle", "a category cannot move under itself")
+			}
+			parentDepth++
+		}
+	}
+	if parentDepth+height(cur.ID) > maxCategoryDepth {
+		return nil, apperr.BadRequest("category_too_deep", "categories are at most three levels deep")
+	}
+
+	// Positions count the siblings of the same kind: expense and income
+	// categories are listed apart.
+	var siblings []db.ListCategoriesRow
+	for _, r := range rows {
+		if r.ParentID == newParent && r.ID != cur.ID && !r.IsSystem && r.Kind == cur.Kind {
+			siblings = append(siblings, r)
+		}
+	}
+	slices.SortStableFunc(siblings, func(a, b db.ListCategoriesRow) int { return cmp.Compare(a.SortOrder, b.SortOrder) })
+	order := make([]uuid.UUID, 0, len(siblings)+1)
+	for _, s := range siblings {
+		order = append(order, s.ID)
+	}
+	at := min(int(max(req.Body.Index, 0)), len(order))
+	order = slices.Insert(order, at, cur.ID)
+
+	err = h.s.inTx(ctx, func(q *db.Queries) error {
+		if err := q.SetCategoryParent(ctx, db.SetCategoryParentParams{BudgetID: req.BudgetId, ID: cur.ID, ParentID: newParent}); err != nil {
+			return err
+		}
+		for i, id := range order {
+			if err := q.SetCategoryOrder(ctx, db.SetCategoryOrderParams{BudgetID: req.BudgetId, ID: id, SortOrder: int32(i)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, apperr.FromDB(err)
+	}
+	row, err := h.s.q.GetCategory(ctx, db.GetCategoryParams{BudgetID: req.BudgetId, ID: cur.ID})
+	if err != nil {
+		return nil, err
+	}
+	return api.MoveCategory200JSONResponse(categoryResponse(row)), nil
 }
 
 // categoryName trims a name and refuses `/`, the path separator in the

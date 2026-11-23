@@ -6,9 +6,6 @@ export const Route = createFileRoute('/_app/')({
   beforeLoad: ({ context }) => {
     const budget = homeBudget(context.budgets)
     if (!budget) throw redirect({ to: '/setup' })
-    throw redirect({
-      to: '/b/$budgetId/accounts/$accountId',
-      params: { budgetId: budget.id, accountId: 'all' },
-    })
+    throw redirect({ to: '/b/$budgetId', params: { budgetId: budget.id } })
   },
 })

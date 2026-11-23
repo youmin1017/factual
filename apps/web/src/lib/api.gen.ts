@@ -340,6 +340,61 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/months/{month}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        /** @description A calendar month, YYYY-MM. */
+        month: components['parameters']['Month']
+      }
+      cookie?: never
+    }
+    /**
+     * The envelopes of one month (ADR-025, ADR-026)
+     * @description One line per expense category that has money budgeted or spent up to
+     *     the end of the month, as recorded on that category; the client folds
+     *     the subcategories of a pooled parent into the parent's envelope
+     *     (ADR-061). The pool is not per month: it is everything not given to
+     *     an envelope, in any month.
+     */
+    get: operations['getBudgetMonth']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/months/{month}/allocations': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        /** @description A calendar month, YYYY-MM. */
+        month: components['parameters']['Month']
+      }
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Set how much the pool gives each envelope in a month
+     * @description Each amount replaces the envelope's allocation for the month (0
+     *     removes it; negative gives money back to the pool). Only envelopes
+     *     take allocations: expense categories that are pooled or have no
+     *     subcategories, and are not inside a pooled parent. All or nothing.
+     */
+    put: operations['setAllocations']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/budgets/{budgetId}/accounts': {
     parameters: {
       query?: never
@@ -458,6 +513,32 @@ export interface paths {
     post?: never
     /** Delete an unused category (archive it otherwise) */
     delete: operations['deleteCategory']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/categories/{categoryId}/move': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        categoryId: components['parameters']['CategoryId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Move a category, with its subcategories, under another parent
+     * @description The new parent has the same kind, and the tree stays at most three
+     *     levels deep (ADR-027). Transactions and allocations stay with the
+     *     category; moving it into a parent that shares its budget folds its
+     *     money into that envelope (ADR-061).
+     */
+    post: operations['moveCategory']
+    delete?: never
     options?: never
     head?: never
     patch?: never
@@ -739,6 +820,13 @@ export interface components {
       pool: number
       /**
        * Format: int64
+       * @description What all envelopes hold together: every allocation plus every
+       *     expense recorded in a category. The on-budget accounts always
+       *     sum to pool + envelopeBalance (ADR-020).
+       */
+      envelopeBalance: number
+      /**
+       * Format: int64
        * @description Sum of the on-budget accounts.
        */
       onBudgetBalance: number
@@ -747,6 +835,59 @@ export interface components {
        * @description Sum of the tracking (off-budget) accounts.
        */
       offBudgetBalance: number
+    }
+    BudgetMonth: {
+      /** @description YYYY-MM */
+      month: string
+      /**
+       * Format: int64
+       * @description Money not given to any envelope in any month (ADR-025).
+       */
+      pool: number
+      /**
+       * Format: int64
+       * @description Income recorded in the month (it went to the pool).
+       */
+      income: number
+      envelopes: components['schemas']['EnvelopeMonth'][]
+      /** @description Income recorded in the month per income category (only those with any). */
+      incomes: components['schemas']['IncomeMonth'][]
+    }
+    IncomeMonth: {
+      /** Format: uuid */
+      categoryId: string
+      /** Format: int64 */
+      received: number
+    }
+    EnvelopeMonth: {
+      /** Format: uuid */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description Given from the pool this month.
+       */
+      allocated: number
+      /**
+       * Format: int64
+       * @description Recorded in the category this month (negative = spent).
+       */
+      activity: number
+      /**
+       * Format: int64
+       * @description Balance at the start of the month: every earlier allocation and
+       *     activity, positive or negative (ADR-026). The balance at the end
+       *     is carried + allocated + activity.
+       */
+      carried: number
+    }
+    AllocationBatch: {
+      allocations: components['schemas']['AllocationInput'][]
+    }
+    AllocationInput: {
+      /** Format: uuid */
+      categoryId: string
+      /** Format: int64 */
+      amount: number
     }
     /** @enum {string} */
     AccountKind: 'cash' | 'bank' | 'credit_card' | 'loan' | 'investment'
@@ -813,6 +954,18 @@ export interface components {
       name: string
       pooled: boolean
       archived: boolean
+    }
+    CategoryMove: {
+      /**
+       * Format: uuid
+       * @description The new parent; null for the top level.
+       */
+      parentId: string | null
+      /**
+       * Format: int32
+       * @description Position among the new siblings of the same kind (past the end = last).
+       */
+      index: number
     }
     Reorder: {
       ids: string[]
@@ -980,6 +1133,8 @@ export interface components {
   }
   parameters: {
     BudgetId: string
+    /** @description A calendar month, YYYY-MM. */
+    Month: string
     AccountId: string
     PayeeId: string
     CategoryId: string
@@ -1493,6 +1648,61 @@ export interface operations {
       404: components['responses']['NotFound']
     }
   }
+  getBudgetMonth: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        /** @description A calendar month, YYYY-MM. */
+        month: components['parameters']['Month']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description The month */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BudgetMonth']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  setAllocations: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        /** @description A calendar month, YYYY-MM. */
+        month: components['parameters']['Month']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AllocationBatch']
+      }
+    }
+    responses: {
+      /** @description Set */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+    }
+  }
   listAccounts: {
     parameters: {
       query?: never
@@ -1751,6 +1961,36 @@ export interface operations {
           [name: string]: unknown
         }
         content?: never
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  moveCategory: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        categoryId: components['parameters']['CategoryId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CategoryMove']
+      }
+    }
+    responses: {
+      /** @description Moved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Category']
+        }
       }
       400: components['responses']['BadRequest']
       404: components['responses']['NotFound']

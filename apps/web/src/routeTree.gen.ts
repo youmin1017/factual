@@ -18,7 +18,6 @@ import { Route as AppBBudgetIdRouteImport } from './routes/_app/b/$budgetId'
 import { Route as AppSettingsEditorRouteImport } from './routes/_app/settings/editor'
 import { Route as AppSettingsOidcProvidersRouteImport } from './routes/_app/settings/oidc-providers'
 import { Route as AppBBudgetIdIndexRouteImport } from './routes/_app/b/$budgetId/index'
-import { Route as AppBBudgetIdCategoriesRouteImport } from './routes/_app/b/$budgetId/categories'
 import { Route as AppBBudgetIdPayeesRouteImport } from './routes/_app/b/$budgetId/payees'
 import { Route as AppBBudgetIdAccountsIndexRouteImport } from './routes/_app/b/$budgetId/accounts/index'
 import { Route as AppBBudgetIdAccountsAccountIdRouteImport } from './routes/_app/b/$budgetId/accounts/$accountId'
@@ -68,11 +67,6 @@ const AppBBudgetIdIndexRoute = AppBBudgetIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppBBudgetIdRoute,
 } as any)
-const AppBBudgetIdCategoriesRoute = AppBBudgetIdCategoriesRouteImport.update({
-  id: '/categories',
-  path: '/categories',
-  getParentRoute: () => AppBBudgetIdRoute,
-} as any)
 const AppBBudgetIdPayeesRoute = AppBBudgetIdPayeesRouteImport.update({
   id: '/payees',
   path: '/payees',
@@ -99,7 +93,6 @@ export interface FileRoutesByFullPath {
   '/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
-  '/b/$budgetId/categories': typeof AppBBudgetIdCategoriesRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/b/$budgetId/': typeof AppBBudgetIdIndexRoute
   '/b/$budgetId/accounts/$accountId': typeof AppBBudgetIdAccountsAccountIdRoute
@@ -112,7 +105,6 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
-  '/b/$budgetId/categories': typeof AppBBudgetIdCategoriesRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/b/$budgetId': typeof AppBBudgetIdIndexRoute
   '/b/$budgetId/accounts/$accountId': typeof AppBBudgetIdAccountsAccountIdRoute
@@ -128,7 +120,6 @@ export interface FileRoutesById {
   '/_app/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
   '/_app/settings/editor': typeof AppSettingsEditorRoute
   '/_app/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
-  '/_app/b/$budgetId/categories': typeof AppBBudgetIdCategoriesRoute
   '/_app/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/_app/b/$budgetId/': typeof AppBBudgetIdIndexRoute
   '/_app/b/$budgetId/accounts/$accountId': typeof AppBBudgetIdAccountsAccountIdRoute
@@ -144,7 +135,6 @@ export interface FileRouteTypes {
     | '/b/$budgetId'
     | '/settings/editor'
     | '/settings/oidc-providers'
-    | '/b/$budgetId/categories'
     | '/b/$budgetId/payees'
     | '/b/$budgetId/'
     | '/b/$budgetId/accounts/$accountId'
@@ -157,7 +147,6 @@ export interface FileRouteTypes {
     | '/'
     | '/settings/editor'
     | '/settings/oidc-providers'
-    | '/b/$budgetId/categories'
     | '/b/$budgetId/payees'
     | '/b/$budgetId'
     | '/b/$budgetId/accounts/$accountId'
@@ -172,7 +161,6 @@ export interface FileRouteTypes {
     | '/_app/b/$budgetId'
     | '/_app/settings/editor'
     | '/_app/settings/oidc-providers'
-    | '/_app/b/$budgetId/categories'
     | '/_app/b/$budgetId/payees'
     | '/_app/b/$budgetId/'
     | '/_app/b/$budgetId/accounts/$accountId'
@@ -249,13 +237,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBBudgetIdIndexRouteImport
       parentRoute: typeof AppBBudgetIdRoute
     }
-    '/_app/b/$budgetId/categories': {
-      id: '/_app/b/$budgetId/categories'
-      path: '/categories'
-      fullPath: '/b/$budgetId/categories'
-      preLoaderRoute: typeof AppBBudgetIdCategoriesRouteImport
-      parentRoute: typeof AppBBudgetIdRoute
-    }
     '/_app/b/$budgetId/payees': {
       id: '/_app/b/$budgetId/payees'
       path: '/payees'
@@ -281,7 +262,6 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppBBudgetIdRouteChildren {
-  AppBBudgetIdCategoriesRoute: typeof AppBBudgetIdCategoriesRoute
   AppBBudgetIdPayeesRoute: typeof AppBBudgetIdPayeesRoute
   AppBBudgetIdIndexRoute: typeof AppBBudgetIdIndexRoute
   AppBBudgetIdAccountsAccountIdRoute: typeof AppBBudgetIdAccountsAccountIdRoute
@@ -289,7 +269,6 @@ interface AppBBudgetIdRouteChildren {
 }
 
 const AppBBudgetIdRouteChildren: AppBBudgetIdRouteChildren = {
-  AppBBudgetIdCategoriesRoute: AppBBudgetIdCategoriesRoute,
   AppBBudgetIdPayeesRoute: AppBBudgetIdPayeesRoute,
   AppBBudgetIdIndexRoute: AppBBudgetIdIndexRoute,
   AppBBudgetIdAccountsAccountIdRoute: AppBBudgetIdAccountsAccountIdRoute,

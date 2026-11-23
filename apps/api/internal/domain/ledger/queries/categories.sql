@@ -31,6 +31,9 @@ update categories
 -- name: SetCategoryOrder :exec
 update categories set sort_order = $3 where budget_id = $1 and id = $2;
 
+-- name: SetCategoryParent :exec
+update categories set parent_id = sqlc.narg(parent_id) where budget_id = sqlc.arg(budget_id) and id = sqlc.arg(id);
+
 -- name: CategoryInUse :one
 -- Whether deleting the category would lose anything: subcategories, money
 -- recorded or budgeted in it, schedules or a goal.

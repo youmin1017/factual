@@ -33,6 +33,10 @@ update budgets set name = $2 where id = $1;
 
 -- name: GetBudgetSummary :one
 select p.pool,
+       ( coalesce((select sum(al.amount) from allocations al where al.budget_id = p.budget_id), 0)
+       + coalesce((select sum(e.amount) from entries e join categories c on c.id = e.category_id
+                    where e.budget_id = p.budget_id and c.kind = 'expense'), 0)
+       )::bigint as envelope_balance,
        coalesce((select sum(b.balance) from account_balances b join accounts a on a.id = b.account_id
                   where a.budget_id = p.budget_id and a.on_budget), 0)::bigint as on_budget_balance,
        coalesce((select sum(b.balance) from account_balances b join accounts a on a.id = b.account_id

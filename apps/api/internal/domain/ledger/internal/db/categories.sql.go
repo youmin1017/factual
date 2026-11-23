@@ -204,6 +204,21 @@ func (q *Queries) SetCategoryOrder(ctx context.Context, arg SetCategoryOrderPara
 	return err
 }
 
+const setCategoryParent = `-- name: SetCategoryParent :exec
+update categories set parent_id = $1 where budget_id = $2 and id = $3
+`
+
+type SetCategoryParentParams struct {
+	ParentID uuid.NullUUID
+	BudgetID uuid.UUID
+	ID       uuid.UUID
+}
+
+func (q *Queries) SetCategoryParent(ctx context.Context, arg SetCategoryParentParams) error {
+	_, err := q.db.Exec(ctx, setCategoryParent, arg.ParentID, arg.BudgetID, arg.ID)
+	return err
+}
+
 const updateCategory = `-- name: UpdateCategory :exec
 update categories
    set name = $1,

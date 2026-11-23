@@ -140,7 +140,7 @@ func (h *Handlers) GetBudgetSummary(ctx context.Context, req api.GetBudgetSummar
 		return nil, apperr.FromDB(err)
 	}
 	return api.GetBudgetSummary200JSONResponse{
-		Pool: s.Pool, OnBudgetBalance: s.OnBudgetBalance, OffBudgetBalance: s.OffBudgetBalance,
+		Pool: s.Pool, EnvelopeBalance: s.EnvelopeBalance, OnBudgetBalance: s.OnBudgetBalance, OffBudgetBalance: s.OffBudgetBalance,
 	}, nil
 }
 
