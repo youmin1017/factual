@@ -29,5 +29,5 @@ description = "Generate API types from apps/api/api/openapi.yaml"
 run = "pnpm gen:api"
 
 [tasks.test]
-description = "Unit tests (money, register, keymap and budget-month logic)"
+description = "Unit tests (money, register, keymap, budget-month, schedule-rule and schedules logic)"
 run = "pnpm test"

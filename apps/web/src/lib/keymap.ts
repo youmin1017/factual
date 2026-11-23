@@ -29,7 +29,14 @@ export interface Mapping {
 }
 
 /** The panes a mapping can be limited to (`data-pane` values, ADR-072). */
-export const panes = ['sidebar', 'register', 'split', 'budget', 'main'] as const
+export const panes = [
+  'sidebar',
+  'register',
+  'split',
+  'budget',
+  'schedules',
+  'main',
+] as const
 export type Pane = (typeof panes)[number]
 
 /**

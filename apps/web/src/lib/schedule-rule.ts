@@ -1,0 +1,422 @@
+/**
+ * Schedule rules (ADR-084): the short Chinese a rule is typed in (`每月 5
+ * 日`, `每 2 週五`, `每年 3/15 到 2030/3/15 遇假日延後`), the iCalendar RRULE
+ * it is stored as, and the dates it gives, for previews. Only the RRULE
+ * subset the parser writes is expanded here; the server expands rules with
+ * rrule-go and is what posts. Pure, tested with plain node.
+ *
+ * Dates are ISO strings (yyyy-mm-dd) and day arithmetic is done in UTC, so
+ * no time zone moves a day.
+ */
+
+export type HolidayShift = 'noShift' | 'nextWorkday' | 'prevWorkday'
+
+type Freq = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+
+/** A weekday, Monday 0 to Sunday 6, with its ordinal in the month (0 = every). */
+interface ByDay {
+  n: number
+  day: number
+}
+
+export interface Rule {
+  freq: Freq
+  interval: number
+  byDay: Array<ByDay>
+  byMonthDay: Array<number>
+  byMonth: Array<number>
+  count: number | null
+  /** Last possible date, inclusive. */
+  until: string | null
+}
+
+export interface ParsedRule {
+  rule: string
+  shift: HolidayShift
+}
+
+const dayCodes = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
+const dayNames = '一二三四五六日'
+
+// ---------- reading what is typed
+
+/** Full-width digits and marks to ASCII, the variants of 週 and 日 to one, no spaces. */
+function normalize(text: string): string {
+  return text
+    .replaceAll(/[！-～]/g, (c) =>
+      String.fromCharCode(c.charCodeAt(0) - 0xfee0),
+    )
+    .replaceAll(/星期|禮拜|礼拜|周/g, '週')
+    .replaceAll(/[號号]/g, '日')
+    .replaceAll(/\s+/g, '')
+}
+
+const zhDigits: Record<string, number> = {
+  一: 1,
+  二: 2,
+  兩: 2,
+  两: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+}
+
+/** 12, 十二, 兩 → a number; null otherwise. */
+function readNumber(s: string): number | null {
+  if (/^\d+$/.test(s)) return Number(s)
+  if (s in zhDigits) return zhDigits[s]
+  const m = /^([一二三四五六七八九])?十([一二三四五六七八九])?$/.exec(s)
+  if (m) return (m[1] ? zhDigits[m[1]] : 1) * 10 + (m[2] ? zhDigits[m[2]] : 0)
+  return null
+}
+
+const NUM = '(\\d+|[一二兩两三四五六七八九十]+)'
+
+function weekday(c: string): number {
+  return c === '天' ? 6 : dayNames.indexOf(c)
+}
+
+/** The ISO date of a typed y/m/d, or null. */
+function ymd(y: number, m: number, d: number): string | null {
+  const t = new Date(Date.UTC(y, m - 1, d))
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1) return null
+  return t.toISOString().slice(0, 10)
+}
+
+const examples = '例如：每月 5 日、每週一三五、每 2 週五、每季 10 日、每年 3/15'
+
+/**
+ * Reads a rule as typed. Returns the RRULE and how it moves off days off,
+ * or a message saying what was not understood.
+ */
+export function parseRule(text: string): ParsedRule | { error: string } {
+  let s = normalize(text)
+  if (!s) return { error: `請輸入週期，${examples}` }
+  const rule: Rule = {
+    freq: 'MONTHLY',
+    interval: 1,
+    byDay: [],
+    byMonthDay: [],
+    byMonth: [],
+    count: null,
+    until: null,
+  }
+  let m: RegExpExecArray | null
+  const take = (re: RegExp): RegExpExecArray | null => {
+    const found = re.exec(s)
+    if (found) s = s.slice(found[0].length)
+    return found
+  }
+  const every = (n: string | undefined): number | null =>
+    n === undefined ? 1 : readNumber(n)
+
+  if ((m = take(new RegExp(`^每(?:${NUM}個?)?週`)))) {
+    rule.freq = 'WEEKLY'
+    const n = every(m[1])
+    if (!n) return { error: `看不懂「${m[1]}」週` }
+    rule.interval = n
+    const days = take(/^[一二三四五六日天、,和]+/)
+    for (const c of days?.[0] ?? '') {
+      const d = weekday(c)
+      if (d >= 0 && !rule.byDay.some((b) => b.day === d))
+        rule.byDay.push({ n: 0, day: d })
+    }
+    rule.byDay.sort((a, b) => a.day - b.day)
+  } else if ((m = take(new RegExp(`^每(?:${NUM}個?)?[天日]`)))) {
+    rule.freq = 'DAILY'
+    const n = every(m[1])
+    if (!n) return { error: `看不懂「${m[1]}」天` }
+    rule.interval = n
+  } else if ((m = take(new RegExp(`^每(?:${NUM}個?)?月|^每(季)|^每(半年)`)))) {
+    rule.freq = 'MONTHLY'
+    const n = m[2] ? 3 : m[3] ? 6 : every(m[1])
+    if (!n) return { error: `看不懂「${m[1]}」個月` }
+    rule.interval = n
+    if (take(/^(?:最後一天|月底|最後一日)/)) {
+      rule.byMonthDay = [-1]
+    } else if ((m = take(/^第(\d|[一二三四五])個?週([一二三四五六日天])/))) {
+      rule.byDay = [{ n: readNumber(m[1]) ?? 1, day: weekday(m[2]) }]
+    } else if ((m = take(/^最後一個?週([一二三四五六日天])/))) {
+      rule.byDay = [{ n: -1, day: weekday(m[1]) }]
+    } else if ((m = take(/^(\d{1,2})日?/))) {
+      const d = Number(m[1])
+      if (d < 1 || d > 31) return { error: '每月的日期是 1 到 31' }
+      rule.byMonthDay = [d]
+    }
+  } else if ((m = take(new RegExp(`^每(?:${NUM}個?)?年`)))) {
+    rule.freq = 'YEARLY'
+    const n = every(m[1])
+    if (!n) return { error: `看不懂「${m[1]}」年` }
+    rule.interval = n
+    if ((m = take(/^(\d{1,2})[/月.-](\d{1,2})日?/))) {
+      const month = Number(m[1])
+      const d = Number(m[2])
+      if (!ymd(2024, month, d)) return { error: `沒有 ${month}/${d} 這一天` }
+      rule.byMonth = [month]
+      rule.byMonthDay = [d]
+    }
+  } else {
+    return { error: `看不懂這個週期，${examples}` }
+  }
+
+  let shift: HolidayShift = 'noShift'
+  while (s) {
+    if (take(/^[，,、；;。]+/)) continue
+    if (
+      (m = take(/^(?:到|至|直到)(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})日?/))
+    ) {
+      const until = ymd(Number(m[1]), Number(m[2]), Number(m[3]))
+      if (!until) return { error: '結束日期不存在' }
+      rule.until = until
+      continue
+    }
+    if ((m = take(new RegExp(`^共${NUM}次`)))) {
+      const n = readNumber(m[1])
+      if (!n) return { error: `看不懂「${m[1]}」次` }
+      rule.count = n
+      continue
+    }
+    if (take(/^遇?(?:假日|休假日|非工作日)(?:延後|順延|往後)/)) {
+      shift = 'nextWorkday'
+      continue
+    }
+    if (take(/^遇?(?:假日|休假日|非工作日)(?:提前|提早|往前)/)) {
+      shift = 'prevWorkday'
+      continue
+    }
+    return {
+      error: `看不懂「${s}」：週期後面可以接「到 2027/6/30」「共 12 次」「遇假日延後」或「遇假日提前」`,
+    }
+  }
+  return { rule: writeRRule(rule), shift }
+}
+
+// ---------- RRULE text
+
+export function writeRRule(r: Rule): string {
+  const parts = [`FREQ=${r.freq}`]
+  if (r.interval > 1) parts.push(`INTERVAL=${r.interval}`)
+  if (r.byMonth.length) parts.push(`BYMONTH=${r.byMonth.join(',')}`)
+  if (r.byMonthDay.length) parts.push(`BYMONTHDAY=${r.byMonthDay.join(',')}`)
+  if (r.byDay.length) {
+    parts.push(
+      `BYDAY=${r.byDay.map((b) => `${b.n || ''}${dayCodes[b.day]}`).join(',')}`,
+    )
+  }
+  if (r.count) parts.push(`COUNT=${r.count}`)
+  if (r.until) parts.push(`UNTIL=${r.until.replaceAll('-', '')}`)
+  return parts.join(';')
+}
+
+/** Reads the RRULE subset this module writes; null for anything else. */
+export function readRRule(text: string): Rule | null {
+  const r: Rule = {
+    freq: 'MONTHLY',
+    interval: 1,
+    byDay: [],
+    byMonthDay: [],
+    byMonth: [],
+    count: null,
+    until: null,
+  }
+  let freq = false
+  for (const part of text.split(';')) {
+    const [key, value = ''] = part.split('=')
+    const ints = () => value.split(',').map(Number)
+    switch (key) {
+      case 'FREQ':
+        if (!['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(value))
+          return null
+        r.freq = value as Freq
+        freq = true
+        break
+      case 'INTERVAL':
+        r.interval = Number(value)
+        break
+      case 'BYMONTH':
+        r.byMonth = ints()
+        break
+      case 'BYMONTHDAY':
+        r.byMonthDay = ints()
+        break
+      case 'BYDAY':
+        for (const v of value.split(',')) {
+          const m = /^(-?\d)?(MO|TU|WE|TH|FR|SA|SU)$/.exec(v)
+          if (!m) return null
+          r.byDay.push({
+            n: m[1] ? Number(m[1]) : 0,
+            day: dayCodes.indexOf(m[2]),
+          })
+        }
+        break
+      case 'COUNT':
+        r.count = Number(value)
+        break
+      case 'UNTIL': {
+        const m = /^(\d{4})(\d{2})(\d{2})/.exec(value)
+        if (!m) return null
+        r.until = `${m[1]}-${m[2]}-${m[3]}`
+        break
+      }
+      default:
+        return null
+    }
+  }
+  const numbers = [r.interval, ...r.byMonth, ...r.byMonthDay]
+  if (!freq || numbers.some((n) => !Number.isInteger(n))) return null
+  return r
+}
+
+// ---------- dates the rule gives
+
+const DAY = 86_400_000
+
+function toDay(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number)
+  return Date.UTC(y, m - 1, d) / DAY
+}
+
+function toIso(day: number): string {
+  return new Date(day * DAY).toISOString().slice(0, 10)
+}
+
+/** Monday 0 to Sunday 6. */
+function weekdayOf(day: number): number {
+  return (new Date(day * DAY).getUTCDay() + 6) % 7
+}
+
+function daysInMonth(y: number, m: number): number {
+  return new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+}
+
+/** Whether `day` matches the rule anchored at `start` (both day numbers). */
+function matches(r: Rule, start: number, day: number): boolean {
+  const s = new Date(start * DAY)
+  const t = new Date(day * DAY)
+  const [sy, sm, sd] = [s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate()]
+  const [ty, tm, td] = [t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()]
+  const wd = weekdayOf(day)
+  const monthDayOk = (days: Array<number>) =>
+    days.some((v) => (v > 0 ? td === v : td === daysInMonth(ty, tm) + v + 1))
+  switch (r.freq) {
+    case 'DAILY':
+      return (day - start) % r.interval === 0
+    case 'WEEKLY': {
+      // Weeks start on Monday (WKST=MO).
+      const weeks = Math.floor((day - wd - (start - weekdayOf(start))) / 7)
+      if (weeks % r.interval !== 0) return false
+      return r.byDay.length
+        ? r.byDay.some((b) => b.day === wd)
+        : wd === weekdayOf(start)
+    }
+    case 'MONTHLY': {
+      const months = (ty - sy) * 12 + (tm - sm)
+      if (months % r.interval !== 0) return false
+      if (r.byMonthDay.length) return monthDayOk(r.byMonthDay)
+      if (r.byDay.length) {
+        return r.byDay.some((b) => {
+          if (b.day !== wd) return false
+          if (b.n === 0) return true
+          const nth =
+            b.n > 0
+              ? Math.floor((td - 1) / 7) + 1
+              : -(Math.floor((daysInMonth(ty, tm) - td) / 7) + 1)
+          return nth === b.n
+        })
+      }
+      return td === sd
+    }
+    case 'YEARLY': {
+      if ((ty - sy) % r.interval !== 0) return false
+      const months = r.byMonth.length ? r.byMonth : [sm + 1]
+      if (!months.includes(tm + 1)) return false
+      return r.byMonthDay.length ? monthDayOk(r.byMonthDay) : td === sd
+    }
+  }
+}
+
+/**
+ * The dates the rule gives from `start` on, those on or after `from`, at
+ * most `limit` of them and none after `until` (when given).
+ */
+export function occurrences(
+  rule: Rule,
+  start: string,
+  from: string,
+  limit: number,
+  until?: string,
+): Array<string> {
+  const first = toDay(start)
+  const lowest = toDay(from)
+  const last = Math.min(
+    rule.until ? toDay(rule.until) : Infinity,
+    until ? toDay(until) : Infinity,
+    first + 366 * 30,
+  )
+  const out: Array<string> = []
+  let n = 0
+  for (let day = first; day <= last && out.length < limit; day++) {
+    if (!matches(rule, first, day)) continue
+    n++
+    if (rule.count !== null && n > rule.count) break
+    if (day >= lowest) out.push(toIso(day))
+  }
+  return out
+}
+
+/** A date moved off days off as the schedule says (ADR-087). */
+export function shiftDate(
+  iso: string,
+  shift: HolidayShift,
+  off: (iso: string) => boolean,
+): string {
+  if (shift === 'noShift') return iso
+  const step = shift === 'nextWorkday' ? 1 : -1
+  let day = toDay(iso)
+  for (let i = 0; i < 31 && off(toIso(day)); i++) day += step
+  return toIso(day)
+}
+
+/** The weekend rule, for years without an imported calendar. */
+export function weekend(iso: string): boolean {
+  return weekdayOf(toDay(iso)) >= 5
+}
+
+/**
+ * Days off from the API's calendar (`GET /holidays`), which lists only the
+ * days that differ from the weekend rule.
+ */
+export function daysOff(calendar: {
+  days: Array<{ date: string; off: boolean }>
+}): (iso: string) => boolean {
+  const listed = new Map(calendar.days.map((d) => [d.date, d.off]))
+  return (iso) => listed.get(iso) ?? weekend(iso)
+}
+
+export interface Occurrence {
+  /** The date the rule gives. */
+  nominal: string
+  /** When it is posted, moved off days off. */
+  date: string
+}
+
+/** The next `n` occurrences from `from` of a stored rule, or [] when it cannot be read. */
+export function nextOccurrences(
+  rruleText: string,
+  start: string,
+  shift: HolidayShift,
+  from: string,
+  n: number,
+  off: (iso: string) => boolean = weekend,
+): Array<Occurrence> {
+  const rule = readRRule(rruleText)
+  if (!rule) return []
+  return occurrences(rule, start, from, n).map((nominal) => ({
+    nominal,
+    date: shiftDate(nominal, shift, off),
+  }))
+}

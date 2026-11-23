@@ -98,3 +98,17 @@ export const currencies = [
   { code: 'SGD', label: '新加坡幣' },
   { code: 'AUD', label: '澳幣' },
 ]
+
+/** The budget's schedules (M9); the editor owns them once loaded. */
+export function schedulesQuery(budgetId: string) {
+  return $api.queryOptions('get', '/budgets/{budgetId}/schedules', {
+    params: { path: { budgetId } },
+  })
+}
+
+/** Days off of this year and the next two (ADR-087). */
+export function holidaysQuery(year: number) {
+  return $api.queryOptions('get', '/holidays', {
+    params: { query: { from: year, to: year + 2 } },
+  })
+}

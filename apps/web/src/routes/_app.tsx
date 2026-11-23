@@ -110,6 +110,13 @@ function AppLayout() {
                     帳戶
                   </Link>
                   <Link
+                    to="/b/$budgetId/schedules"
+                    params={{ budgetId: budget.id }}
+                    className={navLinkClass}
+                  >
+                    排程
+                  </Link>
+                  <Link
                     to="/b/$budgetId/payees"
                     params={{ budgetId: budget.id }}
                     className={navLinkClass}
@@ -137,6 +144,11 @@ function AppLayout() {
               {user.isAdmin && (
                 <Link to="/settings/oidc-providers" className={navLinkClass}>
                   第三方登入
+                </Link>
+              )}
+              {user.isAdmin && (
+                <Link to="/settings/holidays" className={navLinkClass}>
+                  國定假日
                 </Link>
               )}
             </div>
