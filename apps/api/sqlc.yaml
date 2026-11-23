@@ -41,3 +41,20 @@ sql:
             go_type: time.Time
           - db_type: date
             go_type: time.Time
+  - name: calendar
+    engine: postgresql
+    schema: db/migrations
+    queries: internal/domain/calendar/queries
+    gen:
+      go:
+        package: db
+        out: internal/domain/calendar/internal/db
+        sql_package: pgx/v5
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: date
+            go_type: time.Time

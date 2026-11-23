@@ -684,6 +684,237 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/schedules': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /** The budget's schedules, oldest first */
+    get: operations['listSchedules']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/schedules/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the schedules page's buffer in one database transaction (:w)
+     * @description Upserts are keyed by the client-generated schedule id. Editing a
+     *     schedule changes every occurrence not yet posted; posted ones stay as
+     *     they are. Occurrences of the saved schedules that are already due are
+     *     posted before the response (ADR-085). All or nothing, with problems
+     *     reported per schedule (ADR-044).
+     */
+    post: operations['saveSchedules']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/schedules/upcoming': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /**
+     * Occurrences not yet posted, up to a date (預定 rows, ADR-085)
+     * @description Every occurrence of an active schedule that is neither posted nor
+     *     skipped and is posted on or before `until` (after moving off days
+     *     off), earliest first.
+     */
+    get: operations['listUpcoming']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/schedules/{scheduleId}/skips': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        scheduleId: components['parameters']['ScheduleId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Skip one occurrence (:skip) */
+    post: operations['skipOccurrence']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/schedules/{scheduleId}/skips/{occurrence}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        scheduleId: components['parameters']['ScheduleId']
+        occurrence: string
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /** Bring a skipped occurrence back (:unskip) */
+    delete: operations['unskipOccurrence']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/schedules/{scheduleId}/post': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        scheduleId: components['parameters']['ScheduleId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Post one occurrence now, as it is (:post) */
+    post: operations['postOccurrence']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/categories/{categoryId}/base': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        categoryId: components['parameters']['CategoryId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /** Set an envelope's base amount per month (:base, ADR-086) */
+    put: operations['setCategoryBase']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/holidays': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Days off between two years
+     * @description The years with an imported calendar, and the days of those years
+     *     that differ from "Saturdays and Sundays are off" or carry a note.
+     *     Days of other years follow the weekend rule.
+     */
+    get: operations['getHolidays']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/holidays/years': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** The imported years */
+    get: operations['listHolidayYears']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/holidays/import': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Import the government's office calendar from a URL or a CSV text
+     * @description The official CSV (西元日期,星期,是否放假,備註; UTF-8 with or without
+     *     BOM; 2 = off, 0 = working). Every year in it is replaced. A URL is
+     *     fetched by the server (http or https, at most 1 MB) and kept so the
+     *     year can be fetched again.
+     */
+    post: operations['importHolidays']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/holidays/years/{year}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        year: number
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /** Forget a year (its days follow the weekend rule again) */
+    delete: operations['deleteHolidayYear']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
 }
 export type webhooks = Record<string, never>
 export interface components {
@@ -852,6 +1083,12 @@ export interface components {
       envelopes: components['schemas']['EnvelopeMonth'][]
       /** @description Income recorded in the month per income category (only those with any). */
       incomes: components['schemas']['IncomeMonth'][]
+      /**
+       * @description The month's target of every envelope that has one: its base plus
+       *     what the schedules it covers ask for (ADR-086), keyed by the
+       *     envelope (a pooled parent for its subcategories' schedules).
+       */
+      targets: components['schemas']['EnvelopeTarget'][]
     }
     IncomeMonth: {
       /** Format: uuid */
@@ -941,6 +1178,11 @@ export interface components {
       /** Format: int32 */
       sortOrder: number
       archived: boolean
+      /**
+       * Format: int64
+       * @description The envelope's base amount per month (ADR-086).
+       */
+      budgetBase: number | null
     }
     CategoryCreate: {
       /** Format: uuid */
@@ -1040,6 +1282,7 @@ export interface components {
       payee: string
       note: string
       entries: components['schemas']['EntryInput'][]
+      occurrence?: components['schemas']['ScheduledOccurrence']
     }
     TransactionBatch: {
       upserts: components['schemas']['TransactionInput'][]
@@ -1065,6 +1308,179 @@ export interface components {
     }
     BatchErrors: {
       errors: components['schemas']['BatchProblem'][]
+    }
+    /**
+     * @description Moving an occurrence that falls on a day off (ADR-087).
+     * @enum {string}
+     */
+    HolidayShift: 'noShift' | 'nextWorkday' | 'prevWorkday'
+    /**
+     * @description How the schedule counts in its envelope's target (ADR-086): not at
+     *     all, the sum of its occurrences in their month, or each occurrence
+     *     spread over the months before it.
+     * @enum {string}
+     */
+    BudgetMode: 'notBudgeted' | 'full' | 'spread'
+    ScheduleInput: {
+      /** Format: uuid */
+      id: string
+      /** @description The rule as the user wrote it (每月 5 日), shown back as written. */
+      source: string
+      /** @description iCalendar RRULE without DTSTART, e.g. FREQ=MONTHLY;BYMONTHDAY=5. */
+      rule: string
+      /**
+       * Format: date
+       * @description DTSTART; the first occurrence is the first date the rule gives from here.
+       */
+      start: string
+      holidayShift: components['schemas']['HolidayShift']
+      payee: string
+      note: string
+      /** Format: uuid */
+      accountId: string
+      /**
+       * Format: uuid
+       * @description The other account of a transfer; then categoryId is null.
+       */
+      transferAccountId: string | null
+      /** Format: uuid */
+      categoryId: string | null
+      /**
+       * Format: int64
+       * @description Change in the account's balance per occurrence (negative = spent).
+       */
+      amount: number
+      /** @description The amount is a guess; posted transactions need review. */
+      estimate: boolean
+      budgetMode: components['schemas']['BudgetMode']
+      paused: boolean
+    }
+    Schedule: components['schemas']['ScheduleInput'] & {
+      /**
+       * Format: date
+       * @description The next occurrence not yet posted, as the rule gives it; null once the rule has ended.
+       */
+      nextOccurrence: string | null
+      /**
+       * Format: date
+       * @description The date it will be posted on, after moving off days off.
+       */
+      nextDate: string | null
+      skips: string[]
+    }
+    ScheduleBatch: {
+      upserts: components['schemas']['ScheduleInput'][]
+      deletes: string[]
+    }
+    ScheduleBatchSaved: {
+      /** Format: int32 */
+      upserted: number
+      /** Format: int32 */
+      deleted: number
+      /**
+       * Format: int32
+       * @description Occurrences that were due and got posted.
+       */
+      posted: number
+    }
+    Occurrence: {
+      /** Format: uuid */
+      scheduleId: string
+      /**
+       * Format: date
+       * @description The date the rule gives; identifies the occurrence.
+       */
+      occurrence: string
+      /**
+       * Format: date
+       * @description The date it is posted on.
+       */
+      date: string
+      payee: string
+      note: string
+      /** Format: uuid */
+      accountId: string
+      /** Format: uuid */
+      transferAccountId: string | null
+      /** Format: uuid */
+      categoryId: string | null
+      /** Format: int64 */
+      amount: number
+      estimate: boolean
+    }
+    OccurrenceRef: {
+      /** Format: date */
+      occurrence: string
+    }
+    Posted: {
+      /** Format: uuid */
+      transactionId: string
+    }
+    /** @description The schedule occurrence a new transaction posts (an edited 預定 row). */
+    ScheduledOccurrence: {
+      /** Format: uuid */
+      scheduleId: string
+      /** Format: date */
+      occurrence: string
+    }
+    CategoryBase: {
+      /**
+       * Format: int64
+       * @description Base amount per month; 0 removes it.
+       */
+      amount: number
+    }
+    EnvelopeTarget: {
+      /**
+       * Format: uuid
+       * @description The envelope.
+       */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description base plus the schedules' amounts.
+       */
+      total: number
+      /** Format: int64 */
+      base: number | null
+      schedules: components['schemas']['ScheduleShare'][]
+    }
+    ScheduleShare: {
+      /** Format: uuid */
+      scheduleId: string
+      /**
+       * Format: int64
+       * @description What the schedule asks of the envelope this month (spending is positive).
+       */
+      amount: number
+    }
+    HolidayCalendar: {
+      /** @description Years with an imported calendar. */
+      years: number[]
+      days: components['schemas']['Holiday'][]
+    }
+    Holiday: {
+      /** Format: date */
+      date: string
+      off: boolean
+      note: string
+    }
+    HolidayYear: {
+      /** Format: int32 */
+      year: number
+      /** @description Where it was fetched from; empty when imported from a file. */
+      sourceUrl: string
+      /** Format: int32 */
+      days: number
+      /** Format: int32 */
+      daysOff: number
+      /** Format: date-time */
+      importedAt: string
+      importedBy: string | null
+    }
+    HolidayImport: {
+      url?: string
+      csv?: string
     }
   }
   responses: {
@@ -1137,6 +1553,7 @@ export interface components {
     Month: string
     AccountId: string
     PayeeId: string
+    ScheduleId: string
     CategoryId: string
     Id: string
     ProviderCode: string
@@ -2188,6 +2605,299 @@ export interface operations {
           'application/json': components['schemas']['BatchErrors']
         }
       }
+    }
+  }
+  listSchedules: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Schedules */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Schedule'][]
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  saveSchedules: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ScheduleBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ScheduleBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      /** @description Nothing was saved; the schedules listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
+    }
+  }
+  listUpcoming: {
+    parameters: {
+      query: {
+        until: string
+      }
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Occurrences */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Occurrence'][]
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  skipOccurrence: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        scheduleId: components['parameters']['ScheduleId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OccurrenceRef']
+      }
+    }
+    responses: {
+      /** @description Skipped */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  unskipOccurrence: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        scheduleId: components['parameters']['ScheduleId']
+        occurrence: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Brought back */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  postOccurrence: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        scheduleId: components['parameters']['ScheduleId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OccurrenceRef']
+      }
+    }
+    responses: {
+      /** @description Posted */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Posted']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  setCategoryBase: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        categoryId: components['parameters']['CategoryId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CategoryBase']
+      }
+    }
+    responses: {
+      /** @description Set */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  getHolidays: {
+    parameters: {
+      query: {
+        from: number
+        to: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description The calendar */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HolidayCalendar']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+    }
+  }
+  listHolidayYears: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Years */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HolidayYear'][]
+        }
+      }
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+    }
+  }
+  importHolidays: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['HolidayImport']
+      }
+    }
+    responses: {
+      /** @description The years imported */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HolidayYear'][]
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+    }
+  }
+  deleteHolidayYear: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        year: number
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
     }
   }
 }

@@ -36,6 +36,7 @@ function cat(
     isSystem: false,
     archived: false,
     sortOrder: 0,
+    budgetBase: null,
     ...extra,
   }
 }

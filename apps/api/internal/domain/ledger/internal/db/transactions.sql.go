@@ -354,6 +354,27 @@ func (q *Queries) ListScopeTransactions(ctx context.Context, arg ListScopeTransa
 	return items, nil
 }
 
+const setTransactionOccurrence = `-- name: SetTransactionOccurrence :execrows
+update transactions set schedule_id = $2, occurrence_date = $3
+ where id = $1 and schedule_id is null
+`
+
+type SetTransactionOccurrenceParams struct {
+	ID             uuid.UUID
+	ScheduleID     uuid.NullUUID
+	OccurrenceDate pgtype.Date
+}
+
+// Links a transaction to the schedule occurrence it posts (an edited 預定
+// row, ADR-085), unless it already belongs to one.
+func (q *Queries) SetTransactionOccurrence(ctx context.Context, arg SetTransactionOccurrenceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setTransactionOccurrence, arg.ID, arg.ScheduleID, arg.OccurrenceDate)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const upsertPayee = `-- name: UpsertPayee :one
 insert into payees (budget_id, name) values ($1, $2)
 on conflict (budget_id, name) do update set name = excluded.name

@@ -89,7 +89,7 @@ func (q *Queries) DeleteCategory(ctx context.Context, arg DeleteCategoryParams) 
 }
 
 const getCategory = `-- name: GetCategory :one
-select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived
+select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived, budget_base
   from categories
  where budget_id = $1 and id = $2
 `
@@ -100,14 +100,15 @@ type GetCategoryParams struct {
 }
 
 type GetCategoryRow struct {
-	ID        uuid.UUID
-	ParentID  uuid.NullUUID
-	Name      string
-	Kind      CategoryKind
-	Pooled    bool
-	IsSystem  bool
-	SortOrder int32
-	Archived  bool
+	ID         uuid.UUID
+	ParentID   uuid.NullUUID
+	Name       string
+	Kind       CategoryKind
+	Pooled     bool
+	IsSystem   bool
+	SortOrder  int32
+	Archived   bool
+	BudgetBase pgtype.Int8
 }
 
 func (q *Queries) GetCategory(ctx context.Context, arg GetCategoryParams) (GetCategoryRow, error) {
@@ -122,6 +123,7 @@ func (q *Queries) GetCategory(ctx context.Context, arg GetCategoryParams) (GetCa
 		&i.IsSystem,
 		&i.SortOrder,
 		&i.Archived,
+		&i.BudgetBase,
 	)
 	return i, err
 }
@@ -143,21 +145,22 @@ func (q *Queries) GetSystemCategory(ctx context.Context, arg GetSystemCategoryPa
 }
 
 const listCategories = `-- name: ListCategories :many
-select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived
+select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived, budget_base
   from categories
  where budget_id = $1
  order by is_system, sort_order, name
 `
 
 type ListCategoriesRow struct {
-	ID        uuid.UUID
-	ParentID  uuid.NullUUID
-	Name      string
-	Kind      CategoryKind
-	Pooled    bool
-	IsSystem  bool
-	SortOrder int32
-	Archived  bool
+	ID         uuid.UUID
+	ParentID   uuid.NullUUID
+	Name       string
+	Kind       CategoryKind
+	Pooled     bool
+	IsSystem   bool
+	SortOrder  int32
+	Archived   bool
+	BudgetBase pgtype.Int8
 }
 
 func (q *Queries) ListCategories(ctx context.Context, budgetID uuid.UUID) ([]ListCategoriesRow, error) {
@@ -178,6 +181,7 @@ func (q *Queries) ListCategories(ctx context.Context, budgetID uuid.UUID) ([]Lis
 			&i.IsSystem,
 			&i.SortOrder,
 			&i.Archived,
+			&i.BudgetBase,
 		); err != nil {
 			return nil, err
 		}

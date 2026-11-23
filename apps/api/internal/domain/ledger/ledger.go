@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -59,12 +60,18 @@ var ErrNotMember = errors.New("not a member of this budget")
 type Service struct {
 	pool *pgxpool.Pool
 	q    *db.Queries
+	cal  Calendar
+	now  func() time.Time
 }
 
-// New builds the service on the app database.
-func New(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool, q: db.New(pool)}
+// New builds the service on the app database; cal says which days are off
+// for schedules (ADR-087).
+func New(pool *pgxpool.Pool, cal Calendar) *Service {
+	return &Service{pool: pool, q: db.New(pool), cal: cal, now: time.Now}
 }
+
+// SetClock replaces the clock that says what day it is (tests).
+func (s *Service) SetClock(now func() time.Time) { s.now = now }
 
 // Handlers are the domain's API operations.
 type Handlers struct{ s *Service }

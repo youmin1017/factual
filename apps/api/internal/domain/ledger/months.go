@@ -58,8 +58,13 @@ func (h *Handlers) GetBudgetMonth(ctx context.Context, req api.GetBudgetMonthReq
 	for _, r := range incomeRows {
 		incomes = append(incomes, api.IncomeMonth{CategoryId: r.CategoryID.UUID, Received: r.Received})
 	}
+	targets, err := h.s.monthTargets(ctx, req.BudgetId, month)
+	if err != nil {
+		return nil, err
+	}
 	return api.GetBudgetMonth200JSONResponse{
 		Month: month.Format("2006-01"), Pool: pool, Income: income, Envelopes: envelopes, Incomes: incomes,
+		Targets: targets,
 	}, nil
 }
 

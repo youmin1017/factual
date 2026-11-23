@@ -1,11 +1,11 @@
 -- name: ListCategories :many
-select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived
+select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived, budget_base
   from categories
  where budget_id = $1
  order by is_system, sort_order, name;
 
 -- name: GetCategory :one
-select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived
+select id, parent_id, name, kind, pooled, is_system, sort_order, (archived_at is not null)::boolean as archived, budget_base
   from categories
  where budget_id = $1 and id = $2;
 

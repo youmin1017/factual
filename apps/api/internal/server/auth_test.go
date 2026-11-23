@@ -23,6 +23,7 @@ import (
 	"factual/apps/api/internal/api"
 	"factual/apps/api/internal/config"
 	"factual/apps/api/internal/database/dbtest"
+	"factual/apps/api/internal/domain/calendar"
 	"factual/apps/api/internal/domain/identity"
 	"factual/apps/api/internal/domain/ledger"
 	"factual/apps/api/internal/secretbox"
@@ -37,10 +38,14 @@ const (
 	adminPassword = "admin-password"
 )
 
+// testToday is what day it is for the ledger in these tests.
+var testToday = time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+
 type harness struct {
-	t    *testing.T
-	h    http.Handler
-	pool *pgxpool.Pool
+	t      *testing.T
+	h      http.Handler
+	pool   *pgxpool.Pool
+	ledger *ledger.Service
 }
 
 func newHarness(t *testing.T) *harness {
@@ -64,11 +69,14 @@ func newHarness(t *testing.T) *harness {
 	if err != nil || !created {
 		t.Fatalf("bootstrap admin: created=%v err=%v", created, err)
 	}
-	e, err := New(Deps{DB: pool, Identity: svc, Ledger: ledger.New(pool)})
+	cal := calendar.New(pool)
+	led := ledger.New(pool, cal)
+	led.SetClock(func() time.Time { return testToday })
+	e, err := New(Deps{DB: pool, Identity: svc, Ledger: led, Calendar: cal})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &harness{t: t, h: e, pool: pool}
+	return &harness{t: t, h: e, pool: pool, ledger: led}
 }
 
 // addUser inserts a user who can log in with password.

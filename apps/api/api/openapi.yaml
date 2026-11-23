@@ -17,6 +17,7 @@ tags:
   - name: system
   - name: auth
   - name: ledger
+  - name: calendar
 paths:
   /healthz:
     get:
@@ -953,6 +954,310 @@ paths:
               schema:
                 $ref: '#/components/schemas/BatchErrors'
 
+  # --- Schedules (M9, ADR-084..086)
+  /budgets/{budgetId}/schedules:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: listSchedules
+      tags: [ledger]
+      summary: The budget's schedules, oldest first
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Schedule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/schedules/batch:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    post:
+      operationId: saveSchedules
+      tags: [ledger]
+      summary: Apply the schedules page's buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated schedule id. Editing a
+        schedule changes every occurrence not yet posted; posted ones stay as
+        they are. Occurrences of the saved schedules that are already due are
+        posted before the response (ADR-085). All or nothing, with problems
+        reported per schedule (ADR-044).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleBatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Nothing was saved; the schedules listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
+  /budgets/{budgetId}/schedules/upcoming:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    get:
+      operationId: listUpcoming
+      tags: [ledger]
+      summary: Occurrences not yet posted, up to a date (預定 rows, ADR-085)
+      description: |
+        Every occurrence of an active schedule that is neither posted nor
+        skipped and is posted on or before `until` (after moving off days
+        off), earliest first.
+      x-auth: authenticated
+      x-budget: read
+      parameters:
+        - name: until
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Occurrences
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Occurrence'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/schedules/{scheduleId}/skips:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/ScheduleId'
+    post:
+      operationId: skipOccurrence
+      tags: [ledger]
+      summary: Skip one occurrence (:skip)
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OccurrenceRef'
+      responses:
+        '204':
+          description: Skipped
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /budgets/{budgetId}/schedules/{scheduleId}/skips/{occurrence}:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/ScheduleId'
+      - name: occurrence
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+    delete:
+      operationId: unskipOccurrence
+      tags: [ledger]
+      summary: Bring a skipped occurrence back (:unskip)
+      x-auth: authenticated
+      x-budget: write
+      responses:
+        '204':
+          description: Brought back
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/schedules/{scheduleId}/post:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/ScheduleId'
+    post:
+      operationId: postOccurrence
+      tags: [ledger]
+      summary: Post one occurrence now, as it is (:post)
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OccurrenceRef'
+      responses:
+        '200':
+          description: Posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Posted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /budgets/{budgetId}/categories/{categoryId}/base:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/CategoryId'
+    put:
+      operationId: setCategoryBase
+      tags: [ledger]
+      summary: Set an envelope's base amount per month (:base, ADR-086)
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryBase'
+      responses:
+        '204':
+          description: Set
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # --- Days off (ADR-087)
+  /holidays:
+    get:
+      operationId: getHolidays
+      tags: [calendar]
+      summary: Days off between two years
+      description: |
+        The years with an imported calendar, and the days of those years
+        that differ from "Saturdays and Sundays are off" or carry a note.
+        Days of other years follow the weekend rule.
+      x-auth: authenticated
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int32
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: The calendar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HolidayCalendar'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /holidays/years:
+    get:
+      operationId: listHolidayYears
+      tags: [calendar]
+      summary: The imported years
+      x-auth: admin
+      responses:
+        '200':
+          description: Years
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HolidayYear'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /holidays/import:
+    post:
+      operationId: importHolidays
+      tags: [calendar]
+      summary: Import the government's office calendar from a URL or a CSV text
+      description: |
+        The official CSV (西元日期,星期,是否放假,備註; UTF-8 with or without
+        BOM; 2 = off, 0 = working). Every year in it is replaced. A URL is
+        fetched by the server (http or https, at most 1 MB) and kept so the
+        year can be fetched again.
+      x-auth: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HolidayImport'
+      responses:
+        '200':
+          description: The years imported
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HolidayYear'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /holidays/years/{year}:
+    parameters:
+      - name: year
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+    delete:
+      operationId: deleteHolidayYear
+      tags: [calendar]
+      summary: Forget a year (its days follow the weekend rule again)
+      x-auth: admin
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   parameters:
     BudgetId:
@@ -979,6 +1284,13 @@ components:
         format: uuid
     PayeeId:
       name: payeeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ScheduleId:
+      name: scheduleId
       in: path
       required: true
       schema:
@@ -1273,7 +1585,7 @@ components:
           description: Sum of the tracking (off-budget) accounts.
     BudgetMonth:
       type: object
-      required: [month, pool, income, envelopes, incomes]
+      required: [month, pool, income, envelopes, incomes, targets]
       properties:
         month:
           type: string
@@ -1295,6 +1607,14 @@ components:
           description: Income recorded in the month per income category (only those with any).
           items:
             $ref: '#/components/schemas/IncomeMonth'
+        targets:
+          type: array
+          description: |
+            The month's target of every envelope that has one: its base plus
+            what the schedules it covers ask for (ADR-086), keyed by the
+            envelope (a pooled parent for its subcategories' schedules).
+          items:
+            $ref: '#/components/schemas/EnvelopeTarget'
     IncomeMonth:
       type: object
       required: [categoryId, received]
@@ -1413,7 +1733,7 @@ components:
       enum: [expense, income]
     Category:
       type: object
-      required: [id, parentId, name, kind, pooled, isSystem, sortOrder, archived]
+      required: [id, parentId, name, kind, pooled, isSystem, sortOrder, archived, budgetBase]
       properties:
         id:
           type: string
@@ -1437,6 +1757,11 @@ components:
           format: int32
         archived:
           type: boolean
+        budgetBase:
+          type: integer
+          format: int64
+          nullable: true
+          description: The envelope's base amount per month (ADR-086).
     CategoryCreate:
       type: object
       required: [parentId, name, kind]
@@ -1625,6 +1950,8 @@ components:
           maxItems: 50
           items:
             $ref: '#/components/schemas/EntryInput'
+        occurrence:
+          $ref: '#/components/schemas/ScheduledOccurrence'
     TransactionBatch:
       type: object
       required: [upserts, deletes]
@@ -1674,6 +2001,274 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BatchProblem'
+    HolidayShift:
+      type: string
+      enum: [noShift, nextWorkday, prevWorkday]
+      description: Moving an occurrence that falls on a day off (ADR-087).
+    BudgetMode:
+      type: string
+      enum: [notBudgeted, full, spread]
+      description: |
+        How the schedule counts in its envelope's target (ADR-086): not at
+        all, the sum of its occurrences in their month, or each occurrence
+        spread over the months before it.
+    ScheduleInput:
+      type: object
+      required: [id, source, rule, start, holidayShift, payee, note, accountId, transferAccountId, categoryId, amount, estimate, budgetMode, paused]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          maxLength: 100
+          description: The rule as the user wrote it (每月 5 日), shown back as written.
+        rule:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: iCalendar RRULE without DTSTART, e.g. FREQ=MONTHLY;BYMONTHDAY=5.
+        start:
+          type: string
+          format: date
+          description: DTSTART; the first occurrence is the first date the rule gives from here.
+        holidayShift:
+          $ref: '#/components/schemas/HolidayShift'
+        payee:
+          type: string
+          maxLength: 64
+        note:
+          type: string
+          maxLength: 255
+        accountId:
+          type: string
+          format: uuid
+        transferAccountId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The other account of a transfer; then categoryId is null.
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        amount:
+          type: integer
+          format: int64
+          description: Change in the account's balance per occurrence (negative = spent).
+        estimate:
+          type: boolean
+          description: The amount is a guess; posted transactions need review.
+        budgetMode:
+          $ref: '#/components/schemas/BudgetMode'
+        paused:
+          type: boolean
+    Schedule:
+      allOf:
+        - $ref: '#/components/schemas/ScheduleInput'
+        - type: object
+          required: [nextOccurrence, nextDate, skips]
+          properties:
+            nextOccurrence:
+              type: string
+              format: date
+              nullable: true
+              description: The next occurrence not yet posted, as the rule gives it; null once the rule has ended.
+            nextDate:
+              type: string
+              format: date
+              nullable: true
+              description: The date it will be posted on, after moving off days off.
+            skips:
+              type: array
+              items:
+                type: string
+                format: date
+    ScheduleBatch:
+      type: object
+      required: [upserts, deletes]
+      properties:
+        upserts:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/ScheduleInput'
+        deletes:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+    ScheduleBatchSaved:
+      type: object
+      required: [upserted, deleted, posted]
+      properties:
+        upserted:
+          type: integer
+          format: int32
+        deleted:
+          type: integer
+          format: int32
+        posted:
+          type: integer
+          format: int32
+          description: Occurrences that were due and got posted.
+    Occurrence:
+      type: object
+      required: [scheduleId, occurrence, date, payee, note, accountId, transferAccountId, categoryId, amount, estimate]
+      properties:
+        scheduleId:
+          type: string
+          format: uuid
+        occurrence:
+          type: string
+          format: date
+          description: The date the rule gives; identifies the occurrence.
+        date:
+          type: string
+          format: date
+          description: The date it is posted on.
+        payee:
+          type: string
+        note:
+          type: string
+        accountId:
+          type: string
+          format: uuid
+        transferAccountId:
+          type: string
+          format: uuid
+          nullable: true
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        amount:
+          type: integer
+          format: int64
+        estimate:
+          type: boolean
+    OccurrenceRef:
+      type: object
+      required: [occurrence]
+      properties:
+        occurrence:
+          type: string
+          format: date
+    Posted:
+      type: object
+      required: [transactionId]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+    ScheduledOccurrence:
+      type: object
+      required: [scheduleId, occurrence]
+      description: The schedule occurrence a new transaction posts (an edited 預定 row).
+      properties:
+        scheduleId:
+          type: string
+          format: uuid
+        occurrence:
+          type: string
+          format: date
+    CategoryBase:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Base amount per month; 0 removes it.
+    EnvelopeTarget:
+      type: object
+      required: [categoryId, total, base, schedules]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+          description: The envelope.
+        total:
+          type: integer
+          format: int64
+          description: base plus the schedules' amounts.
+        base:
+          type: integer
+          format: int64
+          nullable: true
+        schedules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleShare'
+    ScheduleShare:
+      type: object
+      required: [scheduleId, amount]
+      properties:
+        scheduleId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          format: int64
+          description: What the schedule asks of the envelope this month (spending is positive).
+    HolidayCalendar:
+      type: object
+      required: [years, days]
+      properties:
+        years:
+          type: array
+          description: Years with an imported calendar.
+          items:
+            type: integer
+            format: int32
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/Holiday'
+    Holiday:
+      type: object
+      required: [date, off, note]
+      properties:
+        date:
+          type: string
+          format: date
+        off:
+          type: boolean
+        note:
+          type: string
+    HolidayYear:
+      type: object
+      required: [year, sourceUrl, days, daysOff, importedAt, importedBy]
+      properties:
+        year:
+          type: integer
+          format: int32
+        sourceUrl:
+          type: string
+          description: Where it was fetched from; empty when imported from a file.
+        days:
+          type: integer
+          format: int32
+        daysOff:
+          type: integer
+          format: int32
+        importedAt:
+          type: string
+          format: date-time
+        importedBy:
+          type: string
+          nullable: true
+    HolidayImport:
+      type: object
+      properties:
+        url:
+          type: string
+          maxLength: 2000
+        csv:
+          type: string
+          maxLength: 1000000
   responses:
     Redirect:
       description: Redirect

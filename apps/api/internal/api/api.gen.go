@@ -49,6 +49,27 @@ func (e AccountKind) Valid() bool {
 	}
 }
 
+// Defines values for BudgetMode.
+const (
+	Full        BudgetMode = "full"
+	NotBudgeted BudgetMode = "notBudgeted"
+	Spread      BudgetMode = "spread"
+)
+
+// Valid indicates whether the value is a known member of the BudgetMode enum.
+func (e BudgetMode) Valid() bool {
+	switch e {
+	case Full:
+		return true
+	case NotBudgeted:
+		return true
+	case Spread:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BudgetRole.
 const (
 	Editor BudgetRole = "editor"
@@ -121,6 +142,27 @@ func (e HealthStatus) Valid() bool {
 	case Degraded:
 		return true
 	case Ok:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HolidayShift.
+const (
+	NextWorkday HolidayShift = "nextWorkday"
+	NoShift     HolidayShift = "noShift"
+	PrevWorkday HolidayShift = "prevWorkday"
+)
+
+// Valid indicates whether the value is a known member of the HolidayShift enum.
+func (e HolidayShift) Valid() bool {
+	switch e {
+	case NextWorkday:
+		return true
+	case NoShift:
+		return true
+	case PrevWorkday:
 		return true
 	default:
 		return false
@@ -247,6 +289,11 @@ type BudgetCreate struct {
 	StarterCategories bool `json:"starterCategories"`
 }
 
+// BudgetMode How the schedule counts in its envelope's target (ADR-086): not at
+// all, the sum of its occurrences in their month, or each occurrence
+// spread over the months before it.
+type BudgetMode string
+
 // BudgetMonth defines model for BudgetMonth.
 type BudgetMonth struct {
 	Envelopes []EnvelopeMonth `json:"envelopes"`
@@ -262,6 +309,11 @@ type BudgetMonth struct {
 
 	// Pool Money not given to any envelope in any month (ADR-025).
 	Pool int64 `json:"pool"`
+
+	// Targets The month's target of every envelope that has one: its base plus
+	// what the schedules it covers ask for (ADR-086), keyed by the
+	// envelope (a pooled parent for its subcategories' schedules).
+	Targets []EnvelopeTarget `json:"targets"`
 }
 
 // BudgetRole defines model for BudgetRole.
@@ -291,8 +343,11 @@ type BudgetUpdate struct {
 
 // Category defines model for Category.
 type Category struct {
-	Archived bool               `json:"archived"`
-	Id       openapi_types.UUID `json:"id"`
+	Archived bool `json:"archived"`
+
+	// BudgetBase The envelope's base amount per month (ADR-086).
+	BudgetBase *int64             `json:"budgetBase"`
+	Id         openapi_types.UUID `json:"id"`
 
 	// IsSystem Created by the app (e.g. opening balances); cannot be changed.
 	IsSystem bool                `json:"isSystem"`
@@ -303,6 +358,12 @@ type Category struct {
 	// Pooled The subcategories share this category's budget (its envelope).
 	Pooled    bool  `json:"pooled"`
 	SortOrder int32 `json:"sortOrder"`
+}
+
+// CategoryBase defines model for CategoryBase.
+type CategoryBase struct {
+	// Amount Base amount per month; 0 removes it.
+	Amount int64 `json:"amount"`
 }
 
 // CategoryCreate defines model for CategoryCreate.
@@ -394,6 +455,18 @@ type EnvelopeMonth struct {
 	CategoryId openapi_types.UUID `json:"categoryId"`
 }
 
+// EnvelopeTarget defines model for EnvelopeTarget.
+type EnvelopeTarget struct {
+	Base *int64 `json:"base"`
+
+	// CategoryId The envelope.
+	CategoryId openapi_types.UUID `json:"categoryId"`
+	Schedules  []ScheduleShare    `json:"schedules"`
+
+	// Total base plus the schedules' amounts.
+	Total int64 `json:"total"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code Stable machine-readable code, e.g. `not_found`, `unauthorized`.
@@ -411,6 +484,42 @@ type Health struct {
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// Holiday defines model for Holiday.
+type Holiday struct {
+	Date openapi_types.Date `json:"date"`
+	Note string             `json:"note"`
+	Off  bool               `json:"off"`
+}
+
+// HolidayCalendar defines model for HolidayCalendar.
+type HolidayCalendar struct {
+	Days []Holiday `json:"days"`
+
+	// Years Years with an imported calendar.
+	Years []int32 `json:"years"`
+}
+
+// HolidayImport defines model for HolidayImport.
+type HolidayImport struct {
+	Csv *string `json:"csv,omitempty"`
+	Url *string `json:"url,omitempty"`
+}
+
+// HolidayShift Moving an occurrence that falls on a day off (ADR-087).
+type HolidayShift string
+
+// HolidayYear defines model for HolidayYear.
+type HolidayYear struct {
+	Days       int32     `json:"days"`
+	DaysOff    int32     `json:"daysOff"`
+	ImportedAt time.Time `json:"importedAt"`
+	ImportedBy *string   `json:"importedBy"`
+
+	// SourceUrl Where it was fetched from; empty when imported from a file.
+	SourceUrl string `json:"sourceUrl"`
+	Year      int32  `json:"year"`
+}
 
 // IncomeMonth defines model for IncomeMonth.
 type IncomeMonth struct {
@@ -438,6 +547,29 @@ type LoginProvider struct {
 type LoginRequest struct {
 	Password string `json:"password"`
 	Username string `json:"username"`
+}
+
+// Occurrence defines model for Occurrence.
+type Occurrence struct {
+	AccountId  openapi_types.UUID  `json:"accountId"`
+	Amount     int64               `json:"amount"`
+	CategoryId *openapi_types.UUID `json:"categoryId"`
+
+	// Date The date it is posted on.
+	Date     openapi_types.Date `json:"date"`
+	Estimate bool               `json:"estimate"`
+	Note     string             `json:"note"`
+
+	// Occurrence The date the rule gives; identifies the occurrence.
+	Occurrence        openapi_types.Date  `json:"occurrence"`
+	Payee             string              `json:"payee"`
+	ScheduleId        openapi_types.UUID  `json:"scheduleId"`
+	TransferAccountId *openapi_types.UUID `json:"transferAccountId"`
+}
+
+// OccurrenceRef defines model for OccurrenceRef.
+type OccurrenceRef struct {
+	Occurrence openapi_types.Date `json:"occurrence"`
 }
 
 // OidcProvider defines model for OidcProvider.
@@ -505,6 +637,11 @@ type PayeeUpdate struct {
 	Name string `json:"name"`
 }
 
+// Posted defines model for Posted.
+type Posted struct {
+	TransactionId openapi_types.UUID `json:"transactionId"`
+}
+
 // Preferences defines model for Preferences.
 type Preferences struct {
 	// EditorKeymap Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
@@ -519,6 +656,113 @@ type RegisterScope string
 // Reorder defines model for Reorder.
 type Reorder struct {
 	Ids []openapi_types.UUID `json:"ids"`
+}
+
+// Schedule defines model for Schedule.
+type Schedule struct {
+	AccountId openapi_types.UUID `json:"accountId"`
+
+	// Amount Change in the account's balance per occurrence (negative = spent).
+	Amount int64 `json:"amount"`
+
+	// BudgetMode How the schedule counts in its envelope's target (ADR-086): not at
+	// all, the sum of its occurrences in their month, or each occurrence
+	// spread over the months before it.
+	BudgetMode BudgetMode          `json:"budgetMode"`
+	CategoryId *openapi_types.UUID `json:"categoryId"`
+
+	// Estimate The amount is a guess; posted transactions need review.
+	Estimate bool `json:"estimate"`
+
+	// HolidayShift Moving an occurrence that falls on a day off (ADR-087).
+	HolidayShift HolidayShift       `json:"holidayShift"`
+	Id           openapi_types.UUID `json:"id"`
+
+	// NextDate The date it will be posted on, after moving off days off.
+	NextDate *openapi_types.Date `json:"nextDate"`
+
+	// NextOccurrence The next occurrence not yet posted, as the rule gives it; null once the rule has ended.
+	NextOccurrence *openapi_types.Date `json:"nextOccurrence"`
+	Note           string              `json:"note"`
+	Paused         bool                `json:"paused"`
+	Payee          string              `json:"payee"`
+
+	// Rule iCalendar RRULE without DTSTART, e.g. FREQ=MONTHLY;BYMONTHDAY=5.
+	Rule  string               `json:"rule"`
+	Skips []openapi_types.Date `json:"skips"`
+
+	// Source The rule as the user wrote it (每月 5 日), shown back as written.
+	Source string `json:"source"`
+
+	// Start DTSTART; the first occurrence is the first date the rule gives from here.
+	Start openapi_types.Date `json:"start"`
+
+	// TransferAccountId The other account of a transfer; then categoryId is null.
+	TransferAccountId *openapi_types.UUID `json:"transferAccountId"`
+}
+
+// ScheduleBatch defines model for ScheduleBatch.
+type ScheduleBatch struct {
+	Deletes []openapi_types.UUID `json:"deletes"`
+	Upserts []ScheduleInput      `json:"upserts"`
+}
+
+// ScheduleBatchSaved defines model for ScheduleBatchSaved.
+type ScheduleBatchSaved struct {
+	Deleted int32 `json:"deleted"`
+
+	// Posted Occurrences that were due and got posted.
+	Posted   int32 `json:"posted"`
+	Upserted int32 `json:"upserted"`
+}
+
+// ScheduleInput defines model for ScheduleInput.
+type ScheduleInput struct {
+	AccountId openapi_types.UUID `json:"accountId"`
+
+	// Amount Change in the account's balance per occurrence (negative = spent).
+	Amount int64 `json:"amount"`
+
+	// BudgetMode How the schedule counts in its envelope's target (ADR-086): not at
+	// all, the sum of its occurrences in their month, or each occurrence
+	// spread over the months before it.
+	BudgetMode BudgetMode          `json:"budgetMode"`
+	CategoryId *openapi_types.UUID `json:"categoryId"`
+
+	// Estimate The amount is a guess; posted transactions need review.
+	Estimate bool `json:"estimate"`
+
+	// HolidayShift Moving an occurrence that falls on a day off (ADR-087).
+	HolidayShift HolidayShift       `json:"holidayShift"`
+	Id           openapi_types.UUID `json:"id"`
+	Note         string             `json:"note"`
+	Paused       bool               `json:"paused"`
+	Payee        string             `json:"payee"`
+
+	// Rule iCalendar RRULE without DTSTART, e.g. FREQ=MONTHLY;BYMONTHDAY=5.
+	Rule string `json:"rule"`
+
+	// Source The rule as the user wrote it (每月 5 日), shown back as written.
+	Source string `json:"source"`
+
+	// Start DTSTART; the first occurrence is the first date the rule gives from here.
+	Start openapi_types.Date `json:"start"`
+
+	// TransferAccountId The other account of a transfer; then categoryId is null.
+	TransferAccountId *openapi_types.UUID `json:"transferAccountId"`
+}
+
+// ScheduleShare defines model for ScheduleShare.
+type ScheduleShare struct {
+	// Amount What the schedule asks of the envelope this month (spending is positive).
+	Amount     int64              `json:"amount"`
+	ScheduleId openapi_types.UUID `json:"scheduleId"`
+}
+
+// ScheduledOccurrence The schedule occurrence a new transaction posts (an edited 預定 row).
+type ScheduledOccurrence struct {
+	Occurrence openapi_types.Date `json:"occurrence"`
+	ScheduleId openapi_types.UUID `json:"scheduleId"`
 }
 
 // Transaction defines model for Transaction.
@@ -548,6 +792,9 @@ type TransactionInput struct {
 	Id      openapi_types.UUID `json:"id"`
 	Note    string             `json:"note"`
 
+	// Occurrence The schedule occurrence a new transaction posts (an edited 預定 row).
+	Occurrence *ScheduledOccurrence `json:"occurrence,omitempty"`
+
 	// Payee Payee name; empty for none (e.g. a transfer). Created when it does not exist.
 	Payee string `json:"payee"`
 }
@@ -575,6 +822,9 @@ type ProviderCode = string
 
 // Redirect defines model for Redirect.
 type Redirect = string
+
+// ScheduleId defines model for ScheduleId.
+type ScheduleId = openapi_types.UUID
 
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
@@ -614,6 +864,17 @@ type GetScopeRegisterParams struct {
 	Scope RegisterScope `form:"scope" json:"scope"`
 }
 
+// ListUpcomingParams defines parameters for ListUpcoming.
+type ListUpcomingParams struct {
+	Until openapi_types.Date `form:"until" json:"until"`
+}
+
+// GetHolidaysParams defines parameters for GetHolidays.
+type GetHolidaysParams struct {
+	From int32 `form:"from" json:"from"`
+	To   int32 `form:"to" json:"to"`
+}
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -641,6 +902,9 @@ type ReorderCategoriesJSONRequestBody = Reorder
 // UpdateCategoryJSONRequestBody defines body for UpdateCategory for application/json ContentType.
 type UpdateCategoryJSONRequestBody = CategoryUpdate
 
+// SetCategoryBaseJSONRequestBody defines body for SetCategoryBase for application/json ContentType.
+type SetCategoryBaseJSONRequestBody = CategoryBase
+
 // MoveCategoryJSONRequestBody defines body for MoveCategory for application/json ContentType.
 type MoveCategoryJSONRequestBody = CategoryMove
 
@@ -653,8 +917,20 @@ type RenamePayeeJSONRequestBody = PayeeUpdate
 // MergePayeesJSONRequestBody defines body for MergePayees for application/json ContentType.
 type MergePayeesJSONRequestBody = PayeeMerge
 
+// SaveSchedulesJSONRequestBody defines body for SaveSchedules for application/json ContentType.
+type SaveSchedulesJSONRequestBody = ScheduleBatch
+
+// PostOccurrenceJSONRequestBody defines body for PostOccurrence for application/json ContentType.
+type PostOccurrenceJSONRequestBody = OccurrenceRef
+
+// SkipOccurrenceJSONRequestBody defines body for SkipOccurrence for application/json ContentType.
+type SkipOccurrenceJSONRequestBody = OccurrenceRef
+
 // SaveTransactionsJSONRequestBody defines body for SaveTransactions for application/json ContentType.
 type SaveTransactionsJSONRequestBody = TransactionBatch
+
+// ImportHolidaysJSONRequestBody defines body for ImportHolidays for application/json ContentType.
+type ImportHolidaysJSONRequestBody = HolidayImport
 
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = ChangePasswordRequest
@@ -733,6 +1009,9 @@ type ServerInterface interface {
 	// UpdateCategory Rename, archive, or share one envelope among the children
 	// (PUT /budgets/{budgetId}/categories/{categoryId})
 	UpdateCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
+	// SetCategoryBase Set an envelope's base amount per month (:base, ADR-086)
+	// (PUT /budgets/{budgetId}/categories/{categoryId}/base)
+	SetCategoryBase(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
 	// MoveCategory Move a category, with its subcategories, under another parent
 	// (POST /budgets/{budgetId}/categories/{categoryId}/move)
 	MoveCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error
@@ -757,6 +1036,24 @@ type ServerInterface interface {
 	// GetScopeRegister Transactions on a group of accounts, oldest first
 	// (GET /budgets/{budgetId}/register)
 	GetScopeRegister(ctx echo.Context, budgetId BudgetId, params GetScopeRegisterParams) error
+	// ListSchedules The budget's schedules, oldest first
+	// (GET /budgets/{budgetId}/schedules)
+	ListSchedules(ctx echo.Context, budgetId BudgetId) error
+	// SaveSchedules Apply the schedules page's buffer in one database transaction (:w)
+	// (POST /budgets/{budgetId}/schedules/batch)
+	SaveSchedules(ctx echo.Context, budgetId BudgetId) error
+	// ListUpcoming Occurrences not yet posted, up to a date (預定 rows, ADR-085)
+	// (GET /budgets/{budgetId}/schedules/upcoming)
+	ListUpcoming(ctx echo.Context, budgetId BudgetId, params ListUpcomingParams) error
+	// PostOccurrence Post one occurrence now, as it is (:post)
+	// (POST /budgets/{budgetId}/schedules/{scheduleId}/post)
+	PostOccurrence(ctx echo.Context, budgetId BudgetId, scheduleId ScheduleId) error
+	// SkipOccurrence Skip one occurrence (:skip)
+	// (POST /budgets/{budgetId}/schedules/{scheduleId}/skips)
+	SkipOccurrence(ctx echo.Context, budgetId BudgetId, scheduleId ScheduleId) error
+	// UnskipOccurrence Bring a skipped occurrence back (:unskip)
+	// (DELETE /budgets/{budgetId}/schedules/{scheduleId}/skips/{occurrence})
+	UnskipOccurrence(ctx echo.Context, budgetId BudgetId, scheduleId ScheduleId, occurrence openapi_types.Date) error
 	// GetBudgetSummary Totals of a budget
 	// (GET /budgets/{budgetId}/summary)
 	GetBudgetSummary(ctx echo.Context, budgetId BudgetId) error
@@ -766,6 +1063,18 @@ type ServerInterface interface {
 	// GetHealth Whether the API is up and can reach its database
 	// (GET /healthz)
 	GetHealth(ctx echo.Context) error
+	// GetHolidays Days off between two years
+	// (GET /holidays)
+	GetHolidays(ctx echo.Context, params GetHolidaysParams) error
+	// ImportHolidays Import the government's office calendar from a URL or a CSV text
+	// (POST /holidays/import)
+	ImportHolidays(ctx echo.Context) error
+	// ListHolidayYears The imported years
+	// (GET /holidays/years)
+	ListHolidayYears(ctx echo.Context) error
+	// DeleteHolidayYear Forget a year (its days follow the weekend rule again)
+	// (DELETE /holidays/years/{year})
+	DeleteHolidayYear(ctx echo.Context, year int32) error
 	// GetCurrentUser The logged-in user
 	// (GET /me)
 	GetCurrentUser(ctx echo.Context) error
@@ -1169,6 +1478,30 @@ func (w *ServerInterfaceWrapper) UpdateCategory(ctx echo.Context) error {
 	return err
 }
 
+// SetCategoryBase converts echo context to params.
+func (w *ServerInterfaceWrapper) SetCategoryBase(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "categoryId" -------------
+	var categoryId CategoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "categoryId", ctx.Param("categoryId"), &categoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter categoryId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.SetCategoryBase(ctx, budgetId, categoryId)
+	return err
+}
+
 // MoveCategory converts echo context to params.
 func (w *ServerInterfaceWrapper) MoveCategory(ctx echo.Context) error {
 	var err error
@@ -1354,6 +1687,143 @@ func (w *ServerInterfaceWrapper) GetScopeRegister(ctx echo.Context) error {
 	return err
 }
 
+// ListSchedules converts echo context to params.
+func (w *ServerInterfaceWrapper) ListSchedules(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListSchedules(ctx, budgetId)
+	return err
+}
+
+// SaveSchedules converts echo context to params.
+func (w *ServerInterfaceWrapper) SaveSchedules(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.SaveSchedules(ctx, budgetId)
+	return err
+}
+
+// ListUpcoming converts echo context to params.
+func (w *ServerInterfaceWrapper) ListUpcoming(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUpcomingParams
+	// ------------- Required query parameter "until" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "until", ctx.QueryParams(), &params.Until, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter until: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListUpcoming(ctx, budgetId, params)
+	return err
+}
+
+// PostOccurrence converts echo context to params.
+func (w *ServerInterfaceWrapper) PostOccurrence(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "scheduleId" -------------
+	var scheduleId ScheduleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scheduleId", ctx.Param("scheduleId"), &scheduleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter scheduleId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.PostOccurrence(ctx, budgetId, scheduleId)
+	return err
+}
+
+// SkipOccurrence converts echo context to params.
+func (w *ServerInterfaceWrapper) SkipOccurrence(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "scheduleId" -------------
+	var scheduleId ScheduleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scheduleId", ctx.Param("scheduleId"), &scheduleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter scheduleId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.SkipOccurrence(ctx, budgetId, scheduleId)
+	return err
+}
+
+// UnskipOccurrence converts echo context to params.
+func (w *ServerInterfaceWrapper) UnskipOccurrence(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "budgetId" -------------
+	var budgetId BudgetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "budgetId", ctx.Param("budgetId"), &budgetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter budgetId: %s", err))
+	}
+
+	// ------------- Path parameter "scheduleId" -------------
+	var scheduleId ScheduleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scheduleId", ctx.Param("scheduleId"), &scheduleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter scheduleId: %s", err))
+	}
+
+	// ------------- Path parameter "occurrence" -------------
+	var occurrence openapi_types.Date
+
+	err = runtime.BindStyledParameterWithOptions("simple", "occurrence", ctx.Param("occurrence"), &occurrence, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "date", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter occurrence: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.UnskipOccurrence(ctx, budgetId, scheduleId, occurrence)
+	return err
+}
+
 // GetBudgetSummary converts echo context to params.
 func (w *ServerInterfaceWrapper) GetBudgetSummary(ctx echo.Context) error {
 	var err error
@@ -1392,6 +1862,65 @@ func (w *ServerInterfaceWrapper) GetHealth(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.GetHealth(ctx)
+	return err
+}
+
+// GetHolidays converts echo context to params.
+func (w *ServerInterfaceWrapper) GetHolidays(ctx echo.Context) error {
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetHolidaysParams
+	// ------------- Required query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "from", ctx.QueryParams(), &params.From, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter from: %s", err))
+	}
+
+	// ------------- Required query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "to", ctx.QueryParams(), &params.To, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter to: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetHolidays(ctx, params)
+	return err
+}
+
+// ImportHolidays converts echo context to params.
+func (w *ServerInterfaceWrapper) ImportHolidays(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ImportHolidays(ctx)
+	return err
+}
+
+// ListHolidayYears converts echo context to params.
+func (w *ServerInterfaceWrapper) ListHolidayYears(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListHolidayYears(ctx)
+	return err
+}
+
+// DeleteHolidayYear converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteHolidayYear(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "year" -------------
+	var year int32
+
+	err = runtime.BindStyledParameterWithOptions("simple", "year", ctx.Param("year"), &year, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int32", ValueIsUnescaped: ctx.Request().URL.RawPath == ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter year: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeleteHolidayYear(ctx, year)
 	return err
 }
 
@@ -1595,6 +2124,17 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.PUT(options.BaseURL+"/budgets/:budgetId/payees/:payeeId", wrapper.RenamePayee, options.OperationMiddlewares["renamePayee"]...)
 	router.POST(options.BaseURL+"/budgets/:budgetId/payees/:payeeId/merge", wrapper.MergePayees, options.OperationMiddlewares["mergePayees"]...)
 	router.POST(options.BaseURL+"/budgets/:budgetId/transactions/batch", wrapper.SaveTransactions, options.OperationMiddlewares["saveTransactions"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/schedules", wrapper.ListSchedules, options.OperationMiddlewares["listSchedules"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/schedules/batch", wrapper.SaveSchedules, options.OperationMiddlewares["saveSchedules"]...)
+	router.GET(options.BaseURL+"/budgets/:budgetId/schedules/upcoming", wrapper.ListUpcoming, options.OperationMiddlewares["listUpcoming"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/schedules/:scheduleId/skips", wrapper.SkipOccurrence, options.OperationMiddlewares["skipOccurrence"]...)
+	router.DELETE(options.BaseURL+"/budgets/:budgetId/schedules/:scheduleId/skips/:occurrence", wrapper.UnskipOccurrence, options.OperationMiddlewares["unskipOccurrence"]...)
+	router.POST(options.BaseURL+"/budgets/:budgetId/schedules/:scheduleId/post", wrapper.PostOccurrence, options.OperationMiddlewares["postOccurrence"]...)
+	router.PUT(options.BaseURL+"/budgets/:budgetId/categories/:categoryId/base", wrapper.SetCategoryBase, options.OperationMiddlewares["setCategoryBase"]...)
+	router.GET(options.BaseURL+"/holidays", wrapper.GetHolidays, options.OperationMiddlewares["getHolidays"]...)
+	router.GET(options.BaseURL+"/holidays/years", wrapper.ListHolidayYears, options.OperationMiddlewares["listHolidayYears"]...)
+	router.POST(options.BaseURL+"/holidays/import", wrapper.ImportHolidays, options.OperationMiddlewares["importHolidays"]...)
+	router.DELETE(options.BaseURL+"/holidays/years/:year", wrapper.DeleteHolidayYear, options.OperationMiddlewares["deleteHolidayYear"]...)
 
 }
 
@@ -2555,6 +3095,52 @@ func (response UpdateCategory409JSONResponse) VisitUpdateCategoryResponse(w http
 	return err
 }
 
+type SetCategoryBaseRequestObject struct {
+	BudgetId   BudgetId   `json:"budgetId"`
+	CategoryId CategoryId `json:"categoryId"`
+	Body       *SetCategoryBaseJSONRequestBody
+}
+
+type SetCategoryBaseResponseObject interface {
+	VisitSetCategoryBaseResponse(w http.ResponseWriter) error
+}
+
+type SetCategoryBase204Response struct {
+}
+
+func (response SetCategoryBase204Response) VisitSetCategoryBaseResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetCategoryBase400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetCategoryBase400JSONResponse) VisitSetCategoryBaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCategoryBase404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetCategoryBase404JSONResponse) VisitSetCategoryBaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type MoveCategoryRequestObject struct {
 	BudgetId   BudgetId   `json:"budgetId"`
 	CategoryId CategoryId `json:"categoryId"`
@@ -2982,6 +3568,344 @@ func (response GetScopeRegister404JSONResponse) VisitGetScopeRegisterResponse(w 
 	return err
 }
 
+type ListSchedulesRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+}
+
+type ListSchedulesResponseObject interface {
+	VisitListSchedulesResponse(w http.ResponseWriter) error
+}
+
+type ListSchedules200JSONResponse []Schedule
+
+func (response ListSchedules200JSONResponse) VisitListSchedulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSchedules404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListSchedules404JSONResponse) VisitListSchedulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveSchedulesRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Body     *SaveSchedulesJSONRequestBody
+}
+
+type SaveSchedulesResponseObject interface {
+	VisitSaveSchedulesResponse(w http.ResponseWriter) error
+}
+
+type SaveSchedules200JSONResponse ScheduleBatchSaved
+
+func (response SaveSchedules200JSONResponse) VisitSaveSchedulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveSchedules400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SaveSchedules400JSONResponse) VisitSaveSchedulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveSchedules403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SaveSchedules403JSONResponse) VisitSaveSchedulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveSchedules404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SaveSchedules404JSONResponse) VisitSaveSchedulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveSchedules422JSONResponse BatchErrors
+
+func (response SaveSchedules422JSONResponse) VisitSaveSchedulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUpcomingRequestObject struct {
+	BudgetId BudgetId `json:"budgetId"`
+	Params   ListUpcomingParams
+}
+
+type ListUpcomingResponseObject interface {
+	VisitListUpcomingResponse(w http.ResponseWriter) error
+}
+
+type ListUpcoming200JSONResponse []Occurrence
+
+func (response ListUpcoming200JSONResponse) VisitListUpcomingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUpcoming400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListUpcoming400JSONResponse) VisitListUpcomingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUpcoming404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListUpcoming404JSONResponse) VisitListUpcomingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PostOccurrenceRequestObject struct {
+	BudgetId   BudgetId   `json:"budgetId"`
+	ScheduleId ScheduleId `json:"scheduleId"`
+	Body       *PostOccurrenceJSONRequestBody
+}
+
+type PostOccurrenceResponseObject interface {
+	VisitPostOccurrenceResponse(w http.ResponseWriter) error
+}
+
+type PostOccurrence200JSONResponse Posted
+
+func (response PostOccurrence200JSONResponse) VisitPostOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PostOccurrence400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PostOccurrence400JSONResponse) VisitPostOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PostOccurrence404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response PostOccurrence404JSONResponse) VisitPostOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PostOccurrence409JSONResponse struct{ ConflictJSONResponse }
+
+func (response PostOccurrence409JSONResponse) VisitPostOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SkipOccurrenceRequestObject struct {
+	BudgetId   BudgetId   `json:"budgetId"`
+	ScheduleId ScheduleId `json:"scheduleId"`
+	Body       *SkipOccurrenceJSONRequestBody
+}
+
+type SkipOccurrenceResponseObject interface {
+	VisitSkipOccurrenceResponse(w http.ResponseWriter) error
+}
+
+type SkipOccurrence204Response struct {
+}
+
+func (response SkipOccurrence204Response) VisitSkipOccurrenceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SkipOccurrence400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SkipOccurrence400JSONResponse) VisitSkipOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SkipOccurrence404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SkipOccurrence404JSONResponse) VisitSkipOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SkipOccurrence409JSONResponse struct{ ConflictJSONResponse }
+
+func (response SkipOccurrence409JSONResponse) VisitSkipOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnskipOccurrenceRequestObject struct {
+	BudgetId   BudgetId           `json:"budgetId"`
+	ScheduleId ScheduleId         `json:"scheduleId"`
+	Occurrence openapi_types.Date `json:"occurrence"`
+}
+
+type UnskipOccurrenceResponseObject interface {
+	VisitUnskipOccurrenceResponse(w http.ResponseWriter) error
+}
+
+type UnskipOccurrence204Response struct {
+}
+
+func (response UnskipOccurrence204Response) VisitUnskipOccurrenceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UnskipOccurrence400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UnskipOccurrence400JSONResponse) VisitUnskipOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnskipOccurrence404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UnskipOccurrence404JSONResponse) VisitUnskipOccurrenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetBudgetSummaryRequestObject struct {
 	BudgetId BudgetId `json:"budgetId"`
 }
@@ -3128,6 +4052,227 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetHolidaysRequestObject struct {
+	Params GetHolidaysParams
+}
+
+type GetHolidaysResponseObject interface {
+	VisitGetHolidaysResponse(w http.ResponseWriter) error
+}
+
+type GetHolidays200JSONResponse HolidayCalendar
+
+func (response GetHolidays200JSONResponse) VisitGetHolidaysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetHolidays400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetHolidays400JSONResponse) VisitGetHolidaysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetHolidays401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetHolidays401JSONResponse) VisitGetHolidaysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportHolidaysRequestObject struct {
+	Body *ImportHolidaysJSONRequestBody
+}
+
+type ImportHolidaysResponseObject interface {
+	VisitImportHolidaysResponse(w http.ResponseWriter) error
+}
+
+type ImportHolidays200JSONResponse []HolidayYear
+
+func (response ImportHolidays200JSONResponse) VisitImportHolidaysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportHolidays400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ImportHolidays400JSONResponse) VisitImportHolidaysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportHolidays401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ImportHolidays401JSONResponse) VisitImportHolidaysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportHolidays403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ImportHolidays403JSONResponse) VisitImportHolidaysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListHolidayYearsRequestObject struct {
+}
+
+type ListHolidayYearsResponseObject interface {
+	VisitListHolidayYearsResponse(w http.ResponseWriter) error
+}
+
+type ListHolidayYears200JSONResponse []HolidayYear
+
+func (response ListHolidayYears200JSONResponse) VisitListHolidayYearsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListHolidayYears401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListHolidayYears401JSONResponse) VisitListHolidayYearsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListHolidayYears403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListHolidayYears403JSONResponse) VisitListHolidayYearsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteHolidayYearRequestObject struct {
+	Year int32 `json:"year"`
+}
+
+type DeleteHolidayYearResponseObject interface {
+	VisitDeleteHolidayYearResponse(w http.ResponseWriter) error
+}
+
+type DeleteHolidayYear204Response struct {
+}
+
+func (response DeleteHolidayYear204Response) VisitDeleteHolidayYearResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteHolidayYear401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteHolidayYear401JSONResponse) VisitDeleteHolidayYearResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteHolidayYear403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteHolidayYear403JSONResponse) VisitDeleteHolidayYearResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteHolidayYear404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteHolidayYear404JSONResponse) VisitDeleteHolidayYearResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3634,6 +4779,9 @@ type StrictServerInterface interface {
 	// UpdateCategory Rename, archive, or share one envelope among the children
 	// (PUT /budgets/{budgetId}/categories/{categoryId})
 	UpdateCategory(ctx context.Context, request UpdateCategoryRequestObject) (UpdateCategoryResponseObject, error)
+	// SetCategoryBase Set an envelope's base amount per month (:base, ADR-086)
+	// (PUT /budgets/{budgetId}/categories/{categoryId}/base)
+	SetCategoryBase(ctx context.Context, request SetCategoryBaseRequestObject) (SetCategoryBaseResponseObject, error)
 	// MoveCategory Move a category, with its subcategories, under another parent
 	// (POST /budgets/{budgetId}/categories/{categoryId}/move)
 	MoveCategory(ctx context.Context, request MoveCategoryRequestObject) (MoveCategoryResponseObject, error)
@@ -3658,6 +4806,24 @@ type StrictServerInterface interface {
 	// GetScopeRegister Transactions on a group of accounts, oldest first
 	// (GET /budgets/{budgetId}/register)
 	GetScopeRegister(ctx context.Context, request GetScopeRegisterRequestObject) (GetScopeRegisterResponseObject, error)
+	// ListSchedules The budget's schedules, oldest first
+	// (GET /budgets/{budgetId}/schedules)
+	ListSchedules(ctx context.Context, request ListSchedulesRequestObject) (ListSchedulesResponseObject, error)
+	// SaveSchedules Apply the schedules page's buffer in one database transaction (:w)
+	// (POST /budgets/{budgetId}/schedules/batch)
+	SaveSchedules(ctx context.Context, request SaveSchedulesRequestObject) (SaveSchedulesResponseObject, error)
+	// ListUpcoming Occurrences not yet posted, up to a date (預定 rows, ADR-085)
+	// (GET /budgets/{budgetId}/schedules/upcoming)
+	ListUpcoming(ctx context.Context, request ListUpcomingRequestObject) (ListUpcomingResponseObject, error)
+	// PostOccurrence Post one occurrence now, as it is (:post)
+	// (POST /budgets/{budgetId}/schedules/{scheduleId}/post)
+	PostOccurrence(ctx context.Context, request PostOccurrenceRequestObject) (PostOccurrenceResponseObject, error)
+	// SkipOccurrence Skip one occurrence (:skip)
+	// (POST /budgets/{budgetId}/schedules/{scheduleId}/skips)
+	SkipOccurrence(ctx context.Context, request SkipOccurrenceRequestObject) (SkipOccurrenceResponseObject, error)
+	// UnskipOccurrence Bring a skipped occurrence back (:unskip)
+	// (DELETE /budgets/{budgetId}/schedules/{scheduleId}/skips/{occurrence})
+	UnskipOccurrence(ctx context.Context, request UnskipOccurrenceRequestObject) (UnskipOccurrenceResponseObject, error)
 	// GetBudgetSummary Totals of a budget
 	// (GET /budgets/{budgetId}/summary)
 	GetBudgetSummary(ctx context.Context, request GetBudgetSummaryRequestObject) (GetBudgetSummaryResponseObject, error)
@@ -3667,6 +4833,18 @@ type StrictServerInterface interface {
 	// GetHealth Whether the API is up and can reach its database
 	// (GET /healthz)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// GetHolidays Days off between two years
+	// (GET /holidays)
+	GetHolidays(ctx context.Context, request GetHolidaysRequestObject) (GetHolidaysResponseObject, error)
+	// ImportHolidays Import the government's office calendar from a URL or a CSV text
+	// (POST /holidays/import)
+	ImportHolidays(ctx context.Context, request ImportHolidaysRequestObject) (ImportHolidaysResponseObject, error)
+	// ListHolidayYears The imported years
+	// (GET /holidays/years)
+	ListHolidayYears(ctx context.Context, request ListHolidayYearsRequestObject) (ListHolidayYearsResponseObject, error)
+	// DeleteHolidayYear Forget a year (its days follow the weekend rule again)
+	// (DELETE /holidays/years/{year})
+	DeleteHolidayYear(ctx context.Context, request DeleteHolidayYearRequestObject) (DeleteHolidayYearResponseObject, error)
 	// GetCurrentUser The logged-in user
 	// (GET /me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
@@ -4439,6 +5617,55 @@ func (sh *strictHandler) UpdateCategory(ctx echo.Context, budgetId BudgetId, cat
 	return nil
 }
 
+// SetCategoryBase operation middleware
+func (sh *strictHandler) SetCategoryBase(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error {
+	var request SetCategoryBaseRequestObject
+
+	request.BudgetId = budgetId
+	request.CategoryId = categoryId
+
+	var body SetCategoryBaseJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.SetCategoryBase(ctx.Request().Context(), request.(SetCategoryBaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetCategoryBase")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SetCategoryBaseResponseObject); ok {
+		return validResponse.VisitSetCategoryBaseResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // MoveCategory operation middleware
 func (sh *strictHandler) MoveCategory(ctx echo.Context, budgetId BudgetId, categoryId CategoryId) error {
 	var request MoveCategoryRequestObject
@@ -4738,6 +5965,230 @@ func (sh *strictHandler) GetScopeRegister(ctx echo.Context, budgetId BudgetId, p
 	return nil
 }
 
+// ListSchedules operation middleware
+func (sh *strictHandler) ListSchedules(ctx echo.Context, budgetId BudgetId) error {
+	var request ListSchedulesRequestObject
+
+	request.BudgetId = budgetId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSchedules(ctx.Request().Context(), request.(ListSchedulesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSchedules")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListSchedulesResponseObject); ok {
+		return validResponse.VisitListSchedulesResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SaveSchedules operation middleware
+func (sh *strictHandler) SaveSchedules(ctx echo.Context, budgetId BudgetId) error {
+	var request SaveSchedulesRequestObject
+
+	request.BudgetId = budgetId
+
+	var body SaveSchedulesJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.SaveSchedules(ctx.Request().Context(), request.(SaveSchedulesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SaveSchedules")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SaveSchedulesResponseObject); ok {
+		return validResponse.VisitSaveSchedulesResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListUpcoming operation middleware
+func (sh *strictHandler) ListUpcoming(ctx echo.Context, budgetId BudgetId, params ListUpcomingParams) error {
+	var request ListUpcomingRequestObject
+
+	request.BudgetId = budgetId
+	request.Params = params
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUpcoming(ctx.Request().Context(), request.(ListUpcomingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUpcoming")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListUpcomingResponseObject); ok {
+		return validResponse.VisitListUpcomingResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// PostOccurrence operation middleware
+func (sh *strictHandler) PostOccurrence(ctx echo.Context, budgetId BudgetId, scheduleId ScheduleId) error {
+	var request PostOccurrenceRequestObject
+
+	request.BudgetId = budgetId
+	request.ScheduleId = scheduleId
+
+	var body PostOccurrenceJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.PostOccurrence(ctx.Request().Context(), request.(PostOccurrenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostOccurrence")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(PostOccurrenceResponseObject); ok {
+		return validResponse.VisitPostOccurrenceResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SkipOccurrence operation middleware
+func (sh *strictHandler) SkipOccurrence(ctx echo.Context, budgetId BudgetId, scheduleId ScheduleId) error {
+	var request SkipOccurrenceRequestObject
+
+	request.BudgetId = budgetId
+	request.ScheduleId = scheduleId
+
+	var body SkipOccurrenceJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.SkipOccurrence(ctx.Request().Context(), request.(SkipOccurrenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SkipOccurrence")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SkipOccurrenceResponseObject); ok {
+		return validResponse.VisitSkipOccurrenceResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UnskipOccurrence operation middleware
+func (sh *strictHandler) UnskipOccurrence(ctx echo.Context, budgetId BudgetId, scheduleId ScheduleId, occurrence openapi_types.Date) error {
+	var request UnskipOccurrenceRequestObject
+
+	request.BudgetId = budgetId
+	request.ScheduleId = scheduleId
+	request.Occurrence = occurrence
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UnskipOccurrence(ctx.Request().Context(), request.(UnskipOccurrenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnskipOccurrence")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UnskipOccurrenceResponseObject); ok {
+		return validResponse.VisitUnskipOccurrenceResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // GetBudgetSummary operation middleware
 func (sh *strictHandler) GetBudgetSummary(ctx echo.Context, budgetId BudgetId) error {
 	var request GetBudgetSummaryRequestObject
@@ -4828,6 +6279,125 @@ func (sh *strictHandler) GetHealth(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		return validResponse.VisitGetHealthResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetHolidays operation middleware
+func (sh *strictHandler) GetHolidays(ctx echo.Context, params GetHolidaysParams) error {
+	var request GetHolidaysRequestObject
+
+	request.Params = params
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetHolidays(ctx.Request().Context(), request.(GetHolidaysRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetHolidays")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetHolidaysResponseObject); ok {
+		return validResponse.VisitGetHolidaysResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ImportHolidays operation middleware
+func (sh *strictHandler) ImportHolidays(ctx echo.Context) error {
+	var request ImportHolidaysRequestObject
+
+	var body ImportHolidaysJSONRequestBody
+	var err error
+	if binder, ok := ctx.Echo().Binder.(*echo.DefaultBinder); ok {
+		// A request validator built on kin-openapi's openapi3filter with
+		// KeepValidatedValue leaves the value it validated on the body. Bind
+		// that value, matching member names exactly, so the handler receives
+		// what was validated instead of a second, case-insensitive decode.
+		// Otherwise bind only the request body, so that path and query
+		// parameters are not also bound into the body struct.
+		if vb, ok := ctx.Request().Body.(interface{ ValidatedValue() any }); !ok || runtime.BindJSONValue(vb.ValidatedValue(), &body) != nil {
+			err = binder.BindBody(ctx, &body)
+		}
+	} else {
+		// A custom binder is installed on the Echo instance; defer to it
+		// entirely, since echo.Binder does not expose body-only binding and
+		// the binder may do more than decode (for example call ctx.Validate).
+		err = ctx.Bind(&body)
+	}
+	if err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ImportHolidays(ctx.Request().Context(), request.(ImportHolidaysRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ImportHolidays")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ImportHolidaysResponseObject); ok {
+		return validResponse.VisitImportHolidaysResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListHolidayYears operation middleware
+func (sh *strictHandler) ListHolidayYears(ctx echo.Context) error {
+	var request ListHolidayYearsRequestObject
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListHolidayYears(ctx.Request().Context(), request.(ListHolidayYearsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListHolidayYears")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListHolidayYearsResponseObject); ok {
+		return validResponse.VisitListHolidayYearsResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteHolidayYear operation middleware
+func (sh *strictHandler) DeleteHolidayYear(ctx echo.Context, year int32) error {
+	var request DeleteHolidayYearRequestObject
+
+	request.Year = year
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteHolidayYear(ctx.Request().Context(), request.(DeleteHolidayYearRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteHolidayYear")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteHolidayYearResponseObject); ok {
+		return validResponse.VisitDeleteHolidayYearResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
@@ -5167,121 +6737,160 @@ func (sh *strictHandler) UpdateOidcProvider(ctx echo.Context, id Id) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"AwA=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

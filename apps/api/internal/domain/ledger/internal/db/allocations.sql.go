@@ -63,19 +63,19 @@ func (q *Queries) GetPool(ctx context.Context, budgetID uuid.UUID) (int64, error
 const listEnvelopeMonth = `-- name: ListEnvelopeMonth :many
 with alloc as (
     select al.category_id,
-           coalesce(sum(al.amount) filter (where al.month = $2::date), 0)::bigint as allocated,
-           coalesce(sum(al.amount) filter (where al.month < $2::date), 0)::bigint as before
+           coalesce(sum(al.amount) filter (where al.month = $1::date), 0)::bigint as allocated,
+           coalesce(sum(al.amount) filter (where al.month < $1::date), 0)::bigint as before
       from allocations al
-     where al.budget_id = $1 and al.month <= $2::date
+     where al.budget_id = $2 and al.month <= $1::date
      group by al.category_id
 ), act as (
     select e.category_id,
-           coalesce(sum(e.amount) filter (where t.date >= $2::date), 0)::bigint as activity,
-           coalesce(sum(e.amount) filter (where t.date < $2::date), 0)::bigint as before
+           coalesce(sum(e.amount) filter (where t.date >= $1::date), 0)::bigint as activity,
+           coalesce(sum(e.amount) filter (where t.date < $1::date), 0)::bigint as before
       from entries e
       join transactions t on t.id = e.transaction_id
-     where e.budget_id = $1 and e.category_id is not null
-       and t.date < ($2::date + interval '1 month')
+     where e.budget_id = $2 and e.category_id is not null
+       and t.date < ($1::date + interval '1 month')
      group by e.category_id
 )
 select c.id as category_id,
@@ -85,13 +85,13 @@ select c.id as category_id,
   from categories c
   left join alloc a on a.category_id = c.id
   left join act x on x.category_id = c.id
- where c.budget_id = $1 and c.kind = 'expense'
+ where c.budget_id = $2 and c.kind = 'expense'
    and (a.category_id is not null or x.category_id is not null)
 `
 
 type ListEnvelopeMonthParams struct {
-	BudgetID uuid.UUID
 	Month    time.Time
+	BudgetID uuid.UUID
 }
 
 type ListEnvelopeMonthRow struct {
@@ -106,7 +106,7 @@ type ListEnvelopeMonthRow struct {
 // in from before it (ADR-026). Folding a pooled parent's children into its
 // envelope is left to the client, which has the tree.
 func (q *Queries) ListEnvelopeMonth(ctx context.Context, arg ListEnvelopeMonthParams) ([]ListEnvelopeMonthRow, error) {
-	rows, err := q.db.Query(ctx, listEnvelopeMonth, arg.BudgetID, arg.Month)
+	rows, err := q.db.Query(ctx, listEnvelopeMonth, arg.Month, arg.BudgetID)
 	if err != nil {
 		return nil, err
 	}

@@ -16,6 +16,7 @@ import (
 
 	"factual/apps/api/internal/api"
 	"factual/apps/api/internal/apispec"
+	"factual/apps/api/internal/domain/calendar"
 	"factual/apps/api/internal/domain/identity"
 	"factual/apps/api/internal/domain/ledger"
 )
@@ -34,6 +35,7 @@ type Deps struct {
 	DB       Pinger
 	Identity *identity.Service
 	Ledger   *ledger.Service
+	Calendar *calendar.Service
 	Web      fs.FS
 }
 
@@ -43,6 +45,7 @@ type Deps struct {
 type (
 	identityHandlers = identity.Handlers
 	ledgerHandlers   = ledger.Handlers
+	calendarHandlers = calendar.Handlers
 )
 
 // server implements api.StrictServerInterface: the domains' operations and
@@ -50,6 +53,7 @@ type (
 type server struct {
 	*identityHandlers
 	*ledgerHandlers
+	*calendarHandlers
 	deps Deps
 }
 
@@ -80,7 +84,10 @@ func New(d Deps) (*echo.Echo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("openapi access rules: %w", err)
 	}
-	s := &server{identityHandlers: d.Identity.Handlers(), ledgerHandlers: d.Ledger.Handlers(), deps: d}
+	s := &server{
+		identityHandlers: d.Identity.Handlers(), ledgerHandlers: d.Ledger.Handlers(),
+		calendarHandlers: d.Calendar.Handlers(), deps: d,
+	}
 
 	e := echo.New()
 	e.HideBanner = true

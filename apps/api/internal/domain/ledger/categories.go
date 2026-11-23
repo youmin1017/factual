@@ -303,8 +303,13 @@ func categoryInUse() error {
 }
 
 func categoryResponse(r db.GetCategoryRow) api.Category {
-	return api.Category{
+	c := api.Category{
 		Id: r.ID, ParentId: idPtr(r.ParentID), Name: r.Name, Kind: api.CategoryKind(r.Kind), Pooled: r.Pooled,
 		IsSystem: r.IsSystem, SortOrder: r.SortOrder, Archived: r.Archived,
 	}
+	if r.BudgetBase.Valid {
+		base := r.BudgetBase.Int64
+		c.BudgetBase = &base
+	}
+	return c
 }

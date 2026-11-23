@@ -70,3 +70,9 @@ select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.
          where x.budget_id = sqlc.arg(budget_id)
            and (sqlc.narg(on_budget)::boolean is null or a.on_budget = sqlc.narg(on_budget)::boolean))
  order by e.transaction_id, e.amount, e.id;
+
+-- name: SetTransactionOccurrence :execrows
+-- Links a transaction to the schedule occurrence it posts (an edited 預定
+-- row, ADR-085), unless it already belongs to one.
+update transactions set schedule_id = $2, occurrence_date = $3
+ where id = $1 and schedule_id is null;

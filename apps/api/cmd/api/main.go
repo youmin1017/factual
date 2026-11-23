@@ -12,6 +12,7 @@ import (
 
 	"factual/apps/api/internal/config"
 	"factual/apps/api/internal/database"
+	"factual/apps/api/internal/domain/calendar"
 	"factual/apps/api/internal/domain/identity"
 	"factual/apps/api/internal/domain/ledger"
 	"factual/apps/api/internal/secretbox"
@@ -78,11 +79,15 @@ func run() error {
 	}
 	go identitySvc.RunCleanup(ctx, time.Hour)
 
+	cal := calendar.New(pool)
+	ledgerSvc := ledger.New(pool, cal)
+	go ledgerSvc.RunScheduler(ctx, time.Hour)
+
 	web := webui.FS()
 	if web == nil {
 		slog.Info("built without the web app; only the API is served")
 	}
-	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc, Ledger: ledger.New(pool), Web: web})
+	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc, Ledger: ledgerSvc, Calendar: cal, Web: web})
 	if err != nil {
 		return err
 	}

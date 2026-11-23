@@ -7,6 +7,9 @@ package db
 import (
 	"database/sql/driver"
 	"fmt"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type AccountKind string
@@ -21,7 +24,7 @@ const (
 	AccountKindSuspense   AccountKind = "suspense"
 )
 
-func (e *AccountKind) Scan(src interface{}) error {
+func (e *AccountKind) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = AccountKind(s)
@@ -39,7 +42,7 @@ type NullAccountKind struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullAccountKind) Scan(value interface{}) error {
+func (ns *NullAccountKind) Scan(value any) error {
 	if value == nil {
 		ns.AccountKind, ns.Valid = "", false
 		return nil
@@ -70,6 +73,59 @@ func (e AccountKind) Valid() bool {
 	return false
 }
 
+type BudgetMode string
+
+const (
+	BudgetModeNone   BudgetMode = "none"
+	BudgetModeFull   BudgetMode = "full"
+	BudgetModeSpread BudgetMode = "spread"
+)
+
+func (e *BudgetMode) Scan(src any) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BudgetMode(s)
+	case string:
+		*e = BudgetMode(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BudgetMode: %T", src)
+	}
+	return nil
+}
+
+type NullBudgetMode struct {
+	BudgetMode BudgetMode
+	Valid      bool // Valid is true if BudgetMode is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBudgetMode) Scan(value any) error {
+	if value == nil {
+		ns.BudgetMode, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BudgetMode.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBudgetMode) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BudgetMode), nil
+}
+
+func (e BudgetMode) Valid() bool {
+	switch e {
+	case BudgetModeNone,
+		BudgetModeFull,
+		BudgetModeSpread:
+		return true
+	}
+	return false
+}
+
 type BudgetRole string
 
 const (
@@ -78,7 +134,7 @@ const (
 	BudgetRoleViewer BudgetRole = "viewer"
 )
 
-func (e *BudgetRole) Scan(src interface{}) error {
+func (e *BudgetRole) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = BudgetRole(s)
@@ -96,7 +152,7 @@ type NullBudgetRole struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullBudgetRole) Scan(value interface{}) error {
+func (ns *NullBudgetRole) Scan(value any) error {
 	if value == nil {
 		ns.BudgetRole, ns.Valid = "", false
 		return nil
@@ -130,7 +186,7 @@ const (
 	CategoryKindIncome  CategoryKind = "income"
 )
 
-func (e *CategoryKind) Scan(src interface{}) error {
+func (e *CategoryKind) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = CategoryKind(s)
@@ -148,7 +204,7 @@ type NullCategoryKind struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullCategoryKind) Scan(value interface{}) error {
+func (ns *NullCategoryKind) Scan(value any) error {
 	if value == nil {
 		ns.CategoryKind, ns.Valid = "", false
 		return nil
@@ -182,7 +238,7 @@ const (
 	ClearedStateReconciled ClearedState = "reconciled"
 )
 
-func (e *ClearedState) Scan(src interface{}) error {
+func (e *ClearedState) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = ClearedState(s)
@@ -200,7 +256,7 @@ type NullClearedState struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullClearedState) Scan(value interface{}) error {
+func (ns *NullClearedState) Scan(value any) error {
 	if value == nil {
 		ns.ClearedState, ns.Valid = "", false
 		return nil
@@ -225,4 +281,62 @@ func (e ClearedState) Valid() bool {
 		return true
 	}
 	return false
+}
+
+type HolidayShift string
+
+const (
+	HolidayShiftNone        HolidayShift = "none"
+	HolidayShiftNextWorkday HolidayShift = "next_workday"
+	HolidayShiftPrevWorkday HolidayShift = "prev_workday"
+)
+
+func (e *HolidayShift) Scan(src any) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = HolidayShift(s)
+	case string:
+		*e = HolidayShift(s)
+	default:
+		return fmt.Errorf("unsupported scan type for HolidayShift: %T", src)
+	}
+	return nil
+}
+
+type NullHolidayShift struct {
+	HolidayShift HolidayShift
+	Valid        bool // Valid is true if HolidayShift is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullHolidayShift) Scan(value any) error {
+	if value == nil {
+		ns.HolidayShift, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.HolidayShift.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullHolidayShift) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.HolidayShift), nil
+}
+
+func (e HolidayShift) Valid() bool {
+	switch e {
+	case HolidayShiftNone,
+		HolidayShiftNextWorkday,
+		HolidayShiftPrevWorkday:
+		return true
+	}
+	return false
+}
+
+type ScheduleSkip struct {
+	ScheduleID     uuid.UUID
+	OccurrenceDate time.Time
 }

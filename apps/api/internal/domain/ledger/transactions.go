@@ -139,6 +139,9 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 	}
 
 	var probs problems
+	if err := h.s.checkOccurrences(ctx, budgetID, b.Upserts, owner, &probs); err != nil {
+		return nil, err
+	}
 	seen := make(map[uuid.UUID]bool, len(ids))
 	for _, u := range b.Upserts {
 		if seen[u.Id] {
@@ -209,9 +212,26 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 					return err
 				}
 			}
+			if o := u.Occurrence; o != nil {
+				_, err := q.SetTransactionOccurrence(ctx, db.SetTransactionOccurrenceParams{
+					ID: u.Id, ScheduleID: uuid.NullUUID{UUID: o.ScheduleId, Valid: true}, OccurrenceDate: pgDate(day(o.Occurrence.Time)),
+				})
+				if isUniqueViolation(err) {
+					return postedTwice{id: u.Id}
+				}
+				if err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})
+	var twice postedTwice
+	if errors.As(err, &twice) {
+		var p problems
+		p.add(twice.id, "", "already_posted", "this scheduled occurrence has been posted")
+		return api.SaveTransactions422JSONResponse{Errors: p}, nil
+	}
 	if id, ok := unbalancedTransaction(err); ok {
 		// The database's own check (ADR-023) caught what validation missed.
 		var p problems
@@ -220,6 +240,13 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 	}
 	if err != nil {
 		return nil, err
+	}
+	for _, u := range b.Upserts {
+		if u.Occurrence != nil {
+			if err := h.s.advanceNext(ctx, u.Occurrence.ScheduleId); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return api.SaveTransactions200JSONResponse{Upserted: int32(len(b.Upserts)), Deleted: deleted}, nil
 }
