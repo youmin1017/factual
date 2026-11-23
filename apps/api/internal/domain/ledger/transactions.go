@@ -319,3 +319,13 @@ func unbalancedTransaction(err error) (uuid.UUID, bool) {
 	id, err := uuid.Parse(m[1])
 	return id, err == nil
 }
+
+// MarkReviewed confirms transactions a schedule posted with an estimated
+// amount (`:review`, ADR-085).
+func (h *Handlers) MarkReviewed(ctx context.Context, req api.MarkReviewedRequestObject) (api.MarkReviewedResponseObject, error) {
+	n, err := h.s.q.MarkReviewed(ctx, db.MarkReviewedParams{BudgetID: req.BudgetId, Ids: req.Body.Ids})
+	if err != nil {
+		return nil, err
+	}
+	return api.MarkReviewed200JSONResponse{Reviewed: int32(n)}, nil
+}

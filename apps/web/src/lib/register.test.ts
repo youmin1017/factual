@@ -1,6 +1,7 @@
 // Run with `pnpm test`; dependency-free like money.test.ts.
 import assert from 'node:assert/strict'
 import {
+  bufferRows,
   categoryMode,
   evalAmount,
   findCategory,
@@ -9,17 +10,24 @@ import {
   matchScore,
   newRow,
   parseDate,
+  plannedId,
   rowFromTransaction,
   rowStatus,
   rowsFromTransactions,
   runningBalances,
+  saveInput,
   splitLinesOf,
   syncRows,
   toInput,
   validateRow,
   withSplits,
 } from './register.ts'
-import type { CategoryRef, Context, Transaction } from './register.ts'
+import type {
+  CategoryRef,
+  Context,
+  Occurrence,
+  Transaction,
+} from './register.ts'
 
 // ---------- dates
 const today = new Date(2026, 10, 17) // 2026-11-17
@@ -384,5 +392,84 @@ assert.deepEqual(
     [card, 100, null],
   ],
 )
+
+// ---------- 預定 rows (ADR-085)
+{
+  const rent: Occurrence = {
+    scheduleId: '6f1c2a10-0000-4000-8000-000000000001',
+    occurrence: '2026-12-05',
+    date: '2026-12-07',
+    payee: '房東',
+    note: '房租',
+    accountId: bank,
+    transferAccountId: null,
+    categoryId: food,
+    amount: -20000,
+    estimate: false,
+  }
+  const loanPayment: Occurrence = {
+    ...rent,
+    scheduleId: '6f1c2a10-0000-4000-8000-000000000002',
+    occurrence: '2026-11-25',
+    date: '2026-11-25',
+    payee: '',
+    note: '',
+    transferAccountId: loan,
+    amount: -8000,
+    estimate: true,
+  }
+  // One id per occurrence, every time, shaped as a UUID.
+  const id = plannedId(rent.scheduleId, rent.occurrence)
+  assert.equal(id, plannedId(rent.scheduleId, rent.occurrence))
+  assert.notEqual(id, plannedId(rent.scheduleId, '2027-01-05'))
+  assert.match(
+    id,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  )
+
+  const saved = [lunch]
+  const buffer = bufferRows(saved, [loanPayment, rent], [bank, card, loan])
+  // 預定 rows first, latest first; a transfer is on both of its accounts.
+  assert.deepEqual(
+    buffer.map((r) => [r.date, r.accountId, Boolean(r.planned)]),
+    [
+      ['2026-12-07', bank, true],
+      ['2026-11-25', loan, true],
+      ['2026-11-25', bank, true],
+      ['2026-11-03', card, false],
+    ],
+  )
+  const [rentRow, , loanRow] = buffer
+  assert.equal(rentRow.payee, '房東')
+  assert.equal(rentRow.categoryId, food)
+  assert.equal(loanRow.transferTo, loan)
+  assert.deepEqual(loanRow.planned, {
+    scheduleId: loanPayment.scheduleId,
+    occurrence: '2026-11-25',
+    estimate: true,
+  })
+  // Untouched, a 預定 row is clean; edited, it posts its occurrence on :w.
+  assert.equal(rowStatus(rentRow, ctx), 'clean')
+  const edited = { ...rentRow, amount: -21000 }
+  assert.equal(rowStatus(edited, ctx), 'changed')
+  assert.deepEqual(saveInput(edited, ctx).occurrence, {
+    scheduleId: rent.scheduleId,
+    occurrence: '2026-12-05',
+  })
+  assert.equal(saveInput(lunchRow, ctx).occurrence, undefined)
+  // Editing one side of a 預定 transfer keeps the other side 預定.
+  const synced = syncRows(
+    buffer.with(2, { ...loanRow, amount: -9000 }),
+    2,
+    ctx,
+    new Set([bank, card, loan]),
+  )
+  const other = synced.find((r) => r.id === loanRow.id && r.accountId === loan)
+  assert.ok(other)
+  assert.equal(other.amount, 9000)
+  assert.equal(other.planned?.occurrence, '2026-11-25')
+  // They are not in the balance yet.
+  assert.deepEqual(runningBalances(buffer), [-2400, -2400, -2400, -2400])
+}
 
 console.log('register: ok')

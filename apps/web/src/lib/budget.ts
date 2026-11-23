@@ -1,5 +1,6 @@
 import { queryOptions } from '@tanstack/react-query'
 import { $api, api } from './api'
+import { isoDate } from './register'
 import type { Schemas } from './api'
 
 export type Budget = Schemas['Budget']
@@ -104,6 +105,28 @@ export function schedulesQuery(budgetId: string) {
   return $api.queryOptions('get', '/budgets/{budgetId}/schedules', {
     params: { path: { budgetId } },
   })
+}
+
+/**
+ * Occurrences not yet posted in the next 30 days: the registers' 預定 rows
+ * (ADR-085). Like a register, read once and reloaded after changes.
+ */
+export function upcomingQuery(budgetId: string) {
+  return {
+    queryKey: ['upcoming', budgetId],
+    queryFn: async () => {
+      const until = new Date()
+      until.setDate(until.getDate() + 30)
+      const { data, error } = await api.GET(
+        '/budgets/{budgetId}/schedules/upcoming',
+        { params: { path: { budgetId }, query: { until: isoDate(until) } } },
+      )
+      if (error) throw error
+      return data
+    },
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  }
 }
 
 /** Days off of this year and the next two (ADR-087). */

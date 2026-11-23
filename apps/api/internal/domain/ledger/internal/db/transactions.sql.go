@@ -354,6 +354,25 @@ func (q *Queries) ListScopeTransactions(ctx context.Context, arg ListScopeTransa
 	return items, nil
 }
 
+const markReviewed = `-- name: MarkReviewed :execrows
+update transactions
+   set needs_review = false, updated_at = now()
+ where budget_id = $1 and id = any($2::uuid[]) and needs_review
+`
+
+type MarkReviewedParams struct {
+	BudgetID uuid.UUID
+	Ids      []uuid.UUID
+}
+
+func (q *Queries) MarkReviewed(ctx context.Context, arg MarkReviewedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markReviewed, arg.BudgetID, arg.Ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setTransactionOccurrence = `-- name: SetTransactionOccurrence :execrows
 update transactions set schedule_id = $2, occurrence_date = $3
  where id = $1 and schedule_id is null
@@ -397,7 +416,9 @@ const upsertTransaction = `-- name: UpsertTransaction :exec
 insert into transactions (id, budget_id, date, payee_id, note, created_by)
 values ($1, $2, $3, $4, $5, $6)
 on conflict (id) do update
-   set date = excluded.date, payee_id = excluded.payee_id, note = excluded.note, updated_at = now()
+   set date = excluded.date, payee_id = excluded.payee_id, note = excluded.note,
+       -- Saving an edit is reviewing it (ADR-085).
+       needs_review = false, updated_at = now()
  where transactions.budget_id = excluded.budget_id
 `
 

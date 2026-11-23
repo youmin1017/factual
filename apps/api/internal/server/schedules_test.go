@@ -236,9 +236,11 @@ func TestScheduleValidationAndEstimates(t *testing.T) {
 		t.Fatalf("posted = %d after resuming the bill", got.Posted)
 	}
 	var review, loanTx int
+	var billTx api.Transaction
 	for _, tx := range register(t, admin, f.budget, f.bank) {
 		if tx.NeedsReview {
 			review++
+			billTx = tx
 		}
 		if len(tx.Entries) == 2 {
 			loanTx++
@@ -246,6 +248,36 @@ func TestScheduleValidationAndEstimates(t *testing.T) {
 	}
 	if review != 1 || loanTx != 1 {
 		t.Fatalf("review = %d, loan payments = %d", review, loanTx)
+	}
+
+	// :review confirms it; ids it does not know are ignored.
+	reviewed := func(ids ...uuid.UUID) int32 {
+		t.Helper()
+		rec := admin.do(http.MethodPost, budgetPath(f.budget, "/transactions/reviewed"), api.TransactionIds{Ids: ids})
+		wantStatus(t, rec, http.StatusOK)
+		var out api.Reviewed
+		decode(t, rec, &out)
+		return out.Reviewed
+	}
+	if n := reviewed(billTx.Id, uuid.New()); n != 1 {
+		t.Fatalf("reviewed = %d, want 1", n)
+	}
+	if n := reviewed(billTx.Id); n != 0 {
+		t.Fatalf("reviewed again = %d, want 0", n)
+	}
+	// Saving an edit confirms it too.
+	if _, err := hs.pool.Exec(context.Background(), `update transactions set needs_review = true where id = $1`, billTx.Id); err != nil {
+		t.Fatal(err)
+	}
+	edit := api.TransactionInput{Id: billTx.Id, Date: billTx.Date, Payee: "電費", Note: billTx.Note}
+	for _, e := range billTx.Entries {
+		edit.Entries = append(edit.Entries, api.EntryInput{AccountId: e.AccountId, CategoryId: e.CategoryId, Amount: -1350, Memo: e.Memo, Cleared: e.Cleared})
+	}
+	wantStatus(t, save(admin, f.budget, []api.TransactionInput{edit}), http.StatusOK)
+	for _, tx := range register(t, admin, f.budget, f.bank) {
+		if tx.NeedsReview {
+			t.Fatalf("%s still needs review after it was edited", tx.Id)
+		}
 	}
 	s := listSchedules(t, admin, f.budget)[loan.Id]
 	if s.AccountId != f.bank.Id || s.TransferAccountId == nil || *s.TransferAccountId != f.loan.Id || s.Amount != -8000 {

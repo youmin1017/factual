@@ -9,11 +9,16 @@ import {
   accountsQuery,
   categoriesQuery,
   payeesQuery,
+  schedulesQuery,
   summaryQuery,
+  upcomingQuery,
 } from '#/lib/budget'
 import { useKeymap } from '#/lib/preferences'
 import { categoryRefs } from '#/lib/register'
-import type { RegisterView } from '#/components/register/register-grid'
+import type {
+  RegisterData,
+  RegisterView,
+} from '#/components/register/register-grid'
 import type { Account } from '#/lib/budget'
 import type { AccountRef, Context } from '#/lib/register'
 
@@ -81,9 +86,12 @@ function RegisterPage() {
   const categories = useQuery(categoriesQuery(budget.id))
   const payees = useQuery(payeesQuery(budget.id))
   const register = useQuery(registerQuery(budget.id, viewKey))
+  const upcoming = useQuery(upcomingQuery(budget.id))
   const keymap = useKeymap()
 
-  const failed = [accounts, categories, payees, register].find((q) => q.isError)
+  const failed = [accounts, categories, payees, register, upcoming].find(
+    (q) => q.isError,
+  )
   if (failed) {
     return (
       <p className="text-sm text-destructive" role="alert">
@@ -91,7 +99,13 @@ function RegisterPage() {
       </p>
     )
   }
-  if (!accounts.data || !categories.data || !payees.data || !register.data) {
+  if (
+    !accounts.data ||
+    !categories.data ||
+    !payees.data ||
+    !register.data ||
+    !upcoming.data
+  ) {
     return <p className="text-sm text-muted-foreground">載入中…</p>
   }
 
@@ -122,7 +136,7 @@ function RegisterPage() {
     multi: group !== null,
   }
 
-  async function reload() {
+  async function reload(): Promise<RegisterData> {
     await Promise.all([
       queryClient.invalidateQueries({
         queryKey: payeesQuery(budget.id).queryKey,
@@ -135,8 +149,18 @@ function RegisterPage() {
       }),
       // A transaction is in other accounts' and groups' registers too.
       queryClient.invalidateQueries({ queryKey: ['register', budget.id] }),
+      // Posting an occurrence moves its schedule on (ADR-085).
+      queryClient.invalidateQueries({ queryKey: ['upcoming', budget.id] }),
+      queryClient.invalidateQueries({
+        queryKey: schedulesQuery(budget.id).queryKey,
+      }),
+      queryClient.invalidateQueries({ queryKey: ['budget-month', budget.id] }),
     ])
-    return queryClient.fetchQuery(registerQuery(budget.id, viewKey))
+    const [transactions, next] = await Promise.all([
+      queryClient.fetchQuery(registerQuery(budget.id, viewKey)),
+      queryClient.fetchQuery(upcomingQuery(budget.id)),
+    ])
+    return { transactions, upcoming: next }
   }
 
   const sum = (pick: (a: Account) => number) =>
@@ -197,6 +221,7 @@ function RegisterPage() {
           view={view}
           ctx={ctx}
           transactions={register.data}
+          upcoming={upcoming.data}
           payees={payees.data.map((p) => ({
             name: p.name,
             lastCategoryId: p.lastCategoryId,

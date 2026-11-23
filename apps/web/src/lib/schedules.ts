@@ -10,9 +10,14 @@ import {
   lineCategoryMode,
   parseDate,
 } from './register.ts'
-import { describeRRule, nextOccurrences, parseRule } from './schedule-rule.ts'
+import {
+  addDays,
+  describeRRule,
+  nextOccurrences,
+  parseRule,
+} from './schedule-rule.ts'
 import type { Schemas } from './api'
-import type { Context } from './register.ts'
+import type { Context, Row } from './register.ts'
 import type { HolidayShift, Occurrence } from './schedule-rule.ts'
 
 export type Schedule = Schemas['Schedule']
@@ -414,4 +419,50 @@ export function scheduleProblemColumn(field: string): ScheduleColumn | null {
   return (scheduleColumns as Array<string>).includes(field)
     ? (field as ScheduleColumn)
     : null
+}
+
+/**
+ * `:schedule` on a register row (ADR-084): a monthly schedule on the row's
+ * day of the month, like the row, starting after it (the row itself stays
+ * an ordinary transaction) and never before tomorrow, so nothing is posted
+ * at once. Days after the 28th become the month's last day, which every
+ * month has. A message instead when the row cannot be one.
+ */
+export function scheduleFromRow(
+  row: Row,
+  id: string,
+  today: string,
+): { input: ScheduleInput; first: string } | string {
+  if (row.locked === 'opening') return '期初餘額不能變成排程'
+  if (row.splits || row.locked === 'foreign') {
+    return '拆分的交易還不能變成排程'
+  }
+  if (row.amount === 0) return '金額是 0 的交易不能變成排程'
+  const day = Number(row.date.slice(8, 10))
+  const parsed = parseRule(day > 28 ? '每月最後一天' : `每月 ${day} 日`)
+  if ('error' in parsed) return parsed.error
+  const after = addDays(row.date, 1)
+  const tomorrow = addDays(today, 1)
+  const start = after > tomorrow ? after : tomorrow
+  const first = nextOccurrences(parsed.rule, start, 'noShift', start, 1).at(0)
+  if (!first) return '這個排程沒有任何一期'
+  return {
+    first: first.nominal,
+    input: {
+      id,
+      source: describeRRule(parsed.rule, parsed.shift) ?? '',
+      rule: parsed.rule,
+      start: first.nominal,
+      holidayShift: parsed.shift,
+      payee: row.transferTo ? '' : row.payee.trim(),
+      note: row.note.trim(),
+      accountId: row.accountId,
+      transferAccountId: row.transferTo,
+      categoryId: row.categoryId,
+      amount: row.amount,
+      estimate: false,
+      budgetMode: row.categoryId ? 'full' : 'notBudgeted',
+      paused: false,
+    },
+  }
 }

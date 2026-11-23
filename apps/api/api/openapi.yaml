@@ -953,6 +953,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BatchErrors'
+  /budgets/{budgetId}/transactions/reviewed:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    post:
+      operationId: markReviewed
+      tags: [ledger]
+      summary: Confirm transactions that need review (:review)
+      description: |
+        Clears `needsReview` on the transactions given (a schedule posted
+        them with an estimated amount, ADR-085). Ids that are not in the
+        budget or need no review are ignored. Saving a transaction through
+        the batch endpoint confirms it too.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionIds'
+      responses:
+        '200':
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reviewed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # --- Schedules (M9, ADR-084..086)
   /budgets/{budgetId}/schedules:
@@ -1967,6 +1998,25 @@ components:
           items:
             type: string
             format: uuid
+    TransactionIds:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          items:
+            type: string
+            format: uuid
+    Reviewed:
+      type: object
+      required: [reviewed]
+      properties:
+        reviewed:
+          type: integer
+          format: int32
+          description: Transactions that needed review and no longer do.
     BatchSaved:
       type: object
       required: [upserted, deleted]

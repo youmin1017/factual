@@ -8,6 +8,7 @@ import {
   ruleText,
   scheduleAmountText,
   scheduleCellText,
+  scheduleFromRow,
   schedulePatch,
   scheduleStatus,
   toScheduleInput,
@@ -206,5 +207,45 @@ assert.equal(
   typeof schedulePatch(newScheduleRow('x', 'bank'), 'next', '12/5', ctx, today),
   'string',
 )
+
+// :schedule on a register row: monthly on its day, from after it, never today.
+{
+  const { newRow } = await import('./register.ts')
+  const paid = {
+    ...newRow('t1', '2026-11-05', 'card'),
+    payee: '健身房',
+    categoryId: 'food',
+    amount: -1500,
+  }
+  const made = scheduleFromRow(paid, 's9', '2026-11-23')
+  assert.ok(typeof made !== 'string')
+  assert.equal(made.input.source, '每月 5 日')
+  assert.equal(made.input.rule, 'FREQ=MONTHLY;BYMONTHDAY=5')
+  assert.equal(made.first, '2026-12-05')
+  assert.equal(made.input.start, '2026-12-05')
+  assert.equal(made.input.amount, -1500)
+  assert.equal(made.input.budgetMode, 'full')
+  // Entered today for today: the next one is next month's.
+  const todays = scheduleFromRow(
+    { ...paid, date: '2026-11-23' },
+    's9',
+    '2026-11-23',
+  )
+  assert.ok(typeof todays !== 'string')
+  assert.equal(todays.first, '2026-12-23')
+  // The 31st becomes the month's last day.
+  const late = scheduleFromRow(
+    { ...paid, date: '2026-10-31' },
+    's9',
+    '2026-11-23',
+  )
+  assert.ok(typeof late !== 'string')
+  assert.equal(late.input.source, '每月最後一天')
+  assert.equal(late.first, '2026-11-30')
+  assert.equal(
+    scheduleFromRow({ ...paid, amount: 0 }, 's9', '2026-11-23'),
+    '金額是 0 的交易不能變成排程',
+  )
+}
 
 console.log('schedules: ok')

@@ -11,6 +11,16 @@ export type Transaction = Schemas['Transaction']
 export type TransactionInput = Schemas['TransactionInput']
 export type EntryInput = Schemas['EntryInput']
 export type ClearedState = Schemas['ClearedState']
+export type Occurrence = Schemas['Occurrence']
+
+/** A schedule's occurrence not yet posted, shown as a 預定 row (ADR-085). */
+export interface Planned {
+  scheduleId: string
+  /** The date the rule gives; identifies the occurrence. */
+  occurrence: string
+  /** The amount is an estimate (shown with `~`). */
+  estimate: boolean
+}
 
 export interface AccountRef {
   id: string
@@ -114,6 +124,12 @@ export interface Row {
    * date, payee, note and cleared are edited here.
    */
   locked: 'opening' | 'foreign' | null
+  /**
+   * A 預定 row: not saved yet; `base` is the transaction the occurrence
+   * would post, so an untouched one is clean and an edited one posts with
+   * the change on :w. Absent on rows from drafts older than schedules.
+   */
+  planned?: Planned | null
 }
 
 export interface Context {
@@ -216,6 +232,115 @@ export function rowsFromTransactions(
   return rows.reverse()
 }
 
+/**
+ * The id a 預定 row's transaction gets: the same for an occurrence every
+ * time it is listed, so drafts of edited 預定 rows find their row again.
+ * Shaped as a UUID (version 8, the custom one).
+ */
+export function plannedId(scheduleId: string, occurrence: string): string {
+  const text = `${scheduleId}/${occurrence}`
+  // Four 32-bit FNV-1a hashes, each seeded differently.
+  const words = [0x811c9dc5, 0x01000193, 0x9e3779b9, 0x85ebca6b].map((seed) => {
+    let h = seed >>> 0
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i)
+      h = Math.imul(h, 0x01000193) >>> 0
+    }
+    return h.toString(16).padStart(8, '0')
+  })
+  const hex = words.join('')
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+/** The transaction an occurrence posts, as the server writes it (ADR-085). */
+export function plannedTransaction(o: Occurrence): Transaction {
+  const id = plannedId(o.scheduleId, o.occurrence)
+  const entries: Transaction['entries'] = [
+    {
+      id: `${id}-0`,
+      accountId: o.accountId,
+      categoryId: o.categoryId,
+      amount: o.amount,
+      memo: '',
+      cleared: 'uncleared',
+    },
+  ]
+  if (o.transferAccountId) {
+    entries.push({
+      id: `${id}-1`,
+      accountId: o.transferAccountId,
+      categoryId: null,
+      amount: -o.amount,
+      memo: '',
+      cleared: 'uncleared',
+    })
+  }
+  return {
+    id,
+    date: o.date,
+    payeeId: null,
+    payeeName: o.payee || null,
+    note: o.note,
+    needsReview: false,
+    isOpening: false,
+    entries,
+  }
+}
+
+/**
+ * The 預定 rows of the accounts shown, latest first, as transactions are:
+ * an occurrence `upcoming` lists (earliest first) on each account it moves.
+ */
+export function plannedRows(
+  upcoming: Array<Occurrence>,
+  shown: Array<string>,
+): Array<Row> {
+  const byId = new Map(
+    upcoming.map((o) => [plannedId(o.scheduleId, o.occurrence), o]),
+  )
+  return rowsFromTransactions(upcoming.map(plannedTransaction), shown).map(
+    (row) => {
+      const o = byId.get(row.id)
+      return o
+        ? {
+            ...row,
+            planned: {
+              scheduleId: o.scheduleId,
+              occurrence: o.occurrence,
+              estimate: o.estimate,
+            },
+          }
+        : row
+    },
+  )
+}
+
+/** The rows a register shows from the server: 預定 rows above saved ones. */
+export function bufferRows(
+  transactions: Array<Transaction>,
+  upcoming: Array<Occurrence>,
+  shown: Array<string>,
+): Array<Row> {
+  return [
+    ...plannedRows(upcoming, shown),
+    ...rowsFromTransactions(transactions, shown),
+  ]
+}
+
+/** What :w sends for a row: a 預定 row posts its occurrence. */
+export function saveInput(row: Row, ctx: Context): TransactionInput {
+  const input = toInput(row, ctx)
+  if (!row.planned) return input
+  return {
+    ...input,
+    occurrence: {
+      scheduleId: row.planned.scheduleId,
+      occurrence: row.planned.occurrence,
+    },
+  }
+}
+
 /** The transaction a row would save, as the register reads transactions. */
 function asTransaction(row: Row, ctx: Context): Transaction {
   const input = toInput(row, ctx)
@@ -261,6 +386,7 @@ export function syncRows(
         ...rowFromTransaction(tx, accountId),
         key: before?.key ?? rowKey(row.id, accountId),
         base: before?.base ?? row.base,
+        planned: row.planned ?? null,
       }
     })
   }
@@ -593,6 +719,10 @@ export const problemMessages: Record<string, string> = {
   duplicate_id: '這筆交易重複出現',
   too_long: '內容太長',
   no_entries: '交易沒有內容',
+  already_posted: '這一期已經入帳了，重新整理（:e!）看看',
+  already_saved: '這一期已經入帳了，重新整理（:e!）看看',
+  not_an_occurrence: '這個排程沒有這一期',
+  occurrence_skipped: '這一期已經略過了',
 }
 
 export function problemColumn(field: string): Column | null {
@@ -613,7 +743,7 @@ function sameDayRank(row: Row): number {
  * Balance after each row, for rows in display order (newest first). Rows
  * count by date; within a day the opening balance comes first, then saved
  * rows, then unsaved ones, each group bottom of the screen first. Where a row
- * sits on screen does not move it in time. Deleted rows count as 0.
+ * sits on screen does not move it in time. Deleted and 預定 rows count as 0.
  */
 export function runningBalances(rows: Array<Row>): Array<number> {
   const order = rows
@@ -626,7 +756,8 @@ export function runningBalances(rows: Array<Row>): Array<number> {
   const out: Array<number> = Array.from({ length: rows.length }, () => 0)
   let balance = 0
   for (const { row, index } of order) {
-    if (!row.deleted) balance += row.amount
+    // 預定 rows are not in the account yet.
+    if (!row.deleted && !row.planned) balance += row.amount
     out[index] = balance
   }
   return out

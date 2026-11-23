@@ -36,7 +36,9 @@ returning id;
 insert into transactions (id, budget_id, date, payee_id, note, created_by)
 values (sqlc.arg(id), sqlc.arg(budget_id), sqlc.arg(date), sqlc.narg(payee_id), sqlc.arg(note), sqlc.narg(created_by))
 on conflict (id) do update
-   set date = excluded.date, payee_id = excluded.payee_id, note = excluded.note, updated_at = now()
+   set date = excluded.date, payee_id = excluded.payee_id, note = excluded.note,
+       -- Saving an edit is reviewing it (ADR-085).
+       needs_review = false, updated_at = now()
  where transactions.budget_id = excluded.budget_id;
 
 -- name: DeleteEntriesOf :exec
@@ -76,3 +78,8 @@ select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.
 -- row, ADR-085), unless it already belongs to one.
 update transactions set schedule_id = $2, occurrence_date = $3
  where id = $1 and schedule_id is null;
+
+-- name: MarkReviewed :execrows
+update transactions
+   set needs_review = false, updated_at = now()
+ where budget_id = sqlc.arg(budget_id) and id = any(sqlc.arg(ids)::uuid[]) and needs_review;

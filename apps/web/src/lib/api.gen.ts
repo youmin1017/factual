@@ -684,6 +684,31 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/transactions/reviewed': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Confirm transactions that need review (:review)
+     * @description Clears `needsReview` on the transactions given (a schedule posted
+     *     them with an estimated amount, ADR-085). Ids that are not in the
+     *     budget or need no review are ignored. Saving a transaction through
+     *     the batch endpoint confirms it too.
+     */
+    post: operations['markReviewed']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/budgets/{budgetId}/schedules': {
     parameters: {
       query?: never
@@ -1287,6 +1312,16 @@ export interface components {
     TransactionBatch: {
       upserts: components['schemas']['TransactionInput'][]
       deletes: string[]
+    }
+    TransactionIds: {
+      ids: string[]
+    }
+    Reviewed: {
+      /**
+       * Format: int32
+       * @description Transactions that needed review and no longer do.
+       */
+      reviewed: number
     }
     BatchSaved: {
       /** Format: int32 */
@@ -2605,6 +2640,34 @@ export interface operations {
           'application/json': components['schemas']['BatchErrors']
         }
       }
+    }
+  }
+  markReviewed: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TransactionIds']
+      }
+    }
+    responses: {
+      /** @description Confirmed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Reviewed']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
     }
   }
   listSchedules: {

@@ -1,6 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowRightLeftIcon,
+  CalendarClockIcon,
   CircleCheckIcon,
   CircleIcon,
   LockIcon,
@@ -8,11 +9,13 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '#/lib/api'
+import { errorCodeMessage } from '#/lib/apiError'
 import { setEditorStatus } from '#/lib/editorStatus'
 import { formatAmount } from '#/lib/money'
 import { movePane, windowDirection } from '#/lib/panes'
 import {
   amountCellText,
+  bufferRows,
   categoryMode,
   evalAmount,
   findCategory,
@@ -27,14 +30,14 @@ import {
   rank,
   rowKey,
   rowStatus,
-  rowsFromTransactions,
   runningBalances,
+  saveInput,
   columns as singleColumns,
   syncRows,
-  toInput,
   validateRow,
   withSplits,
 } from '#/lib/register'
+import { scheduleFromRow } from '#/lib/schedules'
 import { cn } from '#/lib/utils'
 import { CellEditor, eraseBeforeCaret, nextPick } from './cell-editor'
 import { KeyHelp } from './key-help'
@@ -44,6 +47,7 @@ import type { Key, Keymap } from '#/lib/keymap'
 import type {
   Column,
   Context,
+  Occurrence,
   PayeeRef,
   Row,
   RowProblem,
@@ -181,15 +185,23 @@ export interface RegisterView {
   multi: boolean
 }
 
+/** What a register is built from. */
+export interface RegisterData {
+  transactions: Array<Transaction>
+  upcoming: Array<Occurrence>
+}
+
 interface Props {
   budgetId: string
   view: RegisterView
   ctx: Context
   transactions: Array<Transaction>
+  /** Occurrences of schedules not yet posted: the 預定 rows (ADR-085). */
+  upcoming: Array<Occurrence>
   payees: Array<PayeeRef>
   keymap: Keymap
-  /** Fetches the view's transactions again after a save. */
-  reload: () => Promise<Array<Transaction>>
+  /** Fetches the view's transactions and 預定 rows again after a change. */
+  reload: () => Promise<RegisterData>
   /** Leaves the register (`:q`). */
   onQuit: () => void
 }
@@ -227,13 +239,16 @@ function writeDraft(key: string, rows: Array<Row>): void {
   }
 }
 
-/** Saved rows newest first, with unsaved drafts laid over them. */
+/**
+ * 預定 rows and saved rows newest first, with unsaved drafts laid over them
+ * (a draft of an edited 預定 row finds it by its id, ADR-085).
+ */
 function initialRows(
-  transactions: Array<Transaction>,
+  data: RegisterData,
   accounts: Array<string>,
   drafts: Array<Row>,
 ): { rows: Array<Row>; conflicts: number } {
-  const saved = rowsFromTransactions(transactions, accounts)
+  const saved = bufferRows(data.transactions, data.upcoming, accounts)
   const byKey = new Map(saved.map((r, i) => [r.key, i]))
   const fresh: Array<Row> = []
   let conflicts = 0
@@ -257,6 +272,7 @@ export function RegisterGrid({
   view,
   ctx,
   transactions,
+  upcoming,
   payees,
   keymap,
   reload,
@@ -269,7 +285,7 @@ export function RegisterGrid({
   const { columns } = layout
   const shown = new Set(view.accounts)
   const [init] = useState(() =>
-    initialRows(transactions, view.accounts, readDraft(key)),
+    initialRows({ transactions, upcoming }, view.accounts, readDraft(key)),
   )
   const [rows, setRows] = useState<Array<Row>>(init.rows)
   // The register opens at its top left, as a buffer does.
@@ -324,6 +340,8 @@ export function RegisterGrid({
    * typed, picked or committed in it: Esc then takes the row back out.
    */
   const opened = useRef<{ key: string; from: typeof cursor } | null>(null)
+  /** The selection a command typed from visual mode acts on. */
+  const commandRange = useRef<Range | null>(null)
 
   const today = new Date()
   const statuses: Array<RowStatus> = rows.map((r) => rowStatus(r, ctx))
@@ -554,6 +572,9 @@ export function RegisterGrid({
   function deleteRange({ from, to }: Range) {
     const targets = rows.slice(from, to + 1)
     if (targets.length === 0) return
+    if (targets.some((t) => t.planned)) {
+      return say('預定列不能刪除：用 :skip 略過這一期', 'error')
+    }
     const restore = targets.every((t) => t.deleted)
     const ids = new Set(targets.map((t) => t.id))
     if (!restore) {
@@ -597,6 +618,7 @@ export function RegisterGrid({
       id,
       base: null,
       deleted: false,
+      planned: null,
       cleared: 'uncleared',
       splits:
         source.splits?.map((l) => ({
@@ -1136,7 +1158,7 @@ export function RegisterGrid({
     const upserts = rows
       .filter((r) => !r.deleted && rowStatus(r, ctx) !== 'clean')
       .filter((r) => !sent.has(r.id) && Boolean(sent.add(r.id)))
-      .map((r) => toInput(r, ctx))
+      .map((r) => saveInput(r, ctx))
     const deletes = [
       ...new Set(rows.filter((r) => r.deleted && r.base).map((r) => r.id)),
     ]
@@ -1166,7 +1188,7 @@ export function RegisterGrid({
         return false
       }
       const fresh = await reload()
-      const next = rowsFromTransactions(fresh, view.accounts)
+      const next = bufferRows(fresh.transactions, fresh.upcoming, view.accounts)
       writeDraft(key, [])
       history.current = { undo: [], redo: [] }
       setRows(next)
@@ -1195,7 +1217,7 @@ export function RegisterGrid({
   }
 
   function discard() {
-    const fresh = rowsFromTransactions(transactions, view.accounts)
+    const fresh = bufferRows(transactions, upcoming, view.accounts)
     writeDraft(key, [])
     change(fresh)
     setProblems(new Map())
@@ -1203,11 +1225,158 @@ export function RegisterGrid({
     say('已放棄所有未儲存的變更（u 可以復原）')
   }
 
+  // ---------- 預定 rows and review (ADR-085)
+
+  function messageFor(code: string, fallback: string): string {
+    if (problemMessages[code]) return problemMessages[code]
+    const known = errorCodeMessage(code)
+    return known === '發生未知錯誤' ? fallback : known
+  }
+
+  /** The rows a command acts on: the selection it was typed from, or the cursor's. */
+  function commandRows(): Array<Row> {
+    const range = commandRange.current ?? {
+      from: cursor.row,
+      to: cursor.row,
+    }
+    commandRange.current = null
+    return rows.slice(range.from, range.to + 1)
+  }
+
+  /**
+   * Reads the register again after the server changed it, keeping every
+   * unsaved change (they are laid over it as drafts are).
+   */
+  async function refresh() {
+    const fresh = await reload()
+    const kept = rows.filter((r) => rowStatus(r, ctx) !== 'clean')
+    const next = initialRows(fresh, view.accounts, kept).rows
+    history.current = { undo: [], redo: [] }
+    setRows(next)
+    setCursor((c) => ({ ...c, row: clamp(c.row, next.length) }))
+  }
+
+  /** :post and :skip: each 預定 transaction of the rows, once. */
+  async function onOccurrences(targets: Array<Row>, action: 'post' | 'skip') {
+    const planned = targets.filter((r) => r.planned)
+    if (planned.length === 0) {
+      return say('這裡沒有預定列（淡色、標著時鐘的那些）', 'error')
+    }
+    const edited = planned.filter((r) => rowStatus(r, ctx) !== 'clean')
+    if (action === 'post' && edited.length > 0) {
+      return say('改過的預定列用 :w 入帳（會照改過的內容）', 'error')
+    }
+    const seen = new Set<string>()
+    const occurrences = planned
+      .filter((r) => !seen.has(r.id) && Boolean(seen.add(r.id)))
+      .flatMap((r) => (r.planned ? [r.planned] : []))
+    setSaving(true)
+    try {
+      let done = 0
+      for (const o of occurrences) {
+        const path = {
+          params: { path: { budgetId, scheduleId: o.scheduleId } },
+          body: { occurrence: o.occurrence },
+        }
+        const { error } =
+          action === 'post'
+            ? await api.POST(
+                '/budgets/{budgetId}/schedules/{scheduleId}/post',
+                path,
+              )
+            : await api.POST(
+                '/budgets/{budgetId}/schedules/{scheduleId}/skips',
+                path,
+              )
+        if (error) {
+          await refresh()
+          return say(
+            `${done > 0 ? `已處理 ${done} 期；` : ''}${messageFor(error.code, error.message)}`,
+            'error',
+          )
+        }
+        done++
+      }
+      await refresh()
+      say(
+        action === 'post'
+          ? `已入帳 ${done} 期`
+          : `已略過 ${done} 期（到排程頁用 :unskip 可以取消）`,
+      )
+    } catch {
+      say('無法連線至伺服器', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /** :review: confirms transactions a schedule posted with an estimate. */
+  async function review(targets: Array<Row>) {
+    const ids = [
+      ...new Set(targets.filter((r) => r.base?.needsReview).map((r) => r.id)),
+    ]
+    if (ids.length === 0) return say('這裡沒有待確認的交易（標著 ? 的那些）')
+    setSaving(true)
+    try {
+      const { data, error } = await api.POST(
+        '/budgets/{budgetId}/transactions/reviewed',
+        { params: { path: { budgetId } }, body: { ids } },
+      )
+      if (error) return say(messageFor(error.code, error.message), 'error')
+      await refresh()
+      say(`已確認 ${data.reviewed} 筆交易的金額`)
+    } catch {
+      say('無法連線至伺服器', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /** :schedule: a monthly schedule like the cursor's row, from its next month. */
+  async function makeSchedule() {
+    commandRange.current = null
+    const row = current
+    if (!row) return say('沒有交易，按 o 新增一筆')
+    if (row.planned) return say('這一列已經是排程的預定列', 'error')
+    const made = scheduleFromRow(row, crypto.randomUUID(), isoDate(today))
+    if (typeof made === 'string') return say(made, 'error')
+    setSaving(true)
+    try {
+      const { error } = await api.POST('/budgets/{budgetId}/schedules/batch', {
+        params: { path: { budgetId } },
+        body: { upserts: [made.input], deletes: [] },
+      })
+      if (error) {
+        const problem = 'errors' in error ? error.errors.at(0) : error
+        return say(
+          problem ? messageFor(problem.code, problem.message) : '無法建立排程',
+          'error',
+        )
+      }
+      await refresh()
+      say(
+        `已建立排程「${made.input.source}」，第一期 ${formatDate(made.first, today)}；到「排程」頁可以修改週期和預算方式`,
+      )
+    } catch {
+      say('無法連線至伺服器', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function runCommand(raw: string) {
     const cmd = raw.trim()
     setMode('normal')
     setCommand('')
-    if (cmd === 'w') {
+    if (cmd === 'post') {
+      await onOccurrences(commandRows(), 'post')
+    } else if (cmd === 'skip') {
+      await onOccurrences(commandRows(), 'skip')
+    } else if (cmd === 'review') {
+      await review(commandRows())
+    } else if (cmd === 'schedule' || cmd === 'sched') {
+      await makeSchedule()
+    } else if (cmd === 'w') {
       await save()
     } else if (cmd === 'wq' || cmd === 'x') {
       if (await save()) onQuit()
@@ -1336,7 +1505,11 @@ export function RegisterGrid({
         return true
       case ':':
         return done(() => {
-          if (visual) endVisual()
+          commandRange.current = null
+          if (visual && selection) {
+            commandRange.current = selection
+            endVisual()
+          }
           setCommand('')
           setMode('command')
         })
@@ -1803,7 +1976,17 @@ function RowView({
 }) {
   const marker = problem
     ? '!'
-    : { clean: '', new: '+', changed: '~', deleted: '-' }[status]
+    : status === 'clean' && row.base?.needsReview
+      ? '?'
+      : { clean: '', new: '+', changed: '~', deleted: '-' }[status]
+  /** An untouched 預定 row (ADR-085): dimmed, not in the balance yet. */
+  const planned = row.planned && status === 'clean'
+  /** An estimated amount: a 預定 one, or one posted that waits for :review. */
+  const estimate =
+    (planned && row.planned?.estimate) ||
+    (status === 'clean' && row.base?.needsReview)
+  const money = (value: number) =>
+    `${estimate ? '~' : ''}${formatAmount(value, ctx.minorUnits)}`
   const transfer = row.transferTo ? ctx.accounts.get(row.transferTo) : undefined
   const mode = categoryMode(row, ctx)
   const category = row.splits
@@ -1898,7 +2081,7 @@ function RowView({
             data-col={col}
             className={cn(cell, 'amount justify-end')}
           >
-            {row.amount < 0 ? formatAmount(-row.amount, ctx.minorUnits) : ''}
+            {row.amount < 0 ? money(-row.amount) : ''}
           </span>
         )
       case 'inflow':
@@ -1908,7 +2091,7 @@ function RowView({
             data-col={col}
             className={cn(cell, 'amount justify-end')}
           >
-            {row.amount > 0 ? formatAmount(row.amount, ctx.minorUnits) : ''}
+            {row.amount > 0 ? money(row.amount) : ''}
           </span>
         )
       case 'cleared':
@@ -1944,6 +2127,7 @@ function RowView({
       className={cn(
         'absolute inset-x-0 grid border-b border-rule/60 text-sm',
         row.deleted && 'text-muted-foreground line-through',
+        planned && 'text-muted-foreground italic',
       )}
       style={{
         top: index * ROW_HEIGHT,
@@ -1964,9 +2148,20 @@ function RowView({
           'flex items-center justify-center font-mono text-xs',
           problem || status === 'deleted' ? 'text-destructive' : 'text-kraft',
         )}
-        title={problem?.message}
+        title={
+          problem?.message ??
+          (planned
+            ? `預定：${row.planned?.occurrence} 這一期，還沒入帳（:post 入帳、:skip 略過，或直接改）`
+            : marker === '?'
+              ? '排程用估計金額記的，確認後 :review（或直接改金額）'
+              : undefined)
+        }
       >
-        {marker}
+        {planned && !problem ? (
+          <CalendarClockIcon className="size-3.5 text-muted-foreground" />
+        ) : (
+          marker
+        )}
       </span>
       {layout.columns.map((c, col) => content(c, col))}
       <span
@@ -1976,7 +2171,7 @@ function RowView({
           balance < 0 && 'amount-negative',
         )}
       >
-        {formatAmount(balance, ctx.minorUnits)}
+        {row.planned ? '' : formatAmount(balance, ctx.minorUnits)}
       </span>
     </div>
   )
