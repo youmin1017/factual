@@ -224,6 +224,14 @@ export const scheduleKeys: Array<KeyGroup> = [
       ['每年 3/15', '每年哪一天'],
       ['到 2027/6/30 共 12 次', '加在後面：結束日、總共幾次'],
       ['遇假日延後 遇假日提前', '加在後面：遇到放假日改到下一個、上一個工作日'],
+      [
+        'monthly on the 5th',
+        '英文也可以：every 2 weeks on fri、every month on the last day、quarterly on 10、yearly on mar 15',
+      ],
+      [
+        'until 2027/6/30 12 times',
+        '英文加在後面：結束日、總共幾次、next workday、prev workday',
+      ],
     ],
   },
   {

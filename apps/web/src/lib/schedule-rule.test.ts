@@ -64,6 +64,61 @@ for (const text of [
   assert.ok('error' in parseRule(text), `${text} should not parse`)
 }
 
+// The same rules in English (any case; full-width letters too).
+const english: Array<[string, string]> = [
+  ['daily', 'FREQ=DAILY'],
+  ['Every day', 'FREQ=DAILY'],
+  ['every 3 days', 'FREQ=DAILY;INTERVAL=3'],
+  ['weekly', 'FREQ=WEEKLY'],
+  ['weekly on mon', 'FREQ=WEEKLY;BYDAY=MO'],
+  ['every Monday', 'FREQ=WEEKLY;BYDAY=MO'],
+  ['every mon, wed and fri', 'FREQ=WEEKLY;BYDAY=MO,WE,FR'],
+  ['every Tuesdays & Thursdays', 'FREQ=WEEKLY;BYDAY=TU,TH'],
+  ['every weekday', 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'],
+  ['every 2 weeks on fri', 'FREQ=WEEKLY;INTERVAL=2;BYDAY=FR'],
+  ['every other week on friday', 'FREQ=WEEKLY;INTERVAL=2;BYDAY=FR'],
+  ['biweekly fri', 'FREQ=WEEKLY;INTERVAL=2;BYDAY=FR'],
+  ['monthly', 'FREQ=MONTHLY'],
+  ['monthly on the 5th', 'FREQ=MONTHLY;BYMONTHDAY=5'],
+  ['every month on 25', 'FREQ=MONTHLY;BYMONTHDAY=25'],
+  ['monthly on day 1', 'FREQ=MONTHLY;BYMONTHDAY=1'],
+  ['every month on the last day', 'FREQ=MONTHLY;BYMONTHDAY=-1'],
+  ['monthly, end of month', 'FREQ=MONTHLY;BYMONTHDAY=-1'],
+  ['monthly on the 2nd wed', 'FREQ=MONTHLY;BYDAY=2WE'],
+  ['every month on the last friday', 'FREQ=MONTHLY;BYDAY=-1FR'],
+  ['every 3 months on the 10th', 'FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=10'],
+  ['quarterly on 10', 'FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=10'],
+  ['semiannually on the 1st', 'FREQ=MONTHLY;INTERVAL=6;BYMONTHDAY=1'],
+  ['yearly on 3/15', 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15'],
+  ['annually on March 15th', 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15'],
+  ['every year on 15 mar', 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15'],
+  ['every 2 years on dec 1', 'FREQ=YEARLY;INTERVAL=2;BYMONTH=12;BYMONTHDAY=1'],
+  [
+    'monthly on the 5th until 2027/6/30',
+    'FREQ=MONTHLY;BYMONTHDAY=5;UNTIL=20270630',
+  ],
+  ['monthly on the 5th, 12 times', 'FREQ=MONTHLY;BYMONTHDAY=5;COUNT=12'],
+  ['ｍｏｎｔｈｌｙ ｏｎ ５', 'FREQ=MONTHLY;BYMONTHDAY=5'],
+]
+for (const [text, want] of english) assert.equal(rule(text), want, text)
+assert.equal(shiftOf('monthly on the 5th, next workday'), 'nextWorkday')
+assert.equal(
+  shiftOf('monthly on 5 if holiday, next business day'),
+  'nextWorkday',
+)
+assert.equal(shiftOf('monthly on 1 prev workday'), 'prevWorkday')
+assert.equal(shiftOf('monthly on 1, previous business day'), 'prevWorkday')
+for (const text of [
+  'every',
+  'sometimes',
+  'monthly on 32',
+  'yearly on feb 30',
+  'monthly on 5 when it rains',
+  'every zero days',
+]) {
+  assert.ok('error' in parseRule(text), `${text} should not parse`)
+}
+
 // RRULEs read back.
 for (const [, r] of written) {
   const back = readRRule(r)

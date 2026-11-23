@@ -41,11 +41,15 @@ const dayNames = '一二三四五六日'
 // ---------- reading what is typed
 
 /** Full-width digits and marks to ASCII, the variants of 週 and 日 to one, no spaces. */
+/** Full-width digits, letters and marks to ASCII. */
+function toAscii(text: string): string {
+  return text.replaceAll(/[！-～]/g, (c) =>
+    String.fromCharCode(c.charCodeAt(0) - 0xfee0),
+  )
+}
+
 function normalize(text: string): string {
-  return text
-    .replaceAll(/[！-～]/g, (c) =>
-      String.fromCharCode(c.charCodeAt(0) - 0xfee0),
-    )
+  return toAscii(text)
     .replaceAll(/星期|禮拜|礼拜|周/g, '週')
     .replaceAll(/[號号]/g, '日')
     .replaceAll(/\s+/g, '')
@@ -87,13 +91,16 @@ function ymd(y: number, m: number, d: number): string | null {
   return t.toISOString().slice(0, 10)
 }
 
-const examples = '例如：每月 5 日、每週一三五、每 2 週五、每季 10 日、每年 3/15'
+const examples =
+  '例如：每月 5 日、每週一三五、每 2 週五、每季 10 日、每年 3/15，或 monthly on the 5th、every 2 weeks on fri'
 
 /**
  * Reads a rule as typed. Returns the RRULE and how it moves off days off,
  * or a message saying what was not understood.
  */
 export function parseRule(text: string): ParsedRule | { error: string } {
+  const ascii = toAscii(text)
+  if (/[a-z]/i.test(ascii)) return parseEnglish(ascii)
   let s = normalize(text)
   if (!s) return { error: `請輸入週期，${examples}` }
   const rule: Rule = {
@@ -190,6 +197,275 @@ export function parseRule(text: string): ParsedRule | { error: string } {
     }
     return {
       error: `看不懂「${s}」：週期後面可以接「到 2027/6/30」「共 12 次」「遇假日延後」或「遇假日提前」`,
+    }
+  }
+  return { rule: writeRRule(rule), shift }
+}
+
+// ---------- English
+
+const enDays: Record<string, number> = {
+  mo: 0,
+  mon: 0,
+  tu: 1,
+  tue: 1,
+  we: 2,
+  wed: 2,
+  th: 3,
+  thu: 3,
+  fr: 4,
+  fri: 4,
+  sa: 5,
+  sat: 5,
+  su: 6,
+  sun: 6,
+}
+const DAY_WORD =
+  'mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:rs|rsday|r)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|mo|tu|we|th|fr|sa|su'
+
+/** mon, Monday, Mondays, thurs → 0..6. */
+function dayOf(word: string): number | undefined {
+  const days: Record<string, number | undefined> = enDays
+  return days[word.slice(0, 3)] ?? days[word.slice(0, 2)]
+}
+
+const enMonths: Record<string, number> = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+}
+const MONTH_WORD =
+  'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
+
+const enOrdinals: Record<string, number> = {
+  first: 1,
+  '1st': 1,
+  second: 2,
+  '2nd': 2,
+  third: 3,
+  '3rd': 3,
+  fourth: 4,
+  '4th': 4,
+  fifth: 5,
+  '5th': 5,
+  last: -1,
+}
+
+const enNumbers: Record<string, number> = {
+  one: 1,
+  two: 2,
+  other: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+}
+const EN_NUM =
+  '(\\d+|one|two|other|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+
+function enNumber(s: string | undefined): number {
+  if (s === undefined) return 1
+  return /^\d+$/.test(s) ? Number(s) : (enNumbers[s] ?? 0)
+}
+
+/**
+ * The same rules in English: `daily`, `every 3 days`, `weekly on mon, wed`,
+ * `every 2 weeks on fri`, `every weekday`, `monthly on the 5th`, `every
+ * month on the last day`, `monthly on the 2nd wed`, `quarterly on the 10th`,
+ * `every 3 months on 10`, `yearly on 3/15` or `on march 15`; then `until
+ * 2027/6/30`, `12 times`, `next workday` or `prev workday`.
+ */
+function parseEnglish(text: string): ParsedRule | { error: string } {
+  let s = text.toLowerCase().replaceAll(/\s+/g, ' ').trim()
+  const rule: Rule = {
+    freq: 'MONTHLY',
+    interval: 1,
+    byDay: [],
+    byMonthDay: [],
+    byMonth: [],
+    count: null,
+    until: null,
+  }
+  const take = (re: RegExp): RegExpExecArray | null => {
+    const found = re.exec(s)
+    if (found) s = s.slice(found[0].length).trim()
+    return found
+  }
+  /** The first of several patterns that matches. */
+  const takeAny = (...res: Array<RegExp>): RegExpExecArray | null => {
+    for (const re of res) {
+      const found = take(re)
+      if (found) return found
+    }
+    return null
+  }
+  const on = () => take(/^,?\s*(?:on\s+)?(?:the\s+)?/)
+  const days = () => {
+    const found = take(
+      new RegExp(`^(?:(?:${DAY_WORD})s?\\b(?:\\s*(?:,|&|and)\\s*|\\s+)?)+`),
+    )
+    if (!found) return
+    for (const w of found[0].split(/[\s,&]+/)) {
+      if (!w || w === 'and') continue
+      const d = dayOf(w)
+      if (d !== undefined && !rule.byDay.some((b) => b.day === d))
+        rule.byDay.push({ n: 0, day: d })
+    }
+    rule.byDay.sort((a, b) => a.day - b.day)
+  }
+  let m: RegExpExecArray | null
+
+  if ((m = take(new RegExp(`^every\\s+${EN_NUM}\\s+days?\\b`)))) {
+    rule.freq = 'DAILY'
+    rule.interval = enNumber(m[1])
+  } else if (take(/^(?:daily|every\s+day)\b/)) {
+    rule.freq = 'DAILY'
+  } else if (take(/^(?:every\s+weekdays?|weekdays)\b/)) {
+    rule.freq = 'WEEKLY'
+    rule.byDay = [0, 1, 2, 3, 4].map((day) => ({ n: 0, day }))
+  } else if (
+    (m = takeAny(
+      new RegExp(`^every\\s+${EN_NUM}\\s+weeks?\\b`),
+      /^(?:weekly|every\s+week)\b/,
+      /^(?:biweekly|fortnightly)\b/,
+    ))
+  ) {
+    rule.freq = 'WEEKLY'
+    rule.interval = /^(?:biweekly|fortnightly)/.test(m[0]) ? 2 : enNumber(m[1])
+    on()
+    days()
+  } else if (take(new RegExp(`^every\\s+(?=(?:${DAY_WORD})s?\\b)`))) {
+    rule.freq = 'WEEKLY'
+    days()
+  } else if (
+    (m = takeAny(
+      new RegExp(`^every\\s+${EN_NUM}\\s+months?\\b`),
+      /^(?:monthly|every\s+month)\b/,
+      /^(?:quarterly|every\s+quarter)\b/,
+      /^(?:semi-?annually|half-?yearly|every\s+half\s+year)\b/,
+    ))
+  ) {
+    rule.freq = 'MONTHLY'
+    rule.interval = /quarter/.test(m[0])
+      ? 3
+      : /semi|half/.test(m[0])
+        ? 6
+        : enNumber(m[1])
+    on()
+    if (take(/^(?:last\s+day|end(?:\s+of(?:\s+the)?\s+month)?)\b/)) {
+      rule.byMonthDay = [-1]
+    } else if (
+      (m = take(
+        new RegExp(
+          `^(first|second|third|fourth|fifth|last|1st|2nd|3rd|4th|5th)\\s+(${DAY_WORD})\\b`,
+        ),
+      ))
+    ) {
+      rule.byDay = [{ n: enOrdinals[m[1]], day: dayOf(m[2]) ?? 0 }]
+    } else if ((m = take(/^(?:day\s+)?(\d{1,2})(?:st|nd|rd|th)?\b/))) {
+      const d = Number(m[1])
+      if (d < 1 || d > 31) return { error: '每月的日期是 1 到 31' }
+      rule.byMonthDay = [d]
+    }
+  } else if (
+    (m = takeAny(
+      new RegExp(`^every\\s+${EN_NUM}\\s+years?\\b`),
+      /^(?:yearly|annually|every\s+year)\b/,
+    ))
+  ) {
+    rule.freq = 'YEARLY'
+    rule.interval = enNumber(m[1])
+    on()
+    let month = 0
+    let d = 0
+    if ((m = take(/^(\d{1,2})[/.-](\d{1,2})\b/))) {
+      month = Number(m[1])
+      d = Number(m[2])
+    } else if (
+      (m = take(
+        new RegExp(`^(${MONTH_WORD})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`),
+      ))
+    ) {
+      month = enMonths[m[1].slice(0, 3)]
+      d = Number(m[2])
+    } else if (
+      (m = take(
+        new RegExp(
+          `^(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_WORD})\\b`,
+        ),
+      ))
+    ) {
+      month = enMonths[m[2].slice(0, 3)]
+      d = Number(m[1])
+    }
+    if (month) {
+      if (!ymd(2024, month, d)) return { error: `沒有 ${month}/${d} 這一天` }
+      rule.byMonth = [month]
+      rule.byMonthDay = [d]
+    }
+  } else {
+    return { error: `看不懂這個週期，${examples}` }
+  }
+  if (rule.interval < 1) return { error: '看不懂間隔' }
+
+  let shift: HolidayShift = 'noShift'
+  const holiday =
+    '(?:(?:if|on)\\s+(?:a\\s+)?(?:holiday|day\\s+off)s?\\s*,?\\s*)?(?:move\\s+)?(?:to\\s+)?(?:the\\s+)?'
+  while (s) {
+    if (take(/^[,;.]+/)) continue
+    if (
+      (m = take(
+        /^(?:until|till|through|ending)\s+(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})\b/,
+      ))
+    ) {
+      const until = ymd(Number(m[1]), Number(m[2]), Number(m[3]))
+      if (!until) return { error: '結束日期不存在' }
+      rule.until = until
+      continue
+    }
+    if ((m = take(new RegExp(`^(?:for\\s+)?${EN_NUM}\\s+times\\b`)))) {
+      const n = enNumber(m[1])
+      if (!n) return { error: '看不懂次數' }
+      rule.count = n
+      continue
+    }
+    if (
+      take(
+        new RegExp(
+          `^${holiday}(?:next|following|later)\\s+(?:work|business|working)\\s*day\\b`,
+        ),
+      )
+    ) {
+      shift = 'nextWorkday'
+      continue
+    }
+    if (
+      take(
+        new RegExp(
+          `^${holiday}(?:prev|previous|preceding|earlier)\\s+(?:work|business|working)\\s*day\\b`,
+        ),
+      )
+    ) {
+      shift = 'prevWorkday'
+      continue
+    }
+    return {
+      error: `看不懂「${s}」：後面可以接 until 2027/6/30、12 times、next workday 或 prev workday`,
     }
   }
   return { rule: writeRRule(rule), shift }
