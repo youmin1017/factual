@@ -164,6 +164,38 @@ func TestCardStatements(t *testing.T) {
 		t.Fatalf("the older statement is %s", older.State)
 	}
 
+	// :defer takes the late charge (billed 1/05) out of that statement and
+	// back; the register says where each entry is billed.
+	billing := func(billed bool, ids ...uuid.UUID) api.BillingChanged {
+		t.Helper()
+		rec := admin.do(http.MethodPut, budgetPath(f.budget, "/accounts/"+f.card.Id.String()+"/billing"), api.BillingChange{TransactionIds: ids, Billed: billed})
+		wantStatus(t, rec, http.StatusOK)
+		var out api.BillingChanged
+		decode(t, rec, &out)
+		return out
+	}
+	var late api.Transaction
+	for _, tx := range register(t, admin, f.budget, f.card) {
+		if tx.Date.String() == "2026-12-01" {
+			late = tx
+		}
+	}
+	if s := late.Entries[0].StatementId; s == nil || *s != latest.Id {
+		t.Fatalf("the late charge is billed in %v, want %s", s, latest.Id)
+	}
+	if got := billing(false, late.Id, lunch.Id); got.Changed != 1 || got.StatementId != latest.Id {
+		t.Fatalf("deferred %+v (the lunch is in an older statement)", got)
+	}
+	if st := statements(t, admin, f.budget, f.card); st.Statements[0].AmountDue != 800 || st.Open.Charges != 200 {
+		t.Fatalf("after deferring: %+v %+v", st.Statements[0], st.Open)
+	}
+	if got := billing(true, late.Id); got.Changed != 1 {
+		t.Fatalf("billed back %+v", got)
+	}
+	if st := statements(t, admin, f.budget, f.card); st.Statements[0].AmountDue != 1000 {
+		t.Fatalf("after billing it back: %+v", st.Statements[0])
+	}
+
 	// Paid in full.
 	wantStatus(t, save(admin, f.budget, []api.TransactionInput{pay(f.bank.Id, f.card.Id, ymdT(2027, 1, 26), 1000)}), http.StatusOK)
 	if latest = statements(t, admin, f.budget, f.card).Statements[0]; latest.State != api.Paid || latest.Remaining != 0 {

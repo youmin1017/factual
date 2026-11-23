@@ -592,6 +592,32 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/accounts/{accountId}/billing': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Move entries out of the latest statement, or back in (:defer)
+     * @description `billed: false` takes the card's entries of these transactions out
+     *     of its latest closed statement, so the next closing bills them (a
+     *     charge the bank billed a month later); `billed: true` puts unbilled
+     *     ones dated up to its closing day back in (ADR-088).
+     */
+    put: operations['setBilling']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/budgets/{budgetId}/statements/{statementId}/due': {
     parameters: {
       query?: never
@@ -1339,6 +1365,22 @@ export interface components {
       /** @description Closed statements, newest first. */
       statements: components['schemas']['Statement'][]
     }
+    BillingChange: {
+      transactionIds: string[]
+      billed: boolean
+    }
+    BillingChanged: {
+      /**
+       * Format: int32
+       * @description Entries moved.
+       */
+      changed: number
+      /**
+       * Format: uuid
+       * @description The latest closed statement.
+       */
+      statementId: string
+    }
     StatementDue: {
       /** Format: int64 */
       amount: number | null
@@ -1411,6 +1453,11 @@ export interface components {
       amount: number
       memo: string
       cleared: components['schemas']['ClearedState']
+      /**
+       * Format: uuid
+       * @description The card statement the entry is billed in (ADR-088); null or absent when not billed.
+       */
+      statementId?: string | null
     }
     Transaction: {
       /** Format: uuid */
@@ -2650,6 +2697,35 @@ export interface operations {
           'application/json': components['schemas']['CardStatements']
         }
       }
+      404: components['responses']['NotFound']
+    }
+  }
+  setBilling: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BillingChange']
+      }
+    }
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BillingChanged']
+        }
+      }
+      400: components['responses']['BadRequest']
       404: components['responses']['NotFound']
     }
   }

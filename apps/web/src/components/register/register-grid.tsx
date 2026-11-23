@@ -10,6 +10,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { api } from '#/lib/api'
 import { errorCodeMessage } from '#/lib/apiError'
+import { billingText, deferPlan } from '#/lib/card'
 import { setEditorStatus } from '#/lib/editorStatus'
 import { formatAmount } from '#/lib/money'
 import { movePane, windowDirection } from '#/lib/panes'
@@ -43,6 +44,7 @@ import { CellEditor, eraseBeforeCaret, nextPick } from './cell-editor'
 import { KeyHelp } from './key-help'
 import { SplitEditor } from './split-editor'
 import { useKeyFeed } from './use-key-feed'
+import type { CardStatements } from '#/lib/card'
 import type { Key, Keymap } from '#/lib/keymap'
 import type {
   Column,
@@ -204,6 +206,8 @@ interface Props {
   reload: () => Promise<RegisterData>
   /** Leaves the register (`:q`). */
   onQuit: () => void
+  /** A credit card's register: the card and its statements (ADR-088). */
+  card?: { id: string; statements: CardStatements }
 }
 
 // Version 3: rows carry their key and account (ADR-071). Older drafts are dropped.
@@ -277,6 +281,7 @@ export function RegisterGrid({
   keymap,
   reload,
   onQuit,
+  card,
 }: Props) {
   const key = draftKey(budgetId, view.key)
   /** The register's inner width: the text columns grow to fill it. */
@@ -1364,6 +1369,35 @@ export function RegisterGrid({
     }
   }
 
+  /** :defer: rows out of the card's latest statement, or back in (ADR-088). */
+  async function defer(targets: Array<Row>) {
+    if (!card) return say('只有信用卡的明細可以調整帳單', 'error')
+    const plan = deferPlan(targets, card.id, card.statements)
+    if (typeof plan === 'string') return say(plan, 'error')
+    setSaving(true)
+    try {
+      const { data, error } = await api.PUT(
+        '/budgets/{budgetId}/accounts/{accountId}/billing',
+        {
+          params: { path: { budgetId, accountId: card.id } },
+          body: { transactionIds: plan.ids, billed: plan.billed },
+        },
+      )
+      if (error) return say(messageFor(error.code, error.message), 'error')
+      await refresh()
+      const closing = card.statements.statements.at(0)?.periodEnd ?? ''
+      say(
+        plan.billed
+          ? `已把 ${data.changed} 筆放回 ${formatDate(closing, today)} 結帳的帳單`
+          : `已把 ${data.changed} 筆移到下一期帳單（再 :defer 一次可以放回）`,
+      )
+    } catch {
+      say('無法連線至伺服器', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function runCommand(raw: string) {
     const cmd = raw.trim()
     setMode('normal')
@@ -1374,6 +1408,8 @@ export function RegisterGrid({
       await onOccurrences(commandRows(), 'skip')
     } else if (cmd === 'review') {
       await review(commandRows())
+    } else if (cmd === 'defer') {
+      await defer(commandRows())
     } else if (cmd === 'schedule' || cmd === 'sched') {
       await makeSchedule()
     } else if (cmd === 'w') {
@@ -1696,11 +1732,17 @@ export function RegisterGrid({
 
   const options = suggestions()
   const problem = current ? problems.get(current.id) : undefined
+  /** On a card's row: which statement it is billed in. */
+  const billing =
+    card && current && mode === 'normal'
+      ? billingText(current, card.statements, today)
+      : null
   const line =
     mode === 'command'
       ? null
       : (message ??
-        (problem ? { text: problem.message, tone: 'error' as const } : null))
+        (problem ? { text: problem.message, tone: 'error' as const } : null) ??
+        (billing ? { text: billing, tone: 'info' as const } : null))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

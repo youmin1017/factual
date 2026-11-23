@@ -136,7 +136,7 @@ func (q *Queries) ListCategoryRefs(ctx context.Context, budgetID uuid.UUID) ([]L
 }
 
 const listRegisterEntries = `-- name: ListRegisterEntries :many
-select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared
+select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared, e.statement_id
   from entries e
  where e.budget_id = $1
    and e.transaction_id in (select x.transaction_id from entries x where x.account_id = $2)
@@ -156,6 +156,7 @@ type ListRegisterEntriesRow struct {
 	Amount        int64
 	Memo          string
 	Cleared       ClearedState
+	StatementID   uuid.NullUUID
 }
 
 // Every entry of the transactions above, including those on other accounts.
@@ -176,6 +177,7 @@ func (q *Queries) ListRegisterEntries(ctx context.Context, arg ListRegisterEntri
 			&i.Amount,
 			&i.Memo,
 			&i.Cleared,
+			&i.StatementID,
 		); err != nil {
 			return nil, err
 		}
@@ -241,7 +243,7 @@ func (q *Queries) ListRegisterTransactions(ctx context.Context, arg ListRegister
 }
 
 const listScopeEntries = `-- name: ListScopeEntries :many
-select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared
+select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared, e.statement_id
   from entries e
  where e.budget_id = $1
    and e.transaction_id in (
@@ -266,6 +268,7 @@ type ListScopeEntriesRow struct {
 	Amount        int64
 	Memo          string
 	Cleared       ClearedState
+	StatementID   uuid.NullUUID
 }
 
 func (q *Queries) ListScopeEntries(ctx context.Context, arg ListScopeEntriesParams) ([]ListScopeEntriesRow, error) {
@@ -285,6 +288,7 @@ func (q *Queries) ListScopeEntries(ctx context.Context, arg ListScopeEntriesPara
 			&i.Amount,
 			&i.Memo,
 			&i.Cleared,
+			&i.StatementID,
 		); err != nil {
 			return nil, err
 		}

@@ -9,7 +9,7 @@ select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t
 
 -- name: ListRegisterEntries :many
 -- Every entry of the transactions above, including those on other accounts.
-select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared
+select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared, e.statement_id
   from entries e
  where e.budget_id = $1
    and e.transaction_id in (select x.transaction_id from entries x where x.account_id = $2)
@@ -62,7 +62,7 @@ select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t
  order by t.date, t.created_at, t.id;
 
 -- name: ListScopeEntries :many
-select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared
+select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.cleared, e.statement_id
   from entries e
  where e.budget_id = sqlc.arg(budget_id)
    and e.transaction_id in (

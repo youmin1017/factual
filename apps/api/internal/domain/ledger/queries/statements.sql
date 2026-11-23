@@ -120,3 +120,27 @@ update entries
    set statement_id = coalesce(statement_id, sqlc.narg(statement_id)),
        pays_statement_id = coalesce(pays_statement_id, sqlc.narg(pays_statement_id))
  where transaction_id = $1 and account_id = $2;
+
+-- name: LatestClosedStatement :one
+select id, period_end
+  from statements
+ where budget_id = $1 and account_id = $2 and closed_at is not null
+ order by period_end desc
+ limit 1;
+
+-- name: UnbillChosen :execrows
+-- Takes entries out of a statement: they are billed at the next closing.
+update entries
+   set statement_id = null
+ where budget_id = sqlc.arg(budget_id) and account_id = sqlc.arg(account_id)
+   and statement_id = sqlc.arg(statement_id) and transaction_id = any(sqlc.arg(ids)::uuid[]);
+
+-- name: BillChosen :execrows
+-- Puts unbilled entries dated up to its closing day back into a statement.
+update entries e
+   set statement_id = sqlc.arg(statement_id)
+  from transactions t
+ where t.id = e.transaction_id
+   and e.budget_id = sqlc.arg(budget_id) and e.account_id = sqlc.arg(account_id)
+   and e.statement_id is null and t.date <= sqlc.arg(period_end)::date
+   and e.transaction_id = any(sqlc.arg(ids)::uuid[]);

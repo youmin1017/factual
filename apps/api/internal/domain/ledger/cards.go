@@ -328,6 +328,41 @@ func (h *Handlers) SetStatementDue(ctx context.Context, req api.SetStatementDueR
 	return api.SetStatementDue204Response{}, nil
 }
 
+// SetBilling moves a card's entries out of its latest closed statement (to
+// be billed at the next closing) or back into it (`:defer`, ADR-088).
+func (h *Handlers) SetBilling(ctx context.Context, req api.SetBillingRequestObject) (api.SetBillingResponseObject, error) {
+	acct, err := h.s.q.GetAccount(ctx, db.GetAccountParams{BudgetID: req.BudgetId, ID: req.AccountId})
+	if isNoRows(err) || (err == nil && acct.Kind != db.AccountKindCreditCard) {
+		return nil, notFound("credit card")
+	}
+	if err != nil {
+		return nil, err
+	}
+	latest, err := h.s.q.LatestClosedStatement(ctx, db.LatestClosedStatementParams{BudgetID: req.BudgetId, AccountID: req.AccountId})
+	if isNoRows(err) {
+		return nil, apperr.BadRequest("no_statement", "the card has no closed statement yet")
+	}
+	if err != nil {
+		return nil, err
+	}
+	statement := uuid.NullUUID{UUID: latest.ID, Valid: true}
+	var n int64
+	if req.Body.Billed {
+		n, err = h.s.q.BillChosen(ctx, db.BillChosenParams{
+			StatementID: statement, BudgetID: req.BudgetId, AccountID: req.AccountId,
+			PeriodEnd: latest.PeriodEnd, Ids: req.Body.TransactionIds,
+		})
+	} else {
+		n, err = h.s.q.UnbillChosen(ctx, db.UnbillChosenParams{
+			BudgetID: req.BudgetId, AccountID: req.AccountId, StatementID: statement, Ids: req.Body.TransactionIds,
+		})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return api.SetBilling200JSONResponse{Changed: int32(n), StatementId: latest.ID}, nil
+}
+
 // logClosed reports closings, for the scheduler.
 func logClosed(ctx context.Context, n int, err error) {
 	if err != nil {

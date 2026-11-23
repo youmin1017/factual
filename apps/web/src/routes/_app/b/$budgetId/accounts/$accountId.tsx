@@ -11,6 +11,7 @@ import {
   categoriesQuery,
   payeesQuery,
   schedulesQuery,
+  statementsQuery,
   summaryQuery,
   upcomingQuery,
 } from '#/lib/budget'
@@ -88,6 +89,12 @@ function RegisterPage() {
   const payees = useQuery(payeesQuery(budget.id))
   const register = useQuery(registerQuery(budget.id, viewKey))
   const upcoming = useQuery(upcomingQuery(budget.id))
+  const isCard =
+    accounts.data?.find((a) => a.id === viewKey)?.kind === 'credit_card'
+  const cardStatements = useQuery({
+    ...statementsQuery(budget.id, viewKey),
+    enabled: isCard,
+  })
   const keymap = useKeymap()
 
   const failed = [accounts, categories, payees, register, upcoming].find(
@@ -240,6 +247,11 @@ function RegisterPage() {
           }))}
           keymap={keymap}
           reload={reload}
+          card={
+            isCard && cardStatements.data
+              ? { id: viewKey, statements: cardStatements.data }
+              : undefined
+          }
           onQuit={() =>
             void navigate({
               to: '/b/$budgetId/accounts',

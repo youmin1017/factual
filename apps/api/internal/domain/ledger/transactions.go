@@ -79,7 +79,7 @@ func transactionsOut(txs []db.ListRegisterTransactionsRow, entries []db.ListRegi
 	for _, e := range entries {
 		byTx[e.TransactionID] = append(byTx[e.TransactionID], api.Entry{
 			Id: e.ID, AccountId: e.AccountID, CategoryId: idPtr(e.CategoryID), Amount: e.Amount,
-			Memo: e.Memo, Cleared: api.ClearedState(e.Cleared),
+			Memo: e.Memo, Cleared: api.ClearedState(e.Cleared), StatementId: idPtr(e.StatementID),
 		})
 	}
 	out := make([]api.Transaction, 0, len(txs))

@@ -34,6 +34,7 @@ export function StatementSummary({
 }) {
   const query = useQuery(statementsQuery(budget.id, account.id))
   const [setup, setSetup] = useState(false)
+  const [history, setHistory] = useState(false)
   const mu = budget.minorUnits
   const now = new Date()
 
@@ -65,29 +66,110 @@ export function StatementSummary({
   }
   const latest = statements.at(0)
   return (
-    <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1 text-sm">
-      {latest && <Latest statement={latest} budget={budget} now={now} />}
-      {open && (
-        <p className="text-muted-foreground">
-          本期 {formatDate(open.periodStart, now)}–
-          {formatDate(open.periodEnd, now)}：新增消費{' '}
-          <Amount value={open.charges} minorUnits={mu} />
-          {open.payments > 0 && (
-            <>
-              ，已繳 <Amount value={open.payments} minorUnits={mu} />
-            </>
-          )}
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1 text-sm">
+        {latest && <Latest statement={latest} budget={budget} now={now} />}
+        {open && (
+          <p className="text-muted-foreground">
+            本期 {formatDate(open.periodStart, now)}–
+            {formatDate(open.periodEnd, now)}：新增消費{' '}
+            <Amount value={open.charges} minorUnits={mu} />
+            {open.payments > 0 && (
+              <>
+                ，已繳 <Amount value={open.payments} minorUnits={mu} />
+              </>
+            )}
+          </p>
+        )}
+        <Button
+          variant="link"
+          size="sm"
+          className="h-auto p-0 text-muted-foreground"
+          onClick={() => setSetup(true)}
+        >
+          每月 {card.statementDay} 日結帳、{card.dueDay} 日截止
+        </Button>
+        {statements.length > 0 && (
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-muted-foreground"
+            aria-expanded={history}
+            onClick={() => setHistory((h) => !h)}
+          >
+            {history ? '收起歷史帳單' : `歷史帳單（${statements.length} 期）`}
+          </Button>
+        )}
+        {dialog}
+      </div>
+      {history && <History statements={statements} minorUnits={mu} now={now} />}
+    </div>
+  )
+}
+
+/** Every closed statement, newest first, as the bank's bill lays it out. */
+function History({
+  statements,
+  minorUnits,
+  now,
+}: {
+  statements: Array<Statement>
+  minorUnits: number
+  now: Date
+}) {
+  const head = 'px-2 py-1 text-right font-normal'
+  return (
+    <div className="max-h-64 overflow-auto rounded-md border border-rule">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
+          <tr className="border-b border-rule">
+            <th className="px-2 py-1 text-left font-normal">結帳日</th>
+            <th className="px-2 py-1 text-left font-normal">截止日</th>
+            <th className={head}>上期應繳</th>
+            <th className={head}>本期繳款</th>
+            <th className={head}>本期消費</th>
+            <th className={head}>本期應繳</th>
+            <th className="px-2 py-1 text-left font-normal">狀態</th>
+          </tr>
+        </thead>
+        <tbody>
+          {statements.map((st) => {
+            const state = states[st.state]
+            const cell = 'px-2 py-1 text-right'
+            return (
+              <tr key={st.id} className="border-b border-rule/50 last:border-0">
+                <td className="px-2 py-1 font-mono">
+                  {formatDate(st.periodEnd, now)}
+                </td>
+                <td className="px-2 py-1 font-mono">
+                  {formatDate(st.dueDate, now)}
+                </td>
+                <td className={cell}>
+                  <Amount value={st.previousDue} minorUnits={minorUnits} />
+                </td>
+                <td className={cell}>
+                  <Amount value={st.payments} minorUnits={minorUnits} />
+                </td>
+                <td className={cell}>
+                  <Amount value={st.charges} minorUnits={minorUnits} />
+                </td>
+                <td className={cell}>
+                  <Amount value={st.amountDue} minorUnits={minorUnits} />
+                  {st.adjusted && (
+                    <span className="text-xs text-muted-foreground">＊</span>
+                  )}
+                </td>
+                <td className={cn('px-2 py-1', state.tone)}>{state.label}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      {statements.some((s) => s.adjusted) && (
+        <p className="px-2 py-1 text-xs text-muted-foreground">
+          ＊ 已對齊銀行帳單
         </p>
       )}
-      <Button
-        variant="link"
-        size="sm"
-        className="h-auto p-0 text-muted-foreground"
-        onClick={() => setSetup(true)}
-      >
-        每月 {card.statementDay} 日結帳、{card.dueDay} 日截止
-      </Button>
-      {dialog}
     </div>
   )
 }

@@ -811,6 +811,38 @@ paths:
                 $ref: '#/components/schemas/CardStatements'
         '404':
           $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/accounts/{accountId}/billing:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/AccountId'
+    put:
+      operationId: setBilling
+      tags: [ledger]
+      summary: Move entries out of the latest statement, or back in (:defer)
+      description: |
+        `billed: false` takes the card's entries of these transactions out
+        of its latest closed statement, so the next closing bills them (a
+        charge the bank billed a month later); `billed: true` puts unbilled
+        ones dated up to its closing day back in (ADR-088).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BillingChange'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingChanged'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /budgets/{budgetId}/statements/{statementId}/due:
     parameters:
       - $ref: '#/components/parameters/BudgetId'
@@ -1944,6 +1976,31 @@ components:
           description: Closed statements, newest first.
           items:
             $ref: '#/components/schemas/Statement'
+    BillingChange:
+      type: object
+      required: [transactionIds, billed]
+      properties:
+        transactionIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+        billed:
+          type: boolean
+    BillingChanged:
+      type: object
+      required: [changed, statementId]
+      properties:
+        changed:
+          type: integer
+          format: int32
+          description: Entries moved.
+        statementId:
+          type: string
+          format: uuid
+          description: The latest closed statement.
     StatementDue:
       type: object
       required: [amount]
@@ -2069,6 +2126,11 @@ components:
           type: string
         cleared:
           $ref: '#/components/schemas/ClearedState'
+        statementId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The card statement the entry is billed in (ADR-088); null or absent when not billed.
     Transaction:
       type: object
       required: [id, date, payeeId, payeeName, note, needsReview, isOpening, entries]

@@ -13,6 +13,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const billChosen = `-- name: BillChosen :execrows
+update entries e
+   set statement_id = $1
+  from transactions t
+ where t.id = e.transaction_id
+   and e.budget_id = $2 and e.account_id = $3
+   and e.statement_id is null and t.date <= $4::date
+   and e.transaction_id = any($5::uuid[])
+`
+
+type BillChosenParams struct {
+	StatementID uuid.NullUUID
+	BudgetID    uuid.UUID
+	AccountID   uuid.UUID
+	PeriodEnd   time.Time
+	Ids         []uuid.UUID
+}
+
+// Puts unbilled entries dated up to its closing day back into a statement.
+func (q *Queries) BillChosen(ctx context.Context, arg BillChosenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, billChosen,
+		arg.StatementID,
+		arg.BudgetID,
+		arg.AccountID,
+		arg.PeriodEnd,
+		arg.Ids,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const billEntries = `-- name: BillEntries :execrows
 update entries e
    set statement_id = $1
@@ -161,6 +194,31 @@ func (q *Queries) LastClosingDay(ctx context.Context, accountID uuid.UUID) (time
 	var period_end time.Time
 	err := row.Scan(&period_end)
 	return period_end, err
+}
+
+const latestClosedStatement = `-- name: LatestClosedStatement :one
+select id, period_end
+  from statements
+ where budget_id = $1 and account_id = $2 and closed_at is not null
+ order by period_end desc
+ limit 1
+`
+
+type LatestClosedStatementParams struct {
+	BudgetID  uuid.UUID
+	AccountID uuid.UUID
+}
+
+type LatestClosedStatementRow struct {
+	ID        uuid.UUID
+	PeriodEnd time.Time
+}
+
+func (q *Queries) LatestClosedStatement(ctx context.Context, arg LatestClosedStatementParams) (LatestClosedStatementRow, error) {
+	row := q.db.QueryRow(ctx, latestClosedStatement, arg.BudgetID, arg.AccountID)
+	var i LatestClosedStatementRow
+	err := row.Scan(&i.ID, &i.PeriodEnd)
+	return i, err
 }
 
 const listCardSettings = `-- name: ListCardSettings :many
@@ -412,6 +470,34 @@ type SetStatementDueParams struct {
 
 func (q *Queries) SetStatementDue(ctx context.Context, arg SetStatementDueParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setStatementDue, arg.BudgetID, arg.ID, arg.AmountDue)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unbillChosen = `-- name: UnbillChosen :execrows
+update entries
+   set statement_id = null
+ where budget_id = $1 and account_id = $2
+   and statement_id = $3 and transaction_id = any($4::uuid[])
+`
+
+type UnbillChosenParams struct {
+	BudgetID    uuid.UUID
+	AccountID   uuid.UUID
+	StatementID uuid.NullUUID
+	Ids         []uuid.UUID
+}
+
+// Takes entries out of a statement: they are billed at the next closing.
+func (q *Queries) UnbillChosen(ctx context.Context, arg UnbillChosenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unbillChosen,
+		arg.BudgetID,
+		arg.AccountID,
+		arg.StatementID,
+		arg.Ids,
+	)
 	if err != nil {
 		return 0, err
 	}
