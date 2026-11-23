@@ -514,11 +514,11 @@ function editNumber(
   return { ...state, typed: text, caret, form, error: null }
 }
 
-/** The date `iso` moved by `step` years, months or days (`unit` 0, 1, 2). */
-function stepDate(iso: string, unit: number, step: number): string {
-  if (unit === 2) return addDays(iso, step)
+/** The date `iso` moved by `step` years, months or days (`part` 0, 1, 2). */
+function stepDate(iso: string, part: number, step: number): string {
+  if (part === 2) return addDays(iso, step)
   const [y, m, d] = iso.split('-').map(Number)
-  const months = y * 12 + (m - 1) + (unit === 0 ? 12 * step : step)
+  const months = y * 12 + (m - 1) + (part === 0 ? 12 * step : step)
   const ny = Math.floor(months / 12)
   const nm = (months % 12) + 1
   const last = new Date(Date.UTC(ny, nm, 0)).getUTCDate()
@@ -538,22 +538,22 @@ function digitRuns(text: string): Array<[number, number]> {
 function stepUntil(state: RuleFormState, step: number): RuleFormState {
   const text = state.typed ?? valueText(state.form, 'until')
   const runs = digitRuns(text)
-  let unit = 2
+  let part = 2
   if (runs.length === 3) {
     const found = runs.findIndex(
       ([a, b]) => state.caret >= a && state.caret <= b,
     )
-    if (found >= 0) unit = found
+    if (found >= 0) part = found
   }
   const s = take(state)
   if (s.error && s.typed !== null) return s
-  const until = stepDate(s.form.until || s.today, unit, step)
+  const until = stepDate(s.form.until || s.today, part, step)
   const shown = slashDate(until)
   return {
     ...s,
     form: { ...s.form, until },
     typed: shown,
-    caret: digitRuns(shown)[unit][1],
+    caret: digitRuns(shown)[part][1],
     error: null,
   }
 }
