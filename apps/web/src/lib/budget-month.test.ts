@@ -5,15 +5,18 @@ import {
   budgetLines,
   categoryNodes,
   copyLastMonth,
+  fillTargets,
   incomeLines,
   monthLabel,
   monthTotals,
   newPlace,
+  offTarget,
   pageLines,
   pageMonths,
   pasteTargets,
   shiftMonth,
   siblingsOf,
+  targetTotal,
   topDown,
   uniqueName,
 } from './budget-month.ts'
@@ -246,5 +249,57 @@ assert.equal(shiftMonth('2026-12', 1), '2027-01')
 assert.equal(shiftMonth('2026-01', -1), '2025-12')
 assert.equal(shiftMonth('2026-03', -14), '2025-01')
 assert.equal(monthLabel('2026-03'), '2026 年 3 月')
+
+// Targets (ADR-086): on envelopes only; :fill sets them, :copylast skips them.
+{
+  const month = {
+    envelopes: [
+      { categoryId: 'food', allocated: 5000, activity: 0, carried: 0 },
+      { categoryId: 'rent', allocated: 12000, activity: 0, carried: 0 },
+    ],
+    incomes: [],
+    targets: [
+      {
+        categoryId: 'food',
+        total: 6500,
+        base: 5000,
+        schedules: [{ scheduleId: 's1', amount: 1500 }],
+      },
+      { categoryId: 'rent', total: 12000, base: null, schedules: [] },
+      // An archived envelope with a target still shows.
+      { categoryId: 'old', total: 300, base: 300, schedules: [] },
+    ],
+  }
+  const withTargets = pageLines(categories, month)
+  const byId = new Map(withTargets.map((l) => [l.id, l]))
+  assert.equal(byId.get('food')?.target?.total, 6500)
+  assert.equal(byId.get('eat-out')?.target, null)
+  assert.ok(byId.has('old'))
+  assert.equal(targetTotal(withTargets), 6500 + 12000 + 300)
+  const foodLine = byId.get('food')
+  const rentLine = byId.get('rent')
+  assert.ok(foodLine && rentLine)
+  assert.ok(offTarget(foodLine))
+  assert.ok(!offTarget(rentLine))
+  // Only envelopes off their target, and not archived ones.
+  assert.deepEqual(
+    fillTargets(withTargets).map((f) => [f.line.id, f.amount]),
+    [['food', 6500]],
+  )
+  // Run again once filled: nothing to do.
+  const filled = withTargets.map((l) =>
+    l.id === 'food' ? { ...l, allocated: 6500 } : l,
+  )
+  assert.deepEqual(fillTargets(filled), [])
+  // :copylast leaves envelopes with a target alone.
+  const empty = pageLines(categories, {
+    ...month,
+    envelopes: [],
+  })
+  assert.deepEqual(
+    copyLastMonth(empty, lines).map((c) => c.categoryId),
+    ['power'],
+  )
+}
 
 console.log('budget-month: ok')

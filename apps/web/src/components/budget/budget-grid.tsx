@@ -17,8 +17,10 @@ import {
   afterSubtree,
   categoryNodes,
   copyLastMonth,
+  fillTargets,
   monthLabel,
   newPlace,
+  offTarget,
   pasteTargets,
   siblingsOf,
   topDown,
@@ -122,6 +124,7 @@ export type LineAction =
   | 'share'
   | 'archive'
   | 'delete'
+  | 'base'
 
 /**
  * The budget page's grid (M6, ADR-078..081): one line per category, expense
@@ -144,6 +147,8 @@ export function BudgetGrid({
   allocate,
   lastMonth,
   categoryApi,
+  scheduleNames,
+  setBase,
 }: {
   /** The months shown, each with the same lines (`pageMonths`). */
   months: Array<MonthLines>
@@ -162,6 +167,10 @@ export function BudgetGrid({
   /** The lines of the month before `month`, for `:copylast`. */
   lastMonth: (month: string) => Promise<Array<BudgetLine>>
   categoryApi: CategoryApi
+  /** How a schedule is named in a target's parts: `健身房（每月 5 日）`. */
+  scheduleNames: Map<string, string>
+  /** Sets an envelope's base amount (0 removes it); an error message, or null. */
+  setBase: (categoryId: string, amount: number) => Promise<string | null>
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -450,6 +459,78 @@ export function BudgetGrid({
         ? `已貼上 ${targets.length} 個預算的分配（下面只剩 ${targets.length} 個預算）`
         : `已貼上 ${targets.length} 個預算的分配`,
     )
+  }
+
+  // ---------- targets (ADR-086)
+
+  /** `:fill`: the envelopes of `sel` with a target get it, as one undo step. */
+  function fill(sel: Array<BudgetLine>, selected: boolean) {
+    const set = fillTargets(sel)
+    if (set.length === 0) {
+      return say(
+        selected
+          ? '選取的預算都已經照目標分配了（或沒有目標）'
+          : `${monthName}有目標的預算都已經照目標分配了`,
+      )
+    }
+    setAllocations(
+      set,
+      `${monthName}照目標分配了 ${set.length} 個預算（u 可以復原）`,
+    )
+  }
+
+  /** `:base N`: the cursor's envelope's base amount; `:base` alone says it. */
+  function base(arg: string) {
+    const line = current
+    if (!line) return
+    if (line.kind !== 'envelope' || !line.category) {
+      return say(notEditable(line) ?? '只有預算有基本額', 'error')
+    }
+    const from = line.category.budgetBase ?? 0
+    if (!arg) {
+      return say(
+        from > 0
+          ? `「${line.path}」的基本額是 ${formatAmount(from, minorUnits)}（:base 0 移除）`
+          : `「${line.path}」還沒有基本額：:base 1000 設定每個月的基本額`,
+      )
+    }
+    const to = evalAmount(arg, minorUnits)
+    if (to === null) return say(`「${arg}」不是金額`, 'error')
+    if (to < 0) return say('基本額不能是負的', 'error')
+    if (to === from) return say('基本額沒有改變')
+    const id = line.id
+    void record(
+      {
+        label: `「${line.path}」的基本額`,
+        undo: () => setBase(id, from),
+        redo: () => setBase(id, to),
+      },
+      to === 0
+        ? `已移除「${line.path}」的基本額`
+        : `「${line.path}」每個月的基本額是 ${formatAmount(to, minorUnits)}；:fill 照目標分配`,
+    )
+  }
+
+  /** The cursor's target and its parts, for the status line. */
+  function targetText(line: BudgetLine): string | null {
+    const goal = line.target
+    if (line.kind !== 'envelope' || !goal) return null
+    const money = (n: number) => formatAmount(n, minorUnits)
+    const parts = [
+      ...(goal.base ? [`基本 ${money(goal.base)}`] : []),
+      ...goal.schedules.map(
+        (s) =>
+          `${scheduleNames.get(s.scheduleId) ?? '排程'} ${money(s.amount)}`,
+      ),
+    ]
+    const diff = goal.total - line.allocated
+    const off =
+      diff === 0
+        ? '已照目標分配'
+        : diff > 0
+          ? `還差 ${money(diff)}，:fill 補上`
+          : `多分配了 ${money(-diff)}`
+    return `${monthName}目標 ${money(goal.total)} ＝ ${parts.join(' ＋ ')}（${off}）`
   }
 
   // ---------- the category tree (ADR-079, ADR-080)
@@ -908,6 +989,14 @@ export function BudgetGrid({
       case 'delete':
         setCol(NAME)
         return void cutCategories([line])
+      case 'base': {
+        const amount = line.category?.budgetBase
+        setCommand(
+          amount ? `base ${amountInputValue(amount, minorUnits)}` : 'base ',
+        )
+        setMode('command')
+        return
+      }
     }
   }
 
@@ -1063,7 +1152,8 @@ export function BudgetGrid({
 
   function runCommand(raw: string) {
     const cmd = raw.trim()
-    const sel = commandLines.current ?? (current ? [current] : [])
+    const selected = commandLines.current
+    const sel = selected ?? (current ? [current] : [])
     commandLines.current = null
     setMode('normal')
     setCommand('')
@@ -1077,6 +1167,10 @@ export function BudgetGrid({
       setAllocation(current, current.allocated + amount)
     } else if (cmd === 'copylast') {
       void copyLast()
+    } else if (cmd === 'fill') {
+      fill(selected ?? lines, selected !== null)
+    } else if (/^base(\s|$)/.test(cmd)) {
+      base(cmd.slice(4).trim())
     } else if (cmd === 'share') {
       toggleShare(sel)
     } else if (cmd === 'archive') {
@@ -1582,6 +1676,10 @@ export function BudgetGrid({
               : `y d c 作用在${monthLabel(month)}的分配`}
             ）
           </span>
+        ) : current && targetText(current) ? (
+          <span className="truncate text-muted-foreground">
+            {targetText(current)}
+          </span>
         ) : (
           <span className="truncate text-muted-foreground">
             jk 移動 · hl 換欄 · i 分配或改名 · V 選取 · yy dd p · ? 快捷鍵
@@ -1777,11 +1875,31 @@ function MonthCells({
         {editor ? (
           <span className="absolute inset-x-0 top-0 z-30">{editor}</span>
         ) : member || income || incomeHead ? null : (
-          <Amount
-            value={cell.allocated}
-            minorUnits={minorUnits}
-            className={cn(cell.allocated === 0 && 'text-muted-foreground')}
-          />
+          <span
+            className="flex items-center gap-1.5"
+            title={
+              cell.target
+                ? `目標 ${formatAmount(cell.target.total, minorUnits)}`
+                : undefined
+            }
+          >
+            {offTarget(cell) && (
+              <span
+                aria-label="和目標不同"
+                className={cn(
+                  'size-1.5 shrink-0 rounded-full',
+                  cell.allocated < (cell.target?.total ?? 0)
+                    ? 'bg-kraft'
+                    : 'bg-muted-foreground',
+                )}
+              />
+            )}
+            <Amount
+              value={cell.allocated}
+              minorUnits={minorUnits}
+              className={cn(cell.allocated === 0 && 'text-muted-foreground')}
+            />
+          </span>
         )}
       </span>
       <span
@@ -1878,6 +1996,8 @@ function LineMenu({
             {item('below', '在下面新增類別', 'o')}
             {line.depth < 3 && item('child', '新增子類別', 'A')}
             {item('rename', '改名', 'i')}
+            {line.kind === 'envelope' &&
+              item('base', '設定每月基本額…', ':base')}
             <DropdownMenuSeparator />
             {item('up', '上移', 'K')}
             {item('down', '下移', 'J')}

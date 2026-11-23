@@ -11,6 +11,7 @@ type Category = Schemas['Category']
 type CategoryKind = Schemas['CategoryKind']
 type EnvelopeMonth = Schemas['EnvelopeMonth']
 type IncomeMonth = Schemas['IncomeMonth']
+export type EnvelopeTarget = Schemas['EnvelopeTarget']
 
 /**
  * - `section`: the heading of the expense or the income categories.
@@ -43,6 +44,11 @@ export interface BudgetLine {
   balance: number
   carried: number
   archived: boolean
+  /**
+   * An envelope's target this month (ADR-086): its base plus what the
+   * schedules it covers ask for; null when it has none.
+   */
+  target: EnvelopeTarget | null
 }
 
 export interface MonthTotals {
@@ -56,6 +62,8 @@ export interface LineOptions {
   showArchived?: boolean
   /** Every line, system ones without money too (to line months up). */
   all?: boolean
+  /** The month's targets, by envelope (ADR-086). */
+  targets?: Array<EnvelopeTarget>
 }
 
 /** `2026-11` → `2026-12`; `delta` may be negative. */
@@ -120,11 +128,12 @@ function childrenByParent(
 export function budgetLines(
   categories: Array<Category>,
   envelopes: Array<EnvelopeMonth>,
-  { showArchived = false, all = false }: LineOptions = {},
+  { showArchived = false, all = false, targets = [] }: LineOptions = {},
 ): Array<BudgetLine> {
   const byParent = childrenByParent(
     categories.filter((c) => c.kind === 'expense' && !c.isSystem),
   )
+  const targetOf = new Map(targets.map((t) => [t.categoryId, t]))
   const own = new Map(envelopes.map((e) => [e.categoryId, e]))
   const zero = { allocated: 0, activity: 0, carried: 0 }
 
@@ -155,6 +164,7 @@ export function budgetLines(
       ...zero,
       balance: 0,
       archived: archived || c.archived,
+      target: kind === 'envelope' ? (targetOf.get(c.id) ?? null) : null,
     }
     const at = lines.length
     lines.push(line)
@@ -185,14 +195,16 @@ export function budgetLines(
       line.carried = 0
       line.balance = 0
     }
-    // An archived line with no money left is gone, with what is under it.
+    // An archived line with no money left (and nothing asked of it) is
+    // gone, with what is under it.
     if (
       line.archived &&
       !showArchived &&
       !all &&
       sums.activity === 0 &&
       sums.allocated === 0 &&
-      sums.carried === 0
+      sums.carried === 0 &&
+      !line.target
     ) {
       lines.splice(at)
     }
@@ -240,6 +252,7 @@ export function incomeLines(
       balance: 0,
       carried: 0,
       archived: archived || c.archived,
+      target: null,
     }
     const at = lines.length
     lines.push(line)
@@ -267,6 +280,7 @@ function section(kind: CategoryKind, totals: MonthTotals): BudgetLine {
     hasChildren: false,
     carried: 0,
     archived: false,
+    target: null,
     ...totals,
   }
 }
@@ -274,10 +288,17 @@ function section(kind: CategoryKind, totals: MonthTotals): BudgetLine {
 /** Every line of the page: the expense section, then the income section. */
 export function pageLines(
   categories: Array<Category>,
-  month: { envelopes: Array<EnvelopeMonth>; incomes: Array<IncomeMonth> },
+  month: {
+    envelopes: Array<EnvelopeMonth>
+    incomes: Array<IncomeMonth>
+    targets?: Array<EnvelopeTarget>
+  },
   options: LineOptions = {},
 ): Array<BudgetLine> {
-  const expense = budgetLines(categories, month.envelopes, options)
+  const expense = budgetLines(categories, month.envelopes, {
+    ...options,
+    targets: month.targets,
+  })
   const income = incomeLines(categories, month.incomes, options)
   const received = income
     .filter((l) => l.depth === 1)
@@ -307,6 +328,7 @@ export function pageMonths(
     month: string
     envelopes: Array<EnvelopeMonth>
     incomes: Array<IncomeMonth>
+    targets?: Array<EnvelopeTarget>
   }>,
   options: LineOptions = {},
 ): Array<MonthLines> {
@@ -333,9 +355,40 @@ export function monthTotals(lines: Array<BudgetLine>): MonthTotals {
   return totals
 }
 
+/** What the targets of the month's envelopes add up to. */
+export function targetTotal(lines: Array<BudgetLine>): number {
+  return lines.reduce(
+    (sum, l) => sum + (l.kind === 'envelope' ? (l.target?.total ?? 0) : 0),
+    0,
+  )
+}
+
+/** Whether an envelope's allocation is not what its target asks. */
+export function offTarget(line: BudgetLine): boolean {
+  return (
+    line.kind === 'envelope' &&
+    line.target !== null &&
+    line.allocated !== line.target.total
+  )
+}
+
+/**
+ * `:fill` (ADR-086): every envelope of `lines` with a target, allocated
+ * that target; envelopes already there are left out, so running it again
+ * changes nothing.
+ */
+export function fillTargets(
+  lines: Array<BudgetLine>,
+): Array<{ line: BudgetLine; amount: number }> {
+  return lines
+    .filter((l) => offTarget(l) && !l.archived)
+    .map((line) => ({ line, amount: line.target?.total ?? 0 }))
+}
+
 /**
  * `:copylast`: last month's allocation for each envelope that has none this
- * month (envelopes already given money are left alone).
+ * month (envelopes already given money are left alone), and no target: last
+ * month's allocation held last month's schedules (ADR-086).
  */
 export function copyLastMonth(
   current: Array<BudgetLine>,
@@ -349,6 +402,7 @@ export function copyLastMonth(
       (l) =>
         l.kind === 'envelope' &&
         !l.archived &&
+        !l.target &&
         l.allocated === 0 &&
         (before.get(l.id) ?? 0) !== 0,
     )

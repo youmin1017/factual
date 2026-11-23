@@ -19,7 +19,9 @@ import {
   accountsQuery,
   budgetMonthQuery,
   categoriesQuery,
+  schedulesQuery,
   summaryQuery,
+  upcomingQuery,
 } from '#/lib/budget'
 import {
   budgetLines,
@@ -29,8 +31,10 @@ import {
   monthTotals,
   pageMonths,
   shiftMonth,
+  targetTotal,
 } from '#/lib/budget-month'
 import { useKeymap } from '#/lib/preferences'
+import { describeRRule } from '#/lib/schedule-rule'
 import { cn } from '#/lib/utils'
 import type { Allocation } from '#/components/budget/budget-grid'
 
@@ -101,6 +105,9 @@ function BudgetPage() {
   const categories = useQuery(categoriesQuery(budget.id))
   const accounts = useQuery(accountsQuery(budget.id))
   const summary = useQuery(summaryQuery(budget.id))
+  // Names for the schedules in a target's parts, and what is coming up.
+  const schedules = useQuery(schedulesQuery(budget.id))
+  const upcoming = useQuery(upcomingQuery(budget.id))
   const monthData = useQueries({
     queries: shownMonths.map((m) => ({
       ...budgetMonthQuery(budget.id, m),
@@ -159,6 +166,45 @@ function BudgetPage() {
   )
   const mu = budget.minorUnits
   const pool = loaded[0].pool
+  const target = targetTotal(months[0].lines)
+
+  const accountName = new Map(accounts.data.map((a) => [a.id, a.name]))
+  const scheduleNames = new Map(
+    (schedules.data ?? []).map((sc) => {
+      const who =
+        sc.payee ||
+        (sc.transferAccountId
+          ? `轉到${accountName.get(sc.transferAccountId) ?? ''}`
+          : sc.note || '排程')
+      const rule = describeRRule(sc.rule, sc.holidayShift) ?? sc.source
+      return [sc.id, `${who}（${rule}）`]
+    }),
+  )
+  // Scheduled money that goes through envelopes or the pool.
+  const coming = (upcoming.data ?? []).filter((o) => o.categoryId)
+  const comingOut = coming
+    .filter((o) => o.amount < 0)
+    .reduce((sum, o) => sum - o.amount, 0)
+  const comingIn = coming
+    .filter((o) => o.amount > 0)
+    .reduce((sum, o) => sum + o.amount, 0)
+
+  async function setBase(categoryId: string, amount: number) {
+    const { error } = await api.PUT(
+      '/budgets/{budgetId}/categories/{categoryId}/base',
+      {
+        params: { path: { budgetId: budget.id, categoryId } },
+        body: { amount },
+      },
+    )
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: categoriesQuery(budget.id).queryKey,
+      }),
+      queryClient.invalidateQueries({ queryKey: ['budget-month', budget.id] }),
+    ])
+    return error ? apiErrorMessage(error) : null
+  }
 
   function goTo(next: string) {
     void navigate({ search: { month: next === thisMonth ? undefined : next } })
@@ -293,6 +339,17 @@ function BudgetPage() {
                   <Amount value={totals.activity} minorUnits={mu} />
                 </dd>
               </div>
+              {target > 0 && (
+                <div
+                  className="flex gap-2"
+                  title="每個預算的基本額加上它涵蓋的排程；:fill 照目標分配"
+                >
+                  <dt className="text-muted-foreground">本月目標</dt>
+                  <dd>
+                    <Amount value={target} minorUnits={mu} />
+                  </dd>
+                </div>
+              )}
             </dl>
           )}
         </div>
@@ -343,6 +400,24 @@ function BudgetPage() {
             ))}
           </p>
         )}
+        {coming.length > 0 && (
+          <p title="接下來 30 天還沒入帳的排程（暫停的不算）">
+            <Link
+              to="/b/$budgetId/schedules"
+              params={{ budgetId: budget.id }}
+              className="text-foreground underline-offset-4 hover:underline"
+            >
+              接下來 30 天的排程
+            </Link>
+            ：支出 <Amount value={comingOut} minorUnits={mu} />
+            {comingIn > 0 && (
+              <>
+                、收入 <Amount value={comingIn} minorUnits={mu} />
+              </>
+            )}
+            （{coming.length} 筆）
+          </p>
+        )}
         {anyArchived && (
           <div className="flex items-center gap-2">
             <Switch
@@ -372,6 +447,8 @@ function BudgetPage() {
         allocate={allocate}
         lastMonth={lastMonth}
         categoryApi={categoryApi}
+        scheduleNames={scheduleNames}
+        setBase={setBase}
       />
     </div>
   )
