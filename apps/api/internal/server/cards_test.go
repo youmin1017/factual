@@ -214,3 +214,100 @@ func listAccounts(t *testing.T, b *browser, budget api.Budget) []api.Account {
 	decode(t, rec, &out)
 	return out
 }
+
+func TestCardAutopay(t *testing.T) {
+	hs := newHarness(t)
+	admin := hs.browser().mustLogin(adminName, adminPassword)
+	f := newLedgerFixture(t, admin)
+	ctx := context.Background()
+	setClock := func(d time.Time) { hs.ledger.SetClock(func() time.Time { return d }) }
+	defer setClock(testToday)
+	ymdT := func(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
+	run := func() int {
+		t.Helper()
+		if _, err := hs.ledger.CloseStatements(ctx); err != nil {
+			t.Fatal(err)
+		}
+		n, err := hs.ledger.PostAllDue(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	setCard := func(c api.CardSettings) {
+		t.Helper()
+		rec := admin.do(http.MethodPut, budgetPath(f.budget, "/accounts/"+f.card.Id.String()), api.AccountUpdate{Name: f.card.Name, Card: &c})
+		wantStatus(t, rec, http.StatusOK)
+	}
+	autopays := func() []api.Occurrence {
+		t.Helper()
+		var out []api.Occurrence
+		for _, o := range upcoming(t, admin, f.budget, "2027-01-31") {
+			if o.TransferAccountId != nil && *o.TransferAccountId == f.card.Id {
+				out = append(out, o)
+			}
+		}
+		return out
+	}
+
+	// 11/20: autopay from the bank on the 25th.
+	setCard(api.CardSettings{StatementDay: 5, DueDay: 25, AutopayAccountId: &f.bank.Id})
+	wantStatus(t, save(admin, f.budget, []api.TransactionInput{spend(f.card.Id, f.food.Id, ymdT(2026, 11, 10), -1000)}), http.StatusOK)
+	if got := autopays(); len(got) != 0 {
+		t.Fatalf("autopay before any statement closed: %+v", got)
+	}
+	// It is not on the schedules page and the page cannot change it.
+	if n := len(listSchedules(t, admin, f.budget)); n != 0 {
+		t.Fatalf("schedules page lists %d", n)
+	}
+	var autopayID uuid.UUID
+	if err := hs.pool.QueryRow(ctx, `select id from schedules where card_id = $1`, f.card.Id).Scan(&autopayID); err != nil {
+		t.Fatal(err)
+	}
+	probs := wantProblems(t, saveSchedules(admin, f.budget, nil, autopayID))
+	if probs[autopayID].Code != "autopay_schedule" {
+		t.Fatalf("deleting the autopay schedule: %+v", probs)
+	}
+
+	// 11/26: the 11/25 occurrence pays no statement (none closed yet).
+	setClock(ymdT(2026, 11, 26))
+	if n := run(); n != 0 {
+		t.Fatalf("posted %d before the first statement", n)
+	}
+
+	// 12/06: the statement closed asking 1,000, due 12/25; autopay shows
+	// what is left after a payment made by hand.
+	setClock(ymdT(2026, 12, 6))
+	run()
+	got := autopays()
+	if len(got) != 1 || got[0].Date.String() != "2026-12-25" || got[0].Amount != -1000 || got[0].AccountId != f.bank.Id {
+		t.Fatalf("autopay after closing: %+v", got)
+	}
+	wantStatus(t, save(admin, f.budget, []api.TransactionInput{pay(f.bank.Id, f.card.Id, ymdT(2026, 12, 10), 400)}), http.StatusOK)
+	if got = autopays(); len(got) != 1 || got[0].Amount != -600 {
+		t.Fatalf("autopay after paying 400: %+v", got)
+	}
+
+	// 12/26: it posted the rest; the statement is paid.
+	setClock(ymdT(2026, 12, 26))
+	if n := run(); n != 1 {
+		t.Fatalf("posted %d on the due date", n)
+	}
+	if n := run(); n != 0 {
+		t.Fatalf("posted again: %d", n)
+	}
+	st := statements(t, admin, f.budget, f.card).Statements[0]
+	if st.Paid != 1000 || st.State != api.Paid {
+		t.Fatalf("after autopay: %+v", st)
+	}
+	var pays int
+	if err := hs.pool.QueryRow(ctx, `select count(*) from entries where pays_statement_id = $1 and amount = 600`, st.Id).Scan(&pays); err != nil || pays != 1 {
+		t.Fatalf("autopay linked to its statement: %d %v", pays, err)
+	}
+
+	// Without an autopay account the schedule goes.
+	setCard(api.CardSettings{StatementDay: 5, DueDay: 25})
+	if err := hs.pool.QueryRow(ctx, `select count(*) from schedules where card_id = $1`, f.card.Id).Scan(&pays); err != nil || pays != 0 {
+		t.Fatalf("autopay schedules left: %d %v", pays, err)
+	}
+}

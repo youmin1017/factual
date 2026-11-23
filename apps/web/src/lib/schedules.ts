@@ -466,3 +466,78 @@ export function scheduleFromRow(
     },
   }
 }
+
+/** What `:installment N` does to a row (ADR-091). */
+export interface InstallmentPlan {
+  /** The row's new amount: the first instalment, with the remainder. */
+  first: number
+  /** Each later instalment. */
+  each: number
+  /** The schedule of the instalments still to come. */
+  input: ScheduleInput
+  /** Instalments already past (counted as paid, not posted). */
+  past: number
+  /** Instalments the schedule posts. */
+  left: number
+}
+
+/**
+ * `:installment N` on a purchase: the row becomes the first instalment
+ * (the total divided by N, the remainder on it) and a monthly schedule on
+ * its day holds the others still to come; dates already past count as paid.
+ * A message instead when the row cannot be split so.
+ */
+export function installmentPlan(
+  row: Row,
+  n: number,
+  id: string,
+  today: string,
+): InstallmentPlan | string {
+  if (!Number.isInteger(n) || n < 2 || n > 120) return '期數是 2 到 120'
+  if (row.locked === 'opening') return '期初餘額不能分期'
+  if (row.splits || row.locked === 'foreign') return '拆分的交易不能分期'
+  if (row.transferTo) return '轉帳不能分期'
+  if (row.amount >= 0) return '只有支出可以分期'
+  const each = Math.trunc(row.amount / n)
+  if (each === 0) return '金額太小，分不了這麼多期'
+  const first = row.amount - each * (n - 1)
+  const day = Number(row.date.slice(8, 10))
+  const text = day > 28 ? '每月最後一天' : `每月 ${day} 日`
+  const parsed = parseRule(text)
+  if ('error' in parsed) return parsed.error
+  const later = nextOccurrences(
+    parsed.rule,
+    row.date,
+    'noShift',
+    addDays(row.date, 1),
+    n - 1,
+  ).map((o) => o.nominal)
+  const coming = later.filter((d) => d > today)
+  if (coming.length === 0) {
+    return `${n} 期的日期都已經過了，不用建立排程（已經繳過的不會補記）`
+  }
+  const counted = parseRule(`${text}，共 ${coming.length} 次`)
+  if ('error' in counted) return counted.error
+  return {
+    first,
+    each,
+    past: later.length - coming.length,
+    left: coming.length,
+    input: {
+      id,
+      source: describeRRule(counted.rule, counted.shift) ?? '',
+      rule: counted.rule,
+      start: coming[0],
+      holidayShift: counted.shift,
+      payee: row.payee.trim(),
+      note: row.note.trim() || `分期（共 ${n} 期）`,
+      accountId: row.accountId,
+      transferAccountId: null,
+      categoryId: row.categoryId,
+      amount: each,
+      estimate: false,
+      budgetMode: 'full',
+      paused: false,
+    },
+  }
+}

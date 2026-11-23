@@ -248,4 +248,65 @@ assert.equal(
   )
 }
 
+// :installment N: the first stays on the row (with the remainder), the
+// rest still to come become a counted schedule; past dates count as paid.
+{
+  const { newRow } = await import('./register.ts')
+  const { installmentPlan } = await import('./schedules.ts')
+  const laptop = {
+    ...newRow('t2', '2026-11-15', 'card'),
+    payee: 'Apple',
+    categoryId: 'food',
+    amount: -10000,
+  }
+  const plan = installmentPlan(laptop, 3, 's10', '2026-11-23')
+  assert.ok(typeof plan !== 'string')
+  assert.equal(plan.first, -3334)
+  assert.equal(plan.each, -3333)
+  assert.equal(plan.first + plan.each * 2, -10000)
+  assert.equal(plan.left, 2)
+  assert.equal(plan.past, 0)
+  assert.equal(plan.input.source, '每月 15 日，共 2 次')
+  assert.equal(plan.input.start, '2026-12-15')
+  assert.equal(plan.input.amount, -3333)
+  assert.equal(plan.input.budgetMode, 'full')
+  assert.equal(plan.input.note, '分期（共 3 期）')
+  // Bought in July in 12: August to November are past.
+  const old = installmentPlan(
+    { ...laptop, date: '2026-07-15', amount: -12000 },
+    12,
+    's11',
+    '2026-11-23',
+  )
+  assert.ok(typeof old !== 'string')
+  assert.equal(old.past, 4)
+  assert.equal(old.left, 7)
+  assert.equal(old.input.start, '2026-12-15')
+  assert.equal(old.input.source, '每月 15 日，共 7 次')
+  // The 31st: the month's last day.
+  const late = installmentPlan(
+    { ...laptop, date: '2026-10-31' },
+    3,
+    's12',
+    '2026-11-23',
+  )
+  assert.ok(typeof late !== 'string')
+  assert.equal(late.input.start, '2026-11-30')
+  assert.equal(late.input.source, '每月最後一天，共 2 次')
+  assert.equal(
+    typeof installmentPlan(
+      { ...laptop, date: '2025-01-15' },
+      3,
+      's',
+      '2026-11-23',
+    ),
+    'string',
+  )
+  assert.equal(
+    installmentPlan({ ...laptop, amount: 500 }, 3, 's', '2026-11-23'),
+    '只有支出可以分期',
+  )
+  assert.equal(installmentPlan(laptop, 1, 's', '2026-11-23'), '期數是 2 到 120')
+}
+
 console.log('schedules: ok')

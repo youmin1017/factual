@@ -5,7 +5,7 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
-import { statementsQuery } from '#/lib/budget'
+import { accountsQuery, statementsQuery } from '#/lib/budget'
 import { amountInputValue, parseAmount } from '#/lib/money'
 import { formatDate } from '#/lib/register'
 import { cn } from '#/lib/utils'
@@ -33,6 +33,7 @@ export function StatementSummary({
   account: Account
 }) {
   const query = useQuery(statementsQuery(budget.id, account.id))
+  const accounts = useQuery(accountsQuery(budget.id))
   const [setup, setSetup] = useState(false)
   const [history, setHistory] = useState(false)
   const mu = budget.minorUnits
@@ -68,7 +69,16 @@ export function StatementSummary({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1 text-sm">
-        {latest && <Latest statement={latest} budget={budget} now={now} />}
+        {latest && (
+          <Latest
+            statement={latest}
+            budget={budget}
+            now={now}
+            autopay={
+              accounts.data?.find((a) => a.id === card.autopayAccountId)?.name
+            }
+          />
+        )}
         {open && (
           <p className="text-muted-foreground">
             本期 {formatDate(open.periodStart, now)}–
@@ -178,10 +188,13 @@ function Latest({
   statement: st,
   budget,
   now,
+  autopay,
 }: {
   statement: Statement
   budget: Budget
   now: Date
+  /** The account autopay takes it from (ADR-090). */
+  autopay?: string
 }) {
   const queryClient = useQueryClient()
   const [aligning, setAligning] = useState(false)
@@ -270,7 +283,10 @@ function Latest({
                 <>
                   {' '}
                   · 還差 <Amount value={st.remaining} minorUnits={mu} /> ·{' '}
-                  {formatDate(st.dueDate, now)} 截止
+                  {formatDate(st.dueDate, now)}{' '}
+                  {autopay && st.state !== 'overdue'
+                    ? `自動從「${autopay}」扣繳`
+                    : '截止'}
                 </>
               )}
             </>

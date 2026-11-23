@@ -1,7 +1,7 @@
 -- name: ListSchedules :many
 select s.id, s.source, s.rrule, s.start_date, s.holiday_shift, s.payee_id, p.name as payee_name,
        s.note, s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused,
-       s.budget_mode, s.created_by, s.created_at
+       s.budget_mode, s.created_by, s.created_at, s.card_id
   from schedules s
   left join payees p on p.id = s.payee_id
  where s.budget_id = $1 and s.kind = 'template'
@@ -72,7 +72,8 @@ select s.id, s.budget_id
 
 -- name: LockSchedule :one
 select s.id, s.budget_id, s.rrule, s.start_date, s.holiday_shift, s.payee_id, s.note,
-       s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused, s.created_by
+       s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused, s.created_by,
+       s.card_id
   from schedules s
  where s.id = $1
    for update;
@@ -101,3 +102,19 @@ delete from schedule_skips where schedule_id = $1 and occurrence_date = $2;
 
 -- name: SetCategoryBase :execrows
 update categories set budget_base = sqlc.narg(budget_base) where budget_id = $1 and id = $2;
+
+-- name: GetAutopaySchedule :one
+select id from schedules where card_id = $1;
+
+-- name: UpsertAutopaySchedule :exec
+-- A card's autopay schedule (ADR-090); it posts no budget money of its own.
+insert into schedules (id, budget_id, card_id, source, rrule, start_date, holiday_shift, note,
+                       next_occurrence, budget_mode, created_by)
+values (sqlc.arg(id), sqlc.arg(budget_id), sqlc.arg(card_id), sqlc.arg(source), sqlc.arg(rrule),
+        sqlc.arg(start_date), 'next_workday', '自動扣繳', sqlc.narg(next_occurrence), 'none', sqlc.narg(created_by))
+on conflict (id) do update
+   set source = excluded.source, rrule = excluded.rrule, start_date = excluded.start_date,
+       next_occurrence = excluded.next_occurrence, updated_at = now();
+
+-- name: DeleteAutopaySchedule :exec
+delete from schedules where card_id = $1;

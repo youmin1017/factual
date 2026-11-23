@@ -38,7 +38,7 @@ import {
   validateRow,
   withSplits,
 } from '#/lib/register'
-import { scheduleFromRow } from '#/lib/schedules'
+import { installmentPlan, scheduleFromRow } from '#/lib/schedules'
 import { cn } from '#/lib/utils'
 import { CellEditor, eraseBeforeCaret, nextPick } from './cell-editor'
 import { KeyHelp } from './key-help'
@@ -1398,6 +1398,42 @@ export function RegisterGrid({
     }
   }
 
+  /**
+   * :installment N: the cursor's purchase becomes its first instalment (an
+   * unsaved change, :w) and a schedule holds the rest (ADR-091).
+   */
+  async function installment(n: number) {
+    commandRange.current = null
+    const row = current
+    if (!row) return say('沒有交易，按 o 新增一筆')
+    if (row.planned) return say('預定列不能分期', 'error')
+    const plan = installmentPlan(row, n, crypto.randomUUID(), isoDate(today))
+    if (typeof plan === 'string') return say(plan, 'error')
+    setSaving(true)
+    try {
+      const { error } = await api.POST('/budgets/{budgetId}/schedules/batch', {
+        params: { path: { budgetId } },
+        body: { upserts: [plan.input], deletes: [] },
+      })
+      if (error) {
+        const problem = 'errors' in error ? error.errors.at(0) : error
+        return say(
+          problem ? messageFor(problem.code, problem.message) : '無法建立分期',
+          'error',
+        )
+      }
+      updateRow(cursor.row, { amount: plan.first })
+      const money = (v: number) => formatAmount(-v, ctx.minorUnits)
+      say(
+        `分成 ${n} 期：這筆改成第一期 ${money(plan.first)}（:w 儲存），其餘 ${plan.left} 期每期 ${money(plan.each)} 建成排程「${plan.input.source}」${plan.past > 0 ? `；已經過的 ${plan.past} 期當作繳過，不補記` : ''}`,
+      )
+    } catch {
+      say('無法連線至伺服器', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function runCommand(raw: string) {
     const cmd = raw.trim()
     setMode('normal')
@@ -1410,6 +1446,10 @@ export function RegisterGrid({
       await review(commandRows())
     } else if (cmd === 'defer') {
       await defer(commandRows())
+    } else if (/^inst(allments?)?(\s|$)/.test(cmd)) {
+      const n = Number(cmd.split(/\s+/)[1])
+      if (!n) return say('要分幾期？例如 :installment 12', 'error')
+      await installment(n)
     } else if (cmd === 'schedule' || cmd === 'sched') {
       await makeSchedule()
     } else if (cmd === 'w') {

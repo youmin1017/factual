@@ -212,7 +212,10 @@ func (s *Service) saveCard(ctx context.Context, q *db.Queries, budgetID, card uu
 	if err != nil {
 		return err
 	}
-	return s.ensureOpenStatement(ctx, q, budgetID, card, int(c.StatementDay), int(c.DueDay), off)
+	if err := s.ensureOpenStatement(ctx, q, budgetID, card, int(c.StatementDay), int(c.DueDay), off); err != nil {
+		return err
+	}
+	return s.saveAutopay(ctx, q, budgetID, card, c, off)
 }
 
 // cardDaysOff is the calendar for the due dates of statements closing from today.
@@ -244,21 +247,38 @@ func (h *Handlers) ListStatements(ctx context.Context, req api.ListStatementsReq
 		return nil, err
 	}
 
-	rows, err := h.s.q.ListStatements(ctx, db.ListStatementsParams{BudgetID: req.BudgetId, AccountID: req.AccountId})
+	closed, open, err := h.s.cardStatements(ctx, req.BudgetId, req.AccountId, true)
 	if err != nil {
 		return nil, err
 	}
+	out.Open = open
+	out.Statements = append(out.Statements, closed...)
+	return api.ListStatements200JSONResponse(out), nil
+}
+
+// cardStatements are the card's closed statements, newest first, with what
+// each asks and the latest one's payments since; and its open statement
+// when `withOpen`.
+func (s *Service) cardStatements(ctx context.Context, budgetID, card uuid.UUID, withOpen bool) ([]api.Statement, *api.OpenStatement, error) {
+	rows, err := s.q.ListStatements(ctx, db.ListStatementsParams{BudgetID: budgetID, AccountID: card})
+	if err != nil {
+		return nil, nil, err
+	}
+	var open *api.OpenStatement
 	// Oldest first: each closed statement owes what was billed up to it.
 	var billed, previous int64
 	closed := make([]api.Statement, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- {
 		r := rows[i]
 		if !r.ClosedAt.Valid {
-			unbilled, err := h.s.q.UnbilledEntries(ctx, db.UnbilledEntriesParams{BudgetID: req.BudgetId, AccountID: req.AccountId})
-			if err != nil {
-				return nil, err
+			if !withOpen {
+				continue
 			}
-			out.Open = &api.OpenStatement{
+			unbilled, err := s.q.UnbilledEntries(ctx, db.UnbilledEntriesParams{BudgetID: budgetID, AccountID: card})
+			if err != nil {
+				return nil, nil, err
+			}
+			open = &api.OpenStatement{
 				Id: r.ID, PeriodStart: apiDate(r.PeriodStart), PeriodEnd: apiDate(r.PeriodEnd), DueDate: apiDate(r.DueDate),
 				Charges: -unbilled.Charges, Payments: unbilled.Payments,
 			}
@@ -280,20 +300,21 @@ func (h *Handlers) ListStatements(ctx context.Context, req api.ListStatementsReq
 	}
 	if n := len(closed); n > 0 {
 		latest := &closed[n-1]
-		paid, err := h.s.q.PaymentsAfter(ctx, db.PaymentsAfterParams{
-			BudgetID: req.BudgetId, AccountID: req.AccountId, After: latest.PeriodEnd.Time,
+		paid, err := s.q.PaymentsAfter(ctx, db.PaymentsAfterParams{
+			BudgetID: budgetID, AccountID: card, After: latest.PeriodEnd.Time,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		latest.Paid = paid
 		latest.Remaining = max(latest.AmountDue-paid, 0)
-		latest.State = statementState(*latest, h.s.today())
+		latest.State = statementState(*latest, s.today())
 	}
+	newest := make([]api.Statement, 0, len(closed))
 	for i := len(closed) - 1; i >= 0; i-- {
-		out.Statements = append(out.Statements, closed[i])
+		newest = append(newest, closed[i])
 	}
-	return api.ListStatements200JSONResponse(out), nil
+	return newest, open, nil
 }
 
 // statementState says where the latest statement is (ADR-089).

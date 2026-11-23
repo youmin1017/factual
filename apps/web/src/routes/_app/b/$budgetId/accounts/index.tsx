@@ -537,7 +537,11 @@ function CreateAccountDialog({
             </div>
           </div>
           {kind === 'credit_card' && (
-            <CardFields values={cardFields} onChange={setCardFields} />
+            <CardFields
+              budgetId={budget.id}
+              values={cardFields}
+              onChange={setCardFields}
+            />
           )}
           {choice === 'choose' ? (
             <div className="flex items-start gap-3">

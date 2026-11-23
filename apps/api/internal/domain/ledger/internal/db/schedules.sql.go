@@ -53,6 +53,15 @@ func (q *Queries) CreateScheduleEntry(ctx context.Context, arg CreateScheduleEnt
 	return err
 }
 
+const deleteAutopaySchedule = `-- name: DeleteAutopaySchedule :exec
+delete from schedules where card_id = $1
+`
+
+func (q *Queries) DeleteAutopaySchedule(ctx context.Context, cardID uuid.NullUUID) error {
+	_, err := q.db.Exec(ctx, deleteAutopaySchedule, cardID)
+	return err
+}
+
 const deleteSchedule = `-- name: DeleteSchedule :execrows
 delete from schedules where budget_id = $1 and id = $2
 `
@@ -82,6 +91,17 @@ type DeleteScheduleEntriesOfParams struct {
 func (q *Queries) DeleteScheduleEntriesOf(ctx context.Context, arg DeleteScheduleEntriesOfParams) error {
 	_, err := q.db.Exec(ctx, deleteScheduleEntriesOf, arg.BudgetID, arg.ScheduleID)
 	return err
+}
+
+const getAutopaySchedule = `-- name: GetAutopaySchedule :one
+select id from schedules where card_id = $1
+`
+
+func (q *Queries) GetAutopaySchedule(ctx context.Context, cardID uuid.NullUUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getAutopaySchedule, cardID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getScheduleOwners = `-- name: GetScheduleOwners :many
@@ -287,7 +307,7 @@ func (q *Queries) ListScheduleSkips(ctx context.Context, budgetID uuid.UUID) ([]
 const listSchedules = `-- name: ListSchedules :many
 select s.id, s.source, s.rrule, s.start_date, s.holiday_shift, s.payee_id, p.name as payee_name,
        s.note, s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused,
-       s.budget_mode, s.created_by, s.created_at
+       s.budget_mode, s.created_by, s.created_at, s.card_id
   from schedules s
   left join payees p on p.id = s.payee_id
  where s.budget_id = $1 and s.kind = 'template'
@@ -309,6 +329,7 @@ type ListSchedulesRow struct {
 	BudgetMode       BudgetMode
 	CreatedBy        uuid.NullUUID
 	CreatedAt        time.Time
+	CardID           uuid.NullUUID
 }
 
 func (q *Queries) ListSchedules(ctx context.Context, budgetID uuid.UUID) ([]ListSchedulesRow, error) {
@@ -335,6 +356,7 @@ func (q *Queries) ListSchedules(ctx context.Context, budgetID uuid.UUID) ([]List
 			&i.BudgetMode,
 			&i.CreatedBy,
 			&i.CreatedAt,
+			&i.CardID,
 		); err != nil {
 			return nil, err
 		}
@@ -348,7 +370,8 @@ func (q *Queries) ListSchedules(ctx context.Context, budgetID uuid.UUID) ([]List
 
 const lockSchedule = `-- name: LockSchedule :one
 select s.id, s.budget_id, s.rrule, s.start_date, s.holiday_shift, s.payee_id, s.note,
-       s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused, s.created_by
+       s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused, s.created_by,
+       s.card_id
   from schedules s
  where s.id = $1
    for update
@@ -366,6 +389,7 @@ type LockScheduleRow struct {
 	NextOccurrence   pgtype.Date
 	Paused           bool
 	CreatedBy        uuid.NullUUID
+	CardID           uuid.NullUUID
 }
 
 func (q *Queries) LockSchedule(ctx context.Context, id uuid.UUID) (LockScheduleRow, error) {
@@ -383,6 +407,7 @@ func (q *Queries) LockSchedule(ctx context.Context, id uuid.UUID) (LockScheduleR
 		&i.NextOccurrence,
 		&i.Paused,
 		&i.CreatedBy,
+		&i.CardID,
 	)
 	return i, err
 }
@@ -530,6 +555,42 @@ type SetNextOccurrenceParams struct {
 
 func (q *Queries) SetNextOccurrence(ctx context.Context, arg SetNextOccurrenceParams) error {
 	_, err := q.db.Exec(ctx, setNextOccurrence, arg.ID, arg.NextOccurrence)
+	return err
+}
+
+const upsertAutopaySchedule = `-- name: UpsertAutopaySchedule :exec
+insert into schedules (id, budget_id, card_id, source, rrule, start_date, holiday_shift, note,
+                       next_occurrence, budget_mode, created_by)
+values ($1, $2, $3, $4, $5,
+        $6, 'next_workday', '自動扣繳', $7, 'none', $8)
+on conflict (id) do update
+   set source = excluded.source, rrule = excluded.rrule, start_date = excluded.start_date,
+       next_occurrence = excluded.next_occurrence, updated_at = now()
+`
+
+type UpsertAutopayScheduleParams struct {
+	ID             uuid.UUID
+	BudgetID       uuid.UUID
+	CardID         uuid.NullUUID
+	Source         string
+	Rrule          string
+	StartDate      time.Time
+	NextOccurrence pgtype.Date
+	CreatedBy      uuid.NullUUID
+}
+
+// A card's autopay schedule (ADR-090); it posts no budget money of its own.
+func (q *Queries) UpsertAutopaySchedule(ctx context.Context, arg UpsertAutopayScheduleParams) error {
+	_, err := q.db.Exec(ctx, upsertAutopaySchedule,
+		arg.ID,
+		arg.BudgetID,
+		arg.CardID,
+		arg.Source,
+		arg.Rrule,
+		arg.StartDate,
+		arg.NextOccurrence,
+		arg.CreatedBy,
+	)
 	return err
 }
 

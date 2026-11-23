@@ -32,3 +32,31 @@ func TestCardCycle(t *testing.T) {
 		}
 	}
 }
+
+func TestAutopayRule(t *testing.T) {
+	never := func(time.Time) bool { return false }
+	for _, c := range []struct {
+		dueDay int
+		from   time.Time
+		want   time.Time
+	}{
+		{25, ymd(2026, 11, 26), ymd(2026, 12, 25)},
+		{31, ymd(2027, 2, 1), ymd(2027, 2, 28)},
+		{30, ymd(2027, 2, 1), ymd(2027, 2, 28)},
+		{30, ymd(2027, 3, 1), ymd(2027, 3, 30)},
+		{29, ymd(2028, 2, 1), ymd(2028, 2, 29)},
+	} {
+		rr, err := parseRule(autopayRule(c.dueDay), ymd(2026, 11, 20))
+		if err != nil {
+			t.Fatalf("%d: %v", c.dueDay, err)
+		}
+		o, ok := (rule{rr: rr, off: never}).next(c.from, nil, nil)
+		if !ok || !o.Nominal.Equal(c.want) {
+			t.Errorf("due day %d from %s: %s, want %s", c.dueDay, c.from.Format(time.DateOnly), o.Nominal.Format(time.DateOnly), c.want.Format(time.DateOnly))
+		}
+		// The statement's due date agrees.
+		if due := dueFor(closingDay(c.want.Year(), c.want.Month(), 5), 5, c.dueDay, never); !due.Equal(c.want) {
+			t.Errorf("due day %d: the statement is due %s", c.dueDay, due.Format(time.DateOnly))
+		}
+	}
+}

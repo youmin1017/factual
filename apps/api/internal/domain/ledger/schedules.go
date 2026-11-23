@@ -185,6 +185,10 @@ func (h *Handlers) ListSchedules(ctx context.Context, req api.ListSchedulesReque
 	}
 	out := make([]api.Schedule, 0, len(d.rows))
 	for _, r := range d.rows {
+		// A card's autopay is set with the card (ADR-090).
+		if r.CardID.Valid {
+			continue
+		}
 		account, transfer, category, amount := lines(d.entries[r.ID])
 		sc := api.Schedule{
 			Id: r.ID, Source: r.Source, Rule: r.Rrule, Start: apiDate(r.StartDate),
@@ -276,6 +280,10 @@ func (h *Handlers) SaveSchedules(ctx context.Context, req api.SaveSchedulesReque
 			probs.add(u.Id, "", "not_found", "schedule not found")
 			continue
 		}
+		if old[u.Id].CardID.Valid {
+			probs.add(u.Id, "", "autopay_schedule", "a card's autopay is set in the card's settings")
+			continue
+		}
 		rr, err := parseRule(u.Rule, u.Start.Time)
 		if err != nil {
 			probs.add(u.Id, "rule", "invalid_rule", "the rule is not a daily, weekly, monthly or yearly RRULE")
@@ -314,6 +322,8 @@ func (h *Handlers) SaveSchedules(ctx context.Context, req api.SaveSchedulesReque
 		seen[id] = true
 		if o, ok := owner[id]; ok && o != budgetID {
 			probs.add(id, "", "not_found", "schedule not found")
+		} else if old[id].CardID.Valid {
+			probs.add(id, "", "autopay_schedule", "a card's autopay is set in the card's settings")
 		}
 	}
 	if len(probs) > 0 {
@@ -452,11 +462,23 @@ func (s *Service) postDue(ctx context.Context, scheduleID uuid.UUID, today time.
 				next = pgDate(o.Nominal)
 				break
 			}
+			cur = addDays(o.Nominal, 1)
+			if sc.CardID.Valid {
+				id, err := s.postAutopay(ctx, q, sc, o, sc.CreatedBy)
+				if err != nil {
+					return err
+				}
+				if id != uuid.Nil {
+					count++
+				} else {
+					skipped[o.Nominal] = true
+				}
+				continue
+			}
 			if err := insertOccurrence(ctx, q, sc.BudgetID, scheduleID, sc.PayeeID, sc.Note, sc.AmountIsEstimate, sc.CreatedBy, o, entries); err != nil {
 				return err
 			}
 			count++
-			cur = addDays(o.Nominal, 1)
 		}
 		return q.SetNextOccurrence(ctx, db.SetNextOccurrenceParams{ID: scheduleID, NextOccurrence: next})
 	})
@@ -593,10 +615,22 @@ func (h *Handlers) ListUpcoming(ctx context.Context, req api.ListUpcomingRequest
 	if err != nil {
 		return nil, err
 	}
+	cards, err := h.s.cardSettings(ctx, req.BudgetId)
+	if err != nil {
+		return nil, err
+	}
 	out := []api.Occurrence{}
 	for _, r := range d.rows {
 		if r.Paused || !r.NextOccurrence.Valid {
 			continue
+		}
+		var autopayFrom uuid.UUID
+		if r.CardID.Valid {
+			c := cards[r.CardID.UUID]
+			if c == nil || c.AutopayAccountId == nil {
+				continue
+			}
+			autopayFrom = *c.AutopayAccountId
 		}
 		rr, err := parseRule(r.Rrule, r.StartDate)
 		if err != nil {
@@ -616,6 +650,21 @@ func (h *Handlers) ListUpcoming(ctx context.Context, req api.ListUpcomingRequest
 			}
 			cur = addDays(o.Nominal, 1)
 			if o.Date.After(until) {
+				continue
+			}
+			if r.CardID.Valid {
+				// Shown once its statement has closed, for what it still asks.
+				_, due, err := h.s.autopayDue(ctx, req.BudgetId, r.CardID.UUID, o)
+				if err != nil {
+					return nil, err
+				}
+				if due > 0 {
+					card := r.CardID.UUID
+					out = append(out, api.Occurrence{
+						ScheduleId: r.ID, Occurrence: apiDate(o.Nominal), Date: apiDate(o.Date), Note: r.Note,
+						AccountId: autopayFrom, TransferAccountId: &card, Amount: -due,
+					})
+				}
 				continue
 			}
 			out = append(out, api.Occurrence{
@@ -754,14 +803,28 @@ func (h *Handlers) PostOccurrence(ctx context.Context, req api.PostOccurrenceReq
 		if skipped[occ] {
 			return apperr.New(http.StatusConflict, "occurrence_skipped", "this occurrence is skipped")
 		}
-		entries, err := q.ScheduleEntriesOf(ctx, sc.ID)
-		if err != nil {
-			return err
-		}
-		id, err = insertOccurrenceID(ctx, q, sc.BudgetID, sc.ID, sc.PayeeID, sc.Note, sc.AmountIsEstimate,
-			uuid.NullUUID{UUID: reqctx.Caller(ctx).UserID, Valid: true}, occurrence{Nominal: occ, Date: r.move(occ)}, entries)
-		if err != nil {
-			return err
+		by := uuid.NullUUID{UUID: reqctx.Caller(ctx).UserID, Valid: true}
+		o := occurrence{Nominal: occ, Date: r.move(occ)}
+		if sc.CardID.Valid {
+			// Autopay posts what its statement still asks (ADR-090).
+			_, amount, err := h.s.autopayDue(ctx, sc.BudgetID, sc.CardID.UUID, o)
+			if err != nil {
+				return err
+			}
+			if amount == 0 {
+				return apperr.New(http.StatusConflict, "nothing_due", "the statement this autopay pays asks for nothing")
+			}
+			if id, err = h.s.postAutopay(ctx, q, sc, o, by); err != nil {
+				return err
+			}
+		} else {
+			entries, err := q.ScheduleEntriesOf(ctx, sc.ID)
+			if err != nil {
+				return err
+			}
+			if id, err = insertOccurrenceID(ctx, q, sc.BudgetID, sc.ID, sc.PayeeID, sc.Note, sc.AmountIsEstimate, by, o, entries); err != nil {
+				return err
+			}
 		}
 		if id == uuid.Nil {
 			return alreadyPosted()

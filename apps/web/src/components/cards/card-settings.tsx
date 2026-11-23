@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Button } from '#/components/ui/button'
 import {
@@ -11,6 +11,13 @@ import {
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select'
 import { api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
 import { accountsQuery } from '#/lib/budget'
@@ -22,6 +29,8 @@ export interface CardFieldValues {
   statementDay: string
   dueDay: string
   limit: string
+  /** The autopay account's id; '' for none (ADR-090). */
+  autopay: string
 }
 
 export function cardFieldValues(
@@ -35,17 +44,17 @@ export function cardFieldValues(
       card?.creditLimit != null
         ? amountInputValue(card.creditLimit, minorUnits)
         : '',
+    autopay: card?.autopayAccountId ?? '',
   }
 }
 
 /**
  * The settings typed, or why they are not settings; null when nothing is
- * typed (a card without statements). `autopay` is kept as it was.
+ * typed (a card without statements).
  */
 export function parseCardFields(
   v: CardFieldValues,
   minorUnits: number,
-  autopay: string | null = null,
 ): CardSettings | null | string {
   if (!v.statementDay.trim() && !v.dueDay.trim() && !v.limit.trim()) return null
   const day = (text: string) => {
@@ -61,19 +70,36 @@ export function parseCardFields(
     creditLimit = parseAmount(v.limit, minorUnits)
     if (creditLimit === null || creditLimit < 0) return '信用額度的金額不對'
   }
-  return { statementDay, dueDay, creditLimit, autopayAccountId: autopay }
+  return {
+    statementDay,
+    dueDay,
+    creditLimit,
+    autopayAccountId: v.autopay || null,
+  }
 }
 
-/** The statement and due days and the limit, for a card's forms. */
+const NO_AUTOPAY = 'none'
+
+/** The statement and due days, the limit and autopay, for a card's forms. */
 export function CardFields({
+  budgetId,
   values,
   onChange,
 }: {
+  budgetId: string
   values: CardFieldValues
   onChange: (values: CardFieldValues) => void
 }) {
+  const accounts = useQuery(accountsQuery(budgetId))
+  // A card is paid from a cash or bank account on the budget.
+  const payers = (accounts.data ?? []).filter(
+    (a) =>
+      a.onBudget &&
+      (a.kind === 'bank' || a.kind === 'cash') &&
+      (!a.closed || a.id === values.autopay),
+  )
   const field = (
-    key: keyof CardFieldValues,
+    key: 'statementDay' | 'dueDay' | 'limit',
     label: string,
     placeholder: string,
   ) => (
@@ -99,6 +125,30 @@ export function CardFields({
       <p className="text-xs leading-relaxed text-muted-foreground">
         每個月的幾號。結帳日的隔天自動結帳，截止日遇假日順延；繳款日不晚於結帳日時算下個月。
       </p>
+      <div className="space-y-2 pt-2">
+        <Label htmlFor="card-autopay">自動扣繳</Label>
+        <Select
+          value={values.autopay || NO_AUTOPAY}
+          onValueChange={(v) =>
+            onChange({ ...values, autopay: v === NO_AUTOPAY ? '' : v })
+          }
+        >
+          <SelectTrigger id="card-autopay" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_AUTOPAY}>不自動扣繳（自己記繳款）</SelectItem>
+            {payers.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                從「{a.name}」扣繳
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          結帳後，截止日的繳款會以預定列出現在登記簿，到期自動記下還沒繳的金額；先繳了一部分，扣繳就只扣剩下的。
+        </p>
+      </div>
     </div>
   )
 }
@@ -122,11 +172,7 @@ export function CardDialog({
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const card = parseCardFields(
-      values,
-      budget.minorUnits,
-      account.card?.autopayAccountId ?? null,
-    )
+    const card = parseCardFields(values, budget.minorUnits)
     if (typeof card === 'string') return setError(card)
     if (card === null) return setError('請輸入結帳日和繳款截止日')
     setSaving(true)
@@ -163,7 +209,11 @@ export function CardDialog({
           </DialogDescription>
         </DialogHeader>
         <form id="card-form" className="space-y-4" onSubmit={onSubmit}>
-          <CardFields values={values} onChange={setValues} />
+          <CardFields
+            budgetId={budget.id}
+            values={values}
+            onChange={setValues}
+          />
           {error && (
             <p className="text-sm text-destructive" role="alert">
               {error}
