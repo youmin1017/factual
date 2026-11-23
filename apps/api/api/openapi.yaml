@@ -788,6 +788,60 @@ paths:
                   $ref: '#/components/schemas/Transaction'
         '404':
           $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/accounts/{accountId}/statements:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      operationId: listStatements
+      tags: [ledger]
+      summary: A credit card's statements (ADR-088, ADR-089)
+      description: |
+        The open statement and the closed ones, newest first. A card
+        without statement settings has none (404 for an account that is
+        not a credit card).
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Statements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardStatements'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/statements/{statementId}/due:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+      - name: statementId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: setStatementDue
+      tags: [ledger]
+      summary: Align a closed statement's amount with the bank's bill
+      description: |
+        `amount` replaces what the statement asks for; null goes back to the
+        computed amount (ADR-088).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatementDue'
+      responses:
+        '204':
+          description: Set
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /budgets/{budgetId}/register:
     parameters:
       - $ref: '#/components/parameters/BudgetId'
@@ -1703,7 +1757,7 @@ components:
       enum: [cash, bank, credit_card, loan, investment]
     Account:
       type: object
-      required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity]
+      required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity, card]
       properties:
         id:
           type: string
@@ -1728,6 +1782,37 @@ components:
         hasActivity:
           type: boolean
           description: Whether the account has transactions besides its opening balance (it then cannot be deleted).
+        card:
+          allOf:
+            - $ref: '#/components/schemas/CardSettings'
+          nullable: true
+          description: A credit card's statement settings; null for other accounts and cards without them.
+    CardSettings:
+      type: object
+      required: [statementDay, dueDay, creditLimit, autopayAccountId]
+      properties:
+        statementDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+          description: 結帳日; a month without that day closes on its last day.
+        dueDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+          description: 繳款截止日; in the month after the statement day when it is not later than it.
+        creditLimit:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        autopayAccountId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The account the card is paid from on the due date (ADR-090).
     AccountCreate:
       type: object
       required: [name, kind, onBudget, openingBalance, openingDate]
@@ -1748,6 +1833,8 @@ components:
         openingDate:
           type: string
           format: date
+        card:
+          $ref: '#/components/schemas/CardSettings'
     AccountUpdate:
       type: object
       required: [name, closed]
@@ -1759,6 +1846,113 @@ components:
         closed:
           type: boolean
           description: A closed account is hidden from pickers; it must have a zero balance.
+        card:
+          $ref: '#/components/schemas/CardSettings'
+    StatementState:
+      type: string
+      enum: [due, partial, paid, overdue, settled]
+      description: |
+        待繳, 部分繳款, 已繳清, 逾期; `settled` for a statement a newer one
+        includes (ADR-089).
+    Statement:
+      type: object
+      required: [id, periodStart, periodEnd, dueDate, previousDue, charges, payments, amountDue, computedDue, adjusted, paid, remaining, state]
+      properties:
+        id:
+          type: string
+          format: uuid
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+          description: The statement day.
+        dueDate:
+          type: string
+          format: date
+        previousDue:
+          type: integer
+          format: int64
+          description: What the statement before asked for (0 for the first).
+        charges:
+          type: integer
+          format: int64
+          description: Spending billed in it, less refunds (positive is spent).
+        payments:
+          type: integer
+          format: int64
+          description: Payments billed in it (made before it closed).
+        amountDue:
+          type: integer
+          format: int64
+          description: What it asks for, aligned by hand or computed.
+        computedDue:
+          type: integer
+          format: int64
+          description: The card's outstanding balance over every billed entry at its closing, never below zero.
+        adjusted:
+          type: boolean
+          description: amountDue was typed to match the bank's bill.
+        paid:
+          type: integer
+          format: int64
+          description: Payments made after it closed (the latest statement only; 0 for settled ones).
+        remaining:
+          type: integer
+          format: int64
+        state:
+          $ref: '#/components/schemas/StatementState'
+    OpenStatement:
+      type: object
+      required: [id, periodStart, periodEnd, dueDate, charges, payments]
+      properties:
+        id:
+          type: string
+          format: uuid
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        dueDate:
+          type: string
+          format: date
+        charges:
+          type: integer
+          format: int64
+          description: Spending not billed yet, less refunds (positive is spent).
+        payments:
+          type: integer
+          format: int64
+          description: Payments not billed yet.
+    CardStatements:
+      type: object
+      required: [card, open, statements]
+      properties:
+        card:
+          allOf:
+            - $ref: '#/components/schemas/CardSettings'
+          nullable: true
+        open:
+          allOf:
+            - $ref: '#/components/schemas/OpenStatement'
+          nullable: true
+        statements:
+          type: array
+          description: Closed statements, newest first.
+          items:
+            $ref: '#/components/schemas/Statement'
+    StatementDue:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
     CategoryKind:
       type: string
       enum: [expense, income]

@@ -63,6 +63,18 @@ export function payeesQuery(budgetId: string) {
   })
 }
 
+/** A credit card's statements (ADR-088). */
+export function statementsQuery(budgetId: string, accountId: string) {
+  return $api.queryOptions(
+    'get',
+    '/budgets/{budgetId}/accounts/{accountId}/statements',
+    { params: { path: { budgetId, accountId } } },
+  )
+}
+
+export type CardSettings = Schemas['CardSettings']
+export type Statement = Schemas['Statement']
+
 export const accountKinds: Array<{
   value: AccountKind
   label: string

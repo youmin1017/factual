@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Amount } from '#/components/amount'
+import { StatementSummary } from '#/components/cards/statement-summary'
 import { RegisterGrid } from '#/components/register/register-grid'
 import { api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
@@ -155,6 +156,13 @@ function RegisterPage() {
         queryKey: schedulesQuery(budget.id).queryKey,
       }),
       queryClient.invalidateQueries({ queryKey: ['budget-month', budget.id] }),
+      // What a card's statements ask and were paid (ADR-088).
+      queryClient.invalidateQueries({
+        queryKey: [
+          'get',
+          '/budgets/{budgetId}/accounts/{accountId}/statements',
+        ],
+      }),
     ])
     const [transactions, next] = await Promise.all([
       queryClient.fetchQuery(registerQuery(budget.id, viewKey)),
@@ -201,6 +209,10 @@ function RegisterPage() {
           </div>
         </dl>
       </div>
+
+      {account?.kind === 'credit_card' && (
+        <StatementSummary budget={budget} account={account} />
+      )}
 
       {members.length === 0 ? (
         <p className="text-sm text-muted-foreground">

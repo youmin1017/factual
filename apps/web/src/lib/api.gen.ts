@@ -567,6 +567,55 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/accounts/{accountId}/statements': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    /**
+     * A credit card's statements (ADR-088, ADR-089)
+     * @description The open statement and the closed ones, newest first. A card
+     *     without statement settings has none (404 for an account that is
+     *     not a credit card).
+     */
+    get: operations['listStatements']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/statements/{statementId}/due': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        statementId: string
+      }
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Align a closed statement's amount with the bank's bill
+     * @description `amount` replaces what the statement asks for; null goes back to the
+     *     computed amount (ADR-088).
+     */
+    put: operations['setStatementDue']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/budgets/{budgetId}/register': {
     parameters: {
       query?: never
@@ -1168,6 +1217,27 @@ export interface components {
       clearedBalance: number
       /** @description Whether the account has transactions besides its opening balance (it then cannot be deleted). */
       hasActivity: boolean
+      /** @description A credit card's statement settings; null for other accounts and cards without them. */
+      card: components['schemas']['CardSettings'] | null
+    }
+    CardSettings: {
+      /**
+       * Format: int32
+       * @description 結帳日; a month without that day closes on its last day.
+       */
+      statementDay: number
+      /**
+       * Format: int32
+       * @description 繳款截止日; in the month after the statement day when it is not later than it.
+       */
+      dueDay: number
+      /** Format: int64 */
+      creditLimit: number | null
+      /**
+       * Format: uuid
+       * @description The account the card is paid from on the due date (ADR-090).
+       */
+      autopayAccountId: string | null
     }
     AccountCreate: {
       name: string
@@ -1181,11 +1251,97 @@ export interface components {
       openingBalance: number
       /** Format: date */
       openingDate: string
+      card?: components['schemas']['CardSettings']
     }
     AccountUpdate: {
       name: string
       /** @description A closed account is hidden from pickers; it must have a zero balance. */
       closed: boolean
+      card?: components['schemas']['CardSettings']
+    }
+    /**
+     * @description 待繳, 部分繳款, 已繳清, 逾期; `settled` for a statement a newer one
+     *     includes (ADR-089).
+     * @enum {string}
+     */
+    StatementState: 'due' | 'partial' | 'paid' | 'overdue' | 'settled'
+    Statement: {
+      /** Format: uuid */
+      id: string
+      /** Format: date */
+      periodStart: string
+      /**
+       * Format: date
+       * @description The statement day.
+       */
+      periodEnd: string
+      /** Format: date */
+      dueDate: string
+      /**
+       * Format: int64
+       * @description What the statement before asked for (0 for the first).
+       */
+      previousDue: number
+      /**
+       * Format: int64
+       * @description Spending billed in it, less refunds (positive is spent).
+       */
+      charges: number
+      /**
+       * Format: int64
+       * @description Payments billed in it (made before it closed).
+       */
+      payments: number
+      /**
+       * Format: int64
+       * @description What it asks for, aligned by hand or computed.
+       */
+      amountDue: number
+      /**
+       * Format: int64
+       * @description The card's outstanding balance over every billed entry at its closing, never below zero.
+       */
+      computedDue: number
+      /** @description amountDue was typed to match the bank's bill. */
+      adjusted: boolean
+      /**
+       * Format: int64
+       * @description Payments made after it closed (the latest statement only; 0 for settled ones).
+       */
+      paid: number
+      /** Format: int64 */
+      remaining: number
+      state: components['schemas']['StatementState']
+    }
+    OpenStatement: {
+      /** Format: uuid */
+      id: string
+      /** Format: date */
+      periodStart: string
+      /** Format: date */
+      periodEnd: string
+      /** Format: date */
+      dueDate: string
+      /**
+       * Format: int64
+       * @description Spending not billed yet, less refunds (positive is spent).
+       */
+      charges: number
+      /**
+       * Format: int64
+       * @description Payments not billed yet.
+       */
+      payments: number
+    }
+    CardStatements: {
+      card: components['schemas']['CardSettings'] | null
+      open: components['schemas']['OpenStatement'] | null
+      /** @description Closed statements, newest first. */
+      statements: components['schemas']['Statement'][]
+    }
+    StatementDue: {
+      /** Format: int64 */
+      amount: number | null
     }
     /** @enum {string} */
     CategoryKind: 'expense' | 'income'
@@ -2470,6 +2626,57 @@ export interface operations {
           'application/json': components['schemas']['Transaction'][]
         }
       }
+      404: components['responses']['NotFound']
+    }
+  }
+  listStatements: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Statements */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CardStatements']
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  setStatementDue: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        statementId: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['StatementDue']
+      }
+    }
+    responses: {
+      /** @description Set */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      400: components['responses']['BadRequest']
       404: components['responses']['NotFound']
     }
   }

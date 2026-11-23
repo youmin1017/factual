@@ -4,6 +4,12 @@ import { EllipsisIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Amount } from '#/components/amount'
+import {
+  CardDialog,
+  CardFields,
+  cardFieldValues,
+  parseCardFields,
+} from '#/components/cards/card-settings'
 import { ConfirmDialog, NameDialog } from '#/components/dialogs'
 import { PageHeader } from '#/components/section'
 import { Button } from '#/components/ui/button'
@@ -218,6 +224,7 @@ function AccountRow({
   const invalidate = useInvalidateAccounts(budget.id)
   const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [card, setCard] = useState(false)
   const path = {
     params: { path: { budgetId: budget.id, accountId: account.id } },
   }
@@ -309,6 +316,11 @@ function AccountRow({
             <DropdownMenuItem onSelect={() => setRenaming(true)}>
               重新命名
             </DropdownMenuItem>
+            {account.kind === 'credit_card' && (
+              <DropdownMenuItem onSelect={() => setCard(true)}>
+                帳單設定…
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem disabled={index <= 0} onSelect={() => move(-1)}>
               上移
             </DropdownMenuItem>
@@ -340,6 +352,13 @@ function AccountRow({
         </DropdownMenu>
       )}
 
+      {card && (
+        <CardDialog
+          budget={budget}
+          account={account}
+          onClose={() => setCard(false)}
+        />
+      )}
       {renaming && (
         <NameDialog
           title="重新命名帳戶"
@@ -350,7 +369,11 @@ function AccountRow({
               '/budgets/{budgetId}/accounts/{accountId}',
               {
                 ...path,
-                body: { name, closed: account.closed },
+                body: {
+                  name,
+                  closed: account.closed,
+                  card: account.card ?? undefined,
+                },
               },
             )
             if (error) return apiErrorMessage(error)
@@ -391,6 +414,9 @@ function CreateAccountDialog({
   const [onBudget, setOnBudget] = useState(true)
   const [balance, setBalance] = useState('')
   const [date, setDate] = useState(today)
+  const [cardFields, setCardFields] = useState(() =>
+    cardFieldValues(null, budget.minorUnits),
+  )
   const [error, setError] = useState('')
 
   const kindInfo = accountKinds.find((k) => k.value === kind)
@@ -422,9 +448,18 @@ function CreateAccountDialog({
       )
       return
     }
+    const card =
+      kind === 'credit_card'
+        ? parseCardFields(cardFields, budget.minorUnits)
+        : null
+    if (typeof card === 'string') {
+      setError(card)
+      return
+    }
     create.mutate({
       params: { path: { budgetId: budget.id } },
       body: {
+        card: card ?? undefined,
         name: name.trim(),
         kind,
         onBudget: choice === 'choose' ? onBudget : choice,
@@ -501,6 +536,9 @@ function CreateAccountDialog({
               />
             </div>
           </div>
+          {kind === 'credit_card' && (
+            <CardFields values={cardFields} onChange={setCardFields} />
+          )}
           {choice === 'choose' ? (
             <div className="flex items-start gap-3">
               <Switch

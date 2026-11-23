@@ -170,6 +170,19 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 	}
 
 	caller := uuid.NullUUID{UUID: reqctx.Caller(ctx).UserID, Valid: true}
+	// Entries keep the statement they were billed in (ADR-088).
+	upserted := make([]uuid.UUID, 0, len(b.Upserts))
+	for _, u := range b.Upserts {
+		upserted = append(upserted, u.Id)
+	}
+	billed, err := h.s.q.ListEntryStatements(ctx, upserted)
+	if err != nil {
+		return nil, err
+	}
+	billedIn := make(map[uuid.UUID][]db.ListEntryStatementsRow, len(billed))
+	for _, e := range billed {
+		billedIn[e.TransactionID] = append(billedIn[e.TransactionID], e)
+	}
 	var deleted int32
 	err = h.s.inTx(ctx, func(q *db.Queries) error {
 		for _, id := range b.Deletes {
@@ -207,6 +220,14 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 				err := q.CreateEntry(ctx, db.CreateEntryParams{
 					BudgetID: budgetID, TransactionID: u.Id, AccountID: e.AccountId, CategoryID: nullID(e.CategoryId),
 					Amount: e.Amount, Memo: strings.TrimSpace(e.Memo), Cleared: db.ClearedState(e.Cleared),
+				})
+				if err != nil {
+					return err
+				}
+			}
+			for _, e := range billedIn[u.Id] {
+				err := q.RestoreEntryStatement(ctx, db.RestoreEntryStatementParams{
+					TransactionID: u.Id, AccountID: e.AccountID, StatementID: e.StatementID, PaysStatementID: e.PaysStatementID,
 				})
 				if err != nil {
 					return err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -32,9 +33,15 @@ func (h *Handlers) ListAccounts(ctx context.Context, req api.ListAccountsRequest
 	if err != nil {
 		return nil, err
 	}
+	cards, err := h.s.cardSettings(ctx, req.BudgetId)
+	if err != nil {
+		return nil, err
+	}
 	out := make(api.ListAccounts200JSONResponse, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, accountResponse(db.GetAccountRow(r)))
+		a := accountResponse(db.GetAccountRow(r))
+		a.Card = cards[r.ID]
+		out = append(out, a)
 	}
 	return out, nil
 }
@@ -47,6 +54,19 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 	}
 	onBudget := onBudgetFor(b.Kind, b.OnBudget)
 	caller := reqctx.Caller(ctx).UserID
+	var off func(time.Time) bool
+	if b.Card != nil {
+		if b.Kind != api.CreditCard {
+			return nil, notACard()
+		}
+		if err := h.s.checkCard(ctx, req.BudgetId, uuid.Nil, *b.Card); err != nil {
+			return nil, err
+		}
+		var err error
+		if off, err = h.s.cardDaysOff(ctx); err != nil {
+			return nil, err
+		}
+	}
 
 	var id uuid.UUID
 	err := h.s.inTx(ctx, func(q *db.Queries) error {
@@ -54,8 +74,16 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 		id, err = q.CreateAccount(ctx, db.CreateAccountParams{
 			BudgetID: req.BudgetId, Name: name, Kind: db.AccountKind(b.Kind), OnBudget: onBudget,
 		})
-		if err != nil || b.OpeningBalance == 0 {
+		if err != nil {
 			return err
+		}
+		if b.Card != nil {
+			if err := h.s.saveCard(ctx, q, req.BudgetId, id, *b.Card, off); err != nil {
+				return err
+			}
+		}
+		if b.OpeningBalance == 0 {
+			return nil
 		}
 
 		// The opening balance is a transaction like any other. On a budget
@@ -85,11 +113,11 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 	if err != nil {
 		return nil, apperr.FromDB(err)
 	}
-	row, err := h.s.q.GetAccount(ctx, db.GetAccountParams{BudgetID: req.BudgetId, ID: id})
+	out, err := h.s.account(ctx, req.BudgetId, id)
 	if err != nil {
 		return nil, err
 	}
-	return api.CreateAccount201JSONResponse(accountResponse(row)), nil
+	return api.CreateAccount201JSONResponse(out), nil
 }
 
 func (h *Handlers) UpdateAccount(ctx context.Context, req api.UpdateAccountRequestObject) (api.UpdateAccountResponseObject, error) {
@@ -108,15 +136,33 @@ func (h *Handlers) UpdateAccount(ctx context.Context, req api.UpdateAccountReque
 	if b.Closed && !cur.Closed && cur.Balance != 0 {
 		return nil, apperr.New(http.StatusConflict, "account_not_empty", "an account can only be closed with a zero balance")
 	}
-	err = h.s.q.UpdateAccount(ctx, db.UpdateAccountParams{BudgetID: req.BudgetId, ID: req.AccountId, Name: name, Closed: b.Closed})
+	var off func(time.Time) bool
+	if b.Card != nil {
+		if cur.Kind != db.AccountKindCreditCard {
+			return nil, notACard()
+		}
+		if err := h.s.checkCard(ctx, req.BudgetId, req.AccountId, *b.Card); err != nil {
+			return nil, err
+		}
+		if off, err = h.s.cardDaysOff(ctx); err != nil {
+			return nil, err
+		}
+	}
+	err = h.s.inTx(ctx, func(q *db.Queries) error {
+		err := q.UpdateAccount(ctx, db.UpdateAccountParams{BudgetID: req.BudgetId, ID: req.AccountId, Name: name, Closed: b.Closed})
+		if err != nil || b.Card == nil {
+			return err
+		}
+		return h.s.saveCard(ctx, q, req.BudgetId, req.AccountId, *b.Card, off)
+	})
 	if err != nil {
 		return nil, apperr.FromDB(err)
 	}
-	row, err := h.s.q.GetAccount(ctx, db.GetAccountParams{BudgetID: req.BudgetId, ID: req.AccountId})
+	out, err := h.s.account(ctx, req.BudgetId, req.AccountId)
 	if err != nil {
 		return nil, err
 	}
-	return api.UpdateAccount200JSONResponse(accountResponse(row)), nil
+	return api.UpdateAccount200JSONResponse(out), nil
 }
 
 func (h *Handlers) DeleteAccount(ctx context.Context, req api.DeleteAccountRequestObject) (api.DeleteAccountResponseObject, error) {
@@ -200,6 +246,25 @@ func orderWithRest(ids, known []uuid.UUID) ([]uuid.UUID, error) {
 		}
 	}
 	return order, nil
+}
+
+// account is one account as the API shows it, a card with its settings.
+func (s *Service) account(ctx context.Context, budgetID, id uuid.UUID) (api.Account, error) {
+	row, err := s.q.GetAccount(ctx, db.GetAccountParams{BudgetID: budgetID, ID: id})
+	if err != nil {
+		return api.Account{}, err
+	}
+	out := accountResponse(row)
+	if row.Kind == db.AccountKindCreditCard {
+		c, err := s.q.GetCardSettings(ctx, db.GetCardSettingsParams{BudgetID: budgetID, AccountID: id})
+		switch {
+		case err == nil:
+			out.Card = cardResponse(db.CreditCard(c))
+		case !isNoRows(err):
+			return api.Account{}, err
+		}
+	}
+	return out, nil
 }
 
 func accountResponse(r db.GetAccountRow) api.Account {

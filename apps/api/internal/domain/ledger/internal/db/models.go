@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AccountKind string
@@ -24,7 +25,7 @@ const (
 	AccountKindSuspense   AccountKind = "suspense"
 )
 
-func (e *AccountKind) Scan(src any) error {
+func (e *AccountKind) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = AccountKind(s)
@@ -42,7 +43,7 @@ type NullAccountKind struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullAccountKind) Scan(value any) error {
+func (ns *NullAccountKind) Scan(value interface{}) error {
 	if value == nil {
 		ns.AccountKind, ns.Valid = "", false
 		return nil
@@ -81,7 +82,7 @@ const (
 	BudgetModeSpread BudgetMode = "spread"
 )
 
-func (e *BudgetMode) Scan(src any) error {
+func (e *BudgetMode) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = BudgetMode(s)
@@ -99,7 +100,7 @@ type NullBudgetMode struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullBudgetMode) Scan(value any) error {
+func (ns *NullBudgetMode) Scan(value interface{}) error {
 	if value == nil {
 		ns.BudgetMode, ns.Valid = "", false
 		return nil
@@ -134,7 +135,7 @@ const (
 	BudgetRoleViewer BudgetRole = "viewer"
 )
 
-func (e *BudgetRole) Scan(src any) error {
+func (e *BudgetRole) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = BudgetRole(s)
@@ -152,7 +153,7 @@ type NullBudgetRole struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullBudgetRole) Scan(value any) error {
+func (ns *NullBudgetRole) Scan(value interface{}) error {
 	if value == nil {
 		ns.BudgetRole, ns.Valid = "", false
 		return nil
@@ -186,7 +187,7 @@ const (
 	CategoryKindIncome  CategoryKind = "income"
 )
 
-func (e *CategoryKind) Scan(src any) error {
+func (e *CategoryKind) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = CategoryKind(s)
@@ -204,7 +205,7 @@ type NullCategoryKind struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullCategoryKind) Scan(value any) error {
+func (ns *NullCategoryKind) Scan(value interface{}) error {
 	if value == nil {
 		ns.CategoryKind, ns.Valid = "", false
 		return nil
@@ -238,7 +239,7 @@ const (
 	ClearedStateReconciled ClearedState = "reconciled"
 )
 
-func (e *ClearedState) Scan(src any) error {
+func (e *ClearedState) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = ClearedState(s)
@@ -256,7 +257,7 @@ type NullClearedState struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullClearedState) Scan(value any) error {
+func (ns *NullClearedState) Scan(value interface{}) error {
 	if value == nil {
 		ns.ClearedState, ns.Valid = "", false
 		return nil
@@ -291,7 +292,7 @@ const (
 	HolidayShiftPrevWorkday HolidayShift = "prev_workday"
 )
 
-func (e *HolidayShift) Scan(src any) error {
+func (e *HolidayShift) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = HolidayShift(s)
@@ -309,7 +310,7 @@ type NullHolidayShift struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullHolidayShift) Scan(value any) error {
+func (ns *NullHolidayShift) Scan(value interface{}) error {
 	if value == nil {
 		ns.HolidayShift, ns.Valid = "", false
 		return nil
@@ -334,6 +335,14 @@ func (e HolidayShift) Valid() bool {
 		return true
 	}
 	return false
+}
+
+type CreditCard struct {
+	AccountID        uuid.UUID
+	StatementDay     int16
+	DueDay           int16
+	CreditLimit      pgtype.Int8
+	AutopayAccountID uuid.NullUUID
 }
 
 type ScheduleSkip struct {

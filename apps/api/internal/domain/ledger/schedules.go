@@ -540,10 +540,14 @@ func (s *Service) PostAllDue(ctx context.Context) (int, error) {
 	return total, nil
 }
 
-// RunScheduler posts due occurrences now and then every interval, until
-// ctx ends. A goroutine is enough: posting is idempotent (ADR-085).
+// RunScheduler closes card statements and posts due occurrences now and
+// then every interval, until ctx ends. A goroutine is enough: closing and
+// posting are idempotent (ADR-085, ADR-088).
 func (s *Service) RunScheduler(ctx context.Context, interval time.Duration) {
 	run := func() {
+		// Statements close first, so autopay sees what they ask (ADR-090).
+		n, err := s.CloseStatements(ctx)
+		logClosed(ctx, n, err)
 		if n, err := s.PostAllDue(ctx); err != nil {
 			if ctx.Err() == nil {
 				slog.Error("post scheduled transactions", "err", err)
