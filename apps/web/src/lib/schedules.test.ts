@@ -5,6 +5,7 @@ import {
   nextOf,
   parseMode,
   rowFromSchedule,
+  ruleText,
   scheduleAmountText,
   scheduleCellText,
   schedulePatch,
@@ -66,8 +67,9 @@ assert.deepEqual(validateSchedule(row, ctx), {
   field: 'rule',
   message: '請輸入週期，例如：每月 5 日',
 })
-row = apply(row, 'rule', ' 每月 5 日 遇假日延後 ')
-assert.equal(row.source, '每月 5 日 遇假日延後')
+row = apply(row, 'rule', ' 每月5號 假日順延 ')
+// Kept the one way rules are shown.
+assert.equal(row.source, '每月 5 日，遇假日延後')
 assert.equal(row.rule, 'FREQ=MONTHLY;BYMONTHDAY=5')
 assert.equal(row.shift, 'nextWorkday')
 assert.equal(row.start, '2026-12-05')
@@ -159,10 +161,13 @@ assert.deepEqual(nextOf(s, today), {
   nominal: '2027-01-05',
   date: '2027-01-05',
 })
-// Retyping the same rule changes only how it is written.
-s = apply(s, 'rule', '每月5號')
+// Retyping the same rule, however written, changes nothing.
+s = apply(s, 'rule', 'monthly on the 5th')
 assert.equal(s.start, '2026-11-05')
-assert.equal(scheduleStatus(s), 'changed')
+assert.equal(scheduleStatus(s), 'clean')
+// English is kept as rules are shown, too.
+assert.equal(apply(s, 'rule', 'every 2 weeks on fri').source, '每 2 週五')
+assert.equal(ruleText({ ...s, source: 'monthly on the 5th' }), '每月 5 日')
 // A different rule starts again from today.
 s = apply(s, 'rule', '每月 10 日')
 assert.equal(s.start, '2026-12-10')

@@ -13,12 +13,24 @@ import {
   problemMessages,
   rank,
 } from '#/lib/register'
-import { nextOccurrences, parseRule, ruleTemplates } from '#/lib/schedule-rule'
+import {
+  formText,
+  openRuleForm,
+  ruleFormKey,
+  ruleOfForm,
+} from '#/lib/rule-form'
+import {
+  nextOccurrences,
+  parseRule,
+  ruleTemplates,
+  writeRRule,
+} from '#/lib/schedule-rule'
 import {
   modeLabels,
   newScheduleRow,
   nextOf,
   rowFromSchedule,
+  ruleText,
   scheduleAmountText,
   scheduleCellText,
   scheduleColumns,
@@ -33,8 +45,10 @@ import { cn } from '#/lib/utils'
 import { CellEditor, eraseBeforeCaret, nextPick } from '../register/cell-editor'
 import { KeyHelp, scheduleKeys } from '../register/key-help'
 import { useKeyFeed } from '../register/use-key-feed'
+import { RuleEditor } from './rule-editor'
 import type { Key, Keymap } from '#/lib/keymap'
 import type { Context, PayeeRef } from '#/lib/register'
+import type { RuleFormState } from '#/lib/rule-form'
 import type {
   Schedule,
   ScheduleColumn,
@@ -119,6 +133,11 @@ interface Props {
 }
 
 const DRAFT_VERSION = 1
+
+/** The rule the editor gives, as a line keeps it. */
+function formRule(form: RuleFormState): Pick<ScheduleRow, 'rule' | 'shift'> {
+  return { rule: writeRRule(ruleOfForm(form.form)), shift: form.form.shift }
+}
 
 function draftKey(budgetId: string): string {
   return `factual:schedules:${budgetId}`
@@ -220,6 +239,8 @@ export function ScheduleGrid({
   const [anchor, setAnchor] = useState(0)
   const [bulk, setBulk] = useState(false)
   const [help, setHelp] = useState(false)
+  /** The rule editor, open over the rule cell (insert mode). */
+  const [ruleForm, setRuleForm] = useState<RuleFormState | null>(null)
 
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -242,6 +263,7 @@ export function ScheduleGrid({
   const dirty = statuses.filter((s) => s !== 'clean').length
   const current = rows.at(cursor.row)
   const column = columns[cursor.col]
+  const form = mode === 'insert' ? ruleForm : null
   const selection: Range | null =
     mode === 'visual' || (mode === 'insert' && bulk)
       ? {
@@ -372,8 +394,11 @@ export function ScheduleGrid({
     setPick(0)
     setNavigated(false)
     setBulk(false)
+    setRuleForm(null)
     setMode('insert')
-    say('輸入週期，例如：每月 5 日、每週一三五、每年 3/15；Tab 到下一欄')
+    say(
+      '打 / 選週期範本（/每月、/monthly…），或直接輸入：每月 5 日、每週一三五；Tab 到下一欄',
+    )
   }
 
   function dropOpened(): boolean {
@@ -489,6 +514,7 @@ export function ScheduleGrid({
     setPick(0)
     setNavigated(false)
     setBulk(true)
+    setRuleForm(null)
     setMode('insert')
     say(
       `輸入的${scheduleLabels[column]}會套用到 ${usable.length} 個排程；Enter 套用，沒輸入就按 Esc 取消`,
@@ -552,6 +578,14 @@ export function ScheduleGrid({
     if (!row) return say('沒有排程，按 o 新增一個')
     const reason = editable(row, col)
     if (reason) return say(reason, 'error')
+    // A written rule opens in the rule editor; c and s type it afresh.
+    const rule =
+      col === 'rule' && !clear && row.rule
+        ? openRuleForm(ruleText(row), row.start, today)
+        : null
+    setRuleForm(rule)
+    setBulk(false)
+    if (rule) return setMode('insert')
     setEdit(
       clear ? '' : scheduleCellText(row, col, ctx, nextOf(row, today, off)),
     )
@@ -616,11 +650,19 @@ export function ScheduleGrid({
       case 'rule':
         // `/monthly`, `/每月`, `/every`: a rule to start from.
         if (!edit.startsWith('/')) return []
-        return rank(
-          ruleTemplates(today),
-          edit.slice(1),
-          (t) => `${t.command} ${t.text}`,
-        ).map((t) => ({ value: t.text, label: `/${t.command}`, hint: t.text }))
+        {
+          const query = edit.slice(1)
+          const english = /[a-z]/i.test(query)
+          return rank(
+            ruleTemplates(today),
+            query,
+            (t) => `${t.command} ${t.aliases.join(' ')} ${t.text}`,
+          ).map((t) => ({
+            value: t.text,
+            label: `/${english ? t.aliases[0] : t.command}`,
+            hint: t.text,
+          }))
+        }
       default:
         return []
     }
@@ -631,13 +673,47 @@ export function ScheduleGrid({
     return column === 'rule' && edit.startsWith('/') && options.length > 0
   }
 
-  /** Puts the highlighted template in the cell and keeps editing it. */
+  /** Opens the rule editor on the highlighted template. */
   function applyTemplate(options: Array<Suggestion>) {
     const text = options[Math.min(pick, options.length - 1)].value
-    opened.current = null
-    setEdit(text)
-    setPick(0)
-    setNavigated(false)
+    const start = openRuleForm(text, '', today)
+    if (!start) {
+      setEdit(text)
+      return
+    }
+    setRuleForm(start)
+    setMessage(null)
+  }
+
+  function runForm(k: Key): boolean {
+    if (!form) return false
+    const result = ruleFormKey(form, k)
+    if ('state' in result) {
+      setRuleForm(result.state)
+      if (result.state.error) setMessage(null)
+      return true
+    }
+    switch (result.done) {
+      case 'commit':
+        if (commitCell(result.text)) {
+          setRuleForm(null)
+          setMode('normal')
+        }
+        return true
+      case 'cancel':
+        setRuleForm(null)
+        if (dropOpened()) return true
+        setMode('normal')
+        say('已取消編輯')
+        return true
+      case 'text':
+        setRuleForm(null)
+        setEdit(result.text)
+        setPick(0)
+        setNavigated(false)
+        setMessage(null)
+        return true
+    }
   }
 
   function chosenText(): string {
@@ -1177,7 +1253,7 @@ export function ScheduleGrid({
   }
 
   const feed = useKeyFeed(keymap, 'schedules', (k) => {
-    if (mode === 'insert') return runInsert(k)
+    if (mode === 'insert') return form ? runForm(k) : runInsert(k)
     if (mode === 'command') return runCommandKey(k)
     return runNormal(k)
   })
@@ -1193,7 +1269,7 @@ export function ScheduleGrid({
     if (edit.startsWith('/')) {
       return options.length > 0
         ? {
-            text: '選一個範本：Ctrl-n/Ctrl-p 移動，Enter 放進格子再改日期',
+            text: '選一個範本：Ctrl-n/Ctrl-p 移動，Enter 開啟週期編輯器',
             tone: 'info' as const,
           }
         : {
@@ -1224,10 +1300,27 @@ export function ScheduleGrid({
       tone: 'info' as const,
     }
   })()
+  /** The rule editor's dates and the keys it takes. */
+  const formDates = (() => {
+    if (!form) return ''
+    const rule = formRule(form)
+    const dates = nextOccurrences(rule.rule, today, rule.shift, today, 3, off)
+    if (dates.length === 0) return '今天之後沒有任何一期'
+    return `接下來：${dates.map((d) => formatDate(d.date, now)).join('、')}`
+  })()
+  const formLine = form
+    ? form.error
+      ? { text: form.error, tone: 'error' as const }
+      : (message ?? {
+          text: 'j/k 選欄位 · h/l 或 Ctrl-a/Ctrl-x 改值 · 直接打數字 · Enter 完成 · i 改用打字 · Ctrl-c 取消',
+          tone: 'info' as const,
+        })
+    : null
   const line =
     mode === 'command'
       ? null
-      : (preview ??
+      : (formLine ??
+        preview ??
         message ??
         (problem ? { text: problem.message, tone: 'error' as const } : null))
 
@@ -1331,7 +1424,12 @@ export function ScheduleGrid({
                   next={nextOf(row, today, off)}
                   now={now}
                   onPick={(col, enter, extend) => {
-                    if (mode === 'insert' && !commitCell(edit)) return
+                    if (
+                      mode === 'insert' &&
+                      !commitCell(form ? formText(form.form) : edit)
+                    )
+                      return
+                    setRuleForm(null)
                     if (extend) {
                       if (mode !== 'visual') setAnchor(cursor.row)
                       setMode('visual')
@@ -1347,7 +1445,31 @@ export function ScheduleGrid({
                 />
               ))}
 
-              {mode === 'insert' && current && (
+              {form && current && (
+                <div
+                  className="absolute z-30"
+                  style={{
+                    top: (cursor.row + 1) * ROW_HEIGHT,
+                    left: layout.lefts[column],
+                  }}
+                >
+                  <RuleEditor
+                    state={form}
+                    width={layout.widths[column]}
+                    preview={formDates}
+                    onKeyDown={feed.onNormalKeyDown}
+                    onField={(field) =>
+                      setRuleForm({ ...form, field, typed: null, error: null })
+                    }
+                    onDay={(day) => {
+                      setRuleForm({ ...form, field: 'weekdays' })
+                      feed.push([String(day + 1)])
+                    }}
+                  />
+                </div>
+              )}
+
+              {mode === 'insert' && !form && current && (
                 <div
                   className="absolute z-30"
                   style={{
@@ -1479,7 +1601,7 @@ function ScheduleLine({
       case 'rule':
         return (
           <span key={c} data-col={col} className={cn(cell, bad)}>
-            <span className="truncate">{row.source}</span>
+            <span className="truncate">{ruleText(row)}</span>
           </span>
         )
       case 'next':

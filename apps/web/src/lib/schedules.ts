@@ -10,7 +10,7 @@ import {
   lineCategoryMode,
   parseDate,
 } from './register.ts'
-import { nextOccurrences, parseRule } from './schedule-rule.ts'
+import { describeRRule, nextOccurrences, parseRule } from './schedule-rule.ts'
 import type { Schemas } from './api'
 import type { Context } from './register.ts'
 import type { HolidayShift, Occurrence } from './schedule-rule.ts'
@@ -66,7 +66,10 @@ export interface ScheduleRow {
   /** The saved schedule; null for a line never saved. */
   base: Schedule | null
   deleted: boolean
-  /** The rule as typed (`每月 5 日`), shown back as written. */
+  /**
+   * The rule as text. Typed rules are kept as `describeRule` shows them;
+   * the cell always shows that (`ruleText`), whatever an older save kept.
+   */
   source: string
   /** The RRULE; empty until a rule is typed. */
   rule: string
@@ -263,9 +266,8 @@ export function schedulePatch(
     case 'rule': {
       const parsed = parseRule(value)
       if ('error' in parsed) return parsed.error
-      if (row.base && parsed.rule === row.rule && parsed.shift === row.shift) {
-        return { source: value }
-      }
+      if (parsed.rule === row.rule && parsed.shift === row.shift) return {}
+      const source = describeRRule(parsed.rule, parsed.shift) ?? value
       const first = nextOccurrences(
         parsed.rule,
         today,
@@ -275,7 +277,7 @@ export function schedulePatch(
       ).at(0)
       if (!first) return '這個週期在今天之後沒有任何一期'
       return {
-        source: value,
+        source,
         rule: parsed.rule,
         shift: parsed.shift,
         start: first.nominal,
@@ -367,6 +369,12 @@ export function schedulePatch(
   }
 }
 
+/** A line's rule in the one way rules are shown (ADR-084). */
+export function ruleText(row: ScheduleRow): string {
+  if (!row.rule) return row.source
+  return describeRRule(row.rule, row.shift) ?? row.source
+}
+
 /** The text a cell editor starts with. */
 export function scheduleCellText(
   row: ScheduleRow,
@@ -376,7 +384,7 @@ export function scheduleCellText(
 ): string {
   switch (column) {
     case 'rule':
-      return row.source
+      return ruleText(row)
     case 'next':
       return nextShown?.nominal ?? row.start
     case 'payee':

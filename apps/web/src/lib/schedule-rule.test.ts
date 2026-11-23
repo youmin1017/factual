@@ -233,16 +233,52 @@ assert.deepEqual(
 
 console.log('schedule-rule: ok')
 
-// Templates: filled in for today, and every one a rule that parses.
+// Every rule is shown one way, and that text reads back to the same rule.
+{
+  const { describeRRule } = await import('./schedule-rule.ts')
+  const shown: Array<[string, string]> = [
+    ['every day', '每天'],
+    ['每3天', '每 3 天'],
+    ['every mon, wed and fri', '每週一、三、五'],
+    ['biweekly fri', '每 2 週五'],
+    ['monthly on the 5th', '每月 5 日'],
+    ['每月5號 假日順延', '每月 5 日，遇假日延後'],
+    ['every month on the last day', '每月最後一天'],
+    ['每月第2個週三', '每月第 2 個週三'],
+    ['monthly on the last fri', '每月最後一個週五'],
+    ['quarterly on the 10th', '每季 10 日'],
+    ['每半年 1 日', '每半年 1 日'],
+    ['every 2 months on the 3rd', '每 2 個月 3 日'],
+    ['yearly on mar 15', '每年 3/15'],
+    ['every 2 years on 3/15', '每 2 年 3/15'],
+    ['每月', '每月'],
+    ['每週', '每週'],
+    [
+      'monthly on the 5th until 2027-06-30, prev workday',
+      '每月 5 日，到 2027/6/30，遇假日提前',
+    ],
+    ['每月 5 日 共 12 次', '每月 5 日，共 12 次'],
+  ]
+  for (const [typed, want] of shown) {
+    const r = parseRule(typed)
+    if ('error' in r) throw new Error(`${typed}: ${r.error}`)
+    assert.equal(describeRRule(r.rule, r.shift), want, typed)
+    const back = parseRule(want)
+    assert.deepEqual(back, r, `${want} reads back`)
+  }
+}
+console.log('schedule-rule shown: ok')
+
+// Templates: filled in for today, each a rule shown as rules are.
 {
   const { ruleTemplates } = await import('./schedule-rule.ts')
   const list = ruleTemplates('2026-11-23') // a Monday
   const byCommand = new Map(list.map((t) => [t.command, t.text]))
   assert.equal(byCommand.get('每月'), '每月 23 日')
   assert.equal(byCommand.get('每週'), '每週一')
-  assert.equal(byCommand.get('monthly'), 'monthly on the 23rd')
-  assert.equal(byCommand.get('weekly'), 'every mon')
-  assert.equal(byCommand.get('yearly'), 'yearly on 11/23')
+  assert.equal(byCommand.get('平日'), '每週一、二、三、四、五')
+  assert.equal(byCommand.get('每年'), '每年 11/23')
+  assert.ok(list.find((t) => t.command === '每月')?.aliases.includes('monthly'))
   for (const today of [
     '2026-11-23',
     '2027-01-01',
@@ -251,12 +287,9 @@ console.log('schedule-rule: ok')
     '2027-05-31',
   ]) {
     for (const t of ruleTemplates(today)) {
-      assert.ok(!('error' in parseRule(t.text)), `${t.command}: ${t.text}`)
+      const r = parseRule(t.text)
+      assert.ok(!('error' in r), `${t.command}: ${t.text}`)
     }
   }
-  assert.equal(
-    ruleTemplates('2027-03-12').find((t) => t.command === 'monthly')?.text,
-    'monthly on the 12th',
-  )
 }
 console.log('schedule-rule templates: ok')

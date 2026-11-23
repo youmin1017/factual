@@ -11,7 +11,7 @@
 
 export type HolidayShift = 'noShift' | 'nextWorkday' | 'prevWorkday'
 
-type Freq = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+export type Freq = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
 
 /** A weekday, Monday 0 to Sunday 6, with its ordinal in the month (0 = every). */
 interface ByDay {
@@ -40,7 +40,6 @@ const dayNames = '一二三四五六日'
 
 // ---------- reading what is typed
 
-/** Full-width digits and marks to ASCII, the variants of 週 and 日 to one, no spaces. */
 /** Full-width digits, letters and marks to ASCII. */
 function toAscii(text: string): string {
   return text.replaceAll(/[！-～]/g, (c) =>
@@ -48,6 +47,7 @@ function toAscii(text: string): string {
   )
 }
 
+/** Full-width digits and marks to ASCII, the variants of 週 and 日 to one, no spaces. */
 function normalize(text: string): string {
   return toAscii(text)
     .replaceAll(/星期|禮拜|礼拜|周/g, '週')
@@ -697,47 +697,136 @@ export function nextOccurrences(
   }))
 }
 
+// ---------- the one way a rule is shown
+
+/** Monday 0 to Sunday 6 of an ISO date. */
+export function isoWeekday(iso: string): number {
+  return weekdayOf(toDay(iso))
+}
+
+/** The ISO date `n` days after `iso`. */
+export function addDays(iso: string, n: number): string {
+  return toIso(toDay(iso) + n)
+}
+
+/** Days in a month (1 to 12) of a leap year, the most it can have. */
+export function maxMonthDays(month: number): number {
+  return daysInMonth(2024, month - 1)
+}
+
+function slashDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return `${y}/${m}/${d}`
+}
+
+/**
+ * The text a rule is shown as (ADR-084), however it was typed: `每月 5 日`,
+ * `每 2 週一、五`, `每年 3/15，到 2030/3/15，遇假日延後`. `parseRule` reads
+ * every one of them back to the same rule.
+ */
+export function describeRule(r: Rule, shift: HolidayShift): string {
+  const n = r.interval
+  let text: string
+  switch (r.freq) {
+    case 'DAILY':
+      text = n === 1 ? '每天' : `每 ${n} 天`
+      break
+    case 'WEEKLY':
+      text =
+        (n === 1 ? '每週' : `每 ${n} 週`) +
+        r.byDay.map((b) => dayNames[b.day]).join('、')
+      break
+    case 'MONTHLY': {
+      text =
+        n === 1
+          ? '每月'
+          : n === 3
+            ? '每季'
+            : n === 6
+              ? '每半年'
+              : `每 ${n} 個月`
+      const day = r.byMonthDay.at(0)
+      const by = r.byDay.at(0)
+      if (day === -1) text += '最後一天'
+      else if (day !== undefined) text += ` ${day} 日`
+      else if (by && by.n === -1) text += `最後一個週${dayNames[by.day]}`
+      else if (by) text += `第 ${by.n || 1} 個週${dayNames[by.day]}`
+      break
+    }
+    case 'YEARLY':
+      text = n === 1 ? '每年' : `每 ${n} 年`
+      if (r.byMonth.length && r.byMonthDay.length)
+        text += ` ${r.byMonth[0]}/${r.byMonthDay[0]}`
+      break
+  }
+  const parts = [text]
+  if (r.until) parts.push(`到 ${slashDate(r.until)}`)
+  if (r.count) parts.push(`共 ${r.count} 次`)
+  if (shift === 'nextWorkday') parts.push('遇假日延後')
+  if (shift === 'prevWorkday') parts.push('遇假日提前')
+  return parts.join('，')
+}
+
+/** A stored rule as shown; null when it is not one this module reads. */
+export function describeRRule(
+  rruleText: string,
+  shift: HolidayShift,
+): string | null {
+  const r = readRRule(rruleText)
+  return r ? describeRule(r, shift) : null
+}
+
 // ---------- templates (`/` in the rule cell)
 
 export interface RuleTemplate {
-  /** What is typed after `/`: `monthly`, `每月`. */
+  /** What is typed after `/`: `每月`. */
   command: string
-  /** The rule it puts in the cell, for today's date. */
+  /** The same in English: `monthly`, `every month`. */
+  aliases: Array<string>
+  /** The rule it starts from, for today's date, as rules are shown. */
   text: string
-}
-
-const weekdayCodes = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-
-function ordinal(n: number): string {
-  const tens = n % 100
-  if (tens >= 11 && tens <= 13) return `${n}th`
-  return `${n}${{ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th'}`
 }
 
 /**
  * The rules offered when the rule cell starts with `/`, filled in for
- * `today` (ISO): its weekday, day of the month and date. Chinese first, as
- * the interface is; every one of them is a rule `parseRule` reads.
+ * `today` (ISO): its weekday, day of the month and date. Each opens the
+ * rule editor, where it is adjusted.
  */
 export function ruleTemplates(today: string): Array<RuleTemplate> {
   const [, m, d] = today.split('-').map(Number)
-  const wd = weekdayOf(toDay(today))
+  const wd = dayNames[isoWeekday(today)]
   return [
-    { command: '每月', text: `每月 ${d} 日` },
-    { command: '每週', text: `每週${dayNames[wd]}` },
-    { command: '每天', text: '每天' },
-    { command: '平日', text: '每週一二三四五' },
-    { command: '隔週', text: `每 2 週${dayNames[wd]}` },
-    { command: '月底', text: '每月最後一天' },
-    { command: '每季', text: `每季 ${d} 日` },
-    { command: '每年', text: `每年 ${m}/${d}` },
-    { command: 'monthly', text: `monthly on the ${ordinal(d)}` },
-    { command: 'weekly', text: `every ${weekdayCodes[wd]}` },
-    { command: 'daily', text: 'every day' },
-    { command: 'weekdays', text: 'every weekday' },
-    { command: 'biweekly', text: `every 2 weeks on ${weekdayCodes[wd]}` },
-    { command: 'month-end', text: 'every month on the last day' },
-    { command: 'quarterly', text: `quarterly on the ${ordinal(d)}` },
-    { command: 'yearly', text: `yearly on ${m}/${d}` },
+    {
+      command: '每月',
+      aliases: ['monthly', 'every month'],
+      text: `每月 ${d} 日`,
+    },
+    { command: '每週', aliases: ['weekly', 'every week'], text: `每週${wd}` },
+    { command: '每天', aliases: ['daily', 'every day'], text: '每天' },
+    {
+      command: '平日',
+      aliases: ['weekdays', 'every weekday'],
+      text: '每週一、二、三、四、五',
+    },
+    {
+      command: '隔週',
+      aliases: ['biweekly', 'every 2 weeks'],
+      text: `每 2 週${wd}`,
+    },
+    {
+      command: '月底',
+      aliases: ['month-end', 'end of month'],
+      text: '每月最後一天',
+    },
+    {
+      command: '每季',
+      aliases: ['quarterly', 'every 3 months'],
+      text: `每季 ${d} 日`,
+    },
+    {
+      command: '每年',
+      aliases: ['yearly', 'every year'],
+      text: `每年 ${m}/${d}`,
+    },
   ]
 }
