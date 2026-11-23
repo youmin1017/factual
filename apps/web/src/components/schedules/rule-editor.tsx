@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
 import {
   fieldLabels,
-  fieldText,
+  fieldParts,
   formFields,
   formText,
   isChoice,
+  isText,
   weekdayLabels,
 } from '#/lib/rule-form'
 import { cn } from '#/lib/utils'
@@ -95,23 +96,11 @@ export function RuleEditor({
                   ))}
                 </span>
               ) : (
-                <span
-                  className={cn(
-                    'flex items-center gap-1',
-                    (f === 'until' || !isChoice(f)) && 'font-mono',
-                  )}
-                >
-                  {isChoice(f) && at && (
-                    <span className="text-muted-foreground">‹</span>
-                  )}
-                  {fieldText(state, f)}
-                  {at && state.typed !== null && (
-                    <span className="h-4 w-px animate-pulse bg-foreground" />
-                  )}
-                  {isChoice(f) && at && (
-                    <span className="text-muted-foreground">›</span>
-                  )}
-                </span>
+                <FieldValue
+                  parts={fieldParts(state, f)}
+                  choice={isChoice(f) && at}
+                  mono={isText(f)}
+                />
               )}
             </li>
           )
@@ -121,5 +110,41 @@ export function RuleEditor({
         {preview}
       </div>
     </div>
+  )
+}
+
+/** A field's value; while edited, the caret where it is in the text. */
+function FieldValue({
+  parts,
+  choice,
+  mono,
+}: {
+  parts: ReturnType<typeof fieldParts>
+  /** The cursor is on a choice: shown between ‹ ›. */
+  choice: boolean
+  mono: boolean
+}) {
+  const { before, text, after, caret } = parts
+  return (
+    <span className="flex items-center gap-1">
+      {choice && <span className="text-muted-foreground">‹</span>}
+      <span className="whitespace-pre">
+        {before}
+        {caret === null ? (
+          <span className={cn(mono && 'font-mono')}>{text}</span>
+        ) : (
+          <span className={cn('relative', mono && 'font-mono')}>
+            {text.slice(0, caret)}
+            <span
+              aria-hidden
+              className="absolute -ml-px h-4 w-0.5 translate-y-0.5 animate-pulse bg-foreground"
+            />
+            {text.slice(caret)}
+          </span>
+        )}
+        {after}
+      </span>
+      {choice && <span className="text-muted-foreground">›</span>}
+    </span>
   )
 }

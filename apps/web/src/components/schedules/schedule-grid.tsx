@@ -14,6 +14,7 @@ import {
   rank,
 } from '#/lib/register'
 import {
+  focusField,
   formText,
   openRuleForm,
   ruleFormKey,
@@ -1459,7 +1460,7 @@ export function ScheduleGrid({
                     preview={formDates}
                     onKeyDown={feed.onNormalKeyDown}
                     onField={(field) =>
-                      setRuleForm({ ...form, field, typed: null, error: null })
+                      setRuleForm({ ...focusField(form, field), error: null })
                     }
                     onDay={(day) => {
                       setRuleForm({ ...form, field: 'weekdays' })

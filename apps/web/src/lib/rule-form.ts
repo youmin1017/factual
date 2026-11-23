@@ -59,8 +59,13 @@ export interface RuleFormState {
   field: FieldKey
   /** In the weekdays field: the day the cursor is on. */
   dayCursor: number
-  /** What is being typed into a number or date field, not yet taken. */
+  /**
+   * The text of a number or date field while it is edited, not yet taken;
+   * null until a key edits it (the first digit then replaces the value).
+   */
   typed: string | null
+  /** Where the caret is in a number or date field's text. */
+  caret: number
   /** The date fields count from (today), for defaults and typed dates. */
   today: string
   error: string | null
@@ -245,6 +250,7 @@ export function openRuleForm(
     field: 'freq',
     dayCursor: 0,
     typed: null,
+    caret: 0,
     today,
     error: null,
   }
@@ -261,36 +267,82 @@ function slashDate(iso: string): string {
   return `${y}/${m}/${d}`
 }
 
-/** The value a field shows; what is being typed shows as typed. */
-export function fieldText(state: RuleFormState, field: FieldKey): string {
+/** Whether the field is text with a caret: a number or the end date. */
+export function isText(field: FieldKey): boolean {
+  return ['interval', 'day', 'month', 'count', 'until'].includes(field)
+}
+
+/** The editable text of a number or date field. */
+function valueText(form: RuleForm, field: FieldKey): string {
+  switch (field) {
+    case 'interval':
+      return String(form.interval)
+    case 'day':
+      return String(form.day)
+    case 'month':
+      return String(form.month)
+    case 'count':
+      return String(form.count)
+    case 'until':
+      return form.until ? slashDate(form.until) : ''
+    default:
+      return ''
+  }
+}
+
+export interface FieldParts {
+  before: string
+  /** The part the caret moves in. */
+  text: string
+  after: string
+  /** Where the caret is in `text`; null when the field is not being edited. */
+  caret: number | null
+}
+
+/** A field as shown: what is being typed shows as typed, with the caret. */
+export function fieldParts(state: RuleFormState, field: FieldKey): FieldParts {
   const f = state.form
-  const typed = state.field === field ? state.typed : null
+  const at = state.field === field
+  const plain = (text: string): FieldParts => ({
+    before: '',
+    text,
+    after: '',
+    caret: null,
+  })
+  if (isText(field)) {
+    const text = (at ? state.typed : null) ?? valueText(f, field)
+    const caret = at ? Math.min(state.caret, text.length) : null
+    const around: Partial<Record<FieldKey, [string, string]>> = {
+      interval: ['每 ', ` ${unit[f.freq]}`],
+      day: ['', ' 日'],
+      month: ['', ' 月'],
+      count: ['', ' 次'],
+    }
+    const [before, after] = around[field] ?? ['', '']
+    return { before, text, after, caret }
+  }
   switch (field) {
     case 'freq':
-      return labelOf(freqs, f.freq)
-    case 'interval':
-      return `每 ${typed ?? f.interval} ${unit[f.freq]}`
+      return plain(labelOf(freqs, f.freq))
     case 'weekdays':
-      return f.weekdays.map((d) => dayNames[d]).join('、')
+      return plain(f.weekdays.map((d) => dayNames[d]).join('、'))
     case 'monthBy':
-      return labelOf(monthBys, f.monthBy)
-    case 'day':
-      return `${typed ?? f.day} 日`
+      return plain(labelOf(monthBys, f.monthBy))
     case 'nth':
-      return labelOf(nths, f.nth)
+      return plain(labelOf(nths, f.nth))
     case 'weekday':
-      return labelOf(weekdayChoices, f.weekday)
-    case 'month':
-      return `${typed ?? f.month} 月`
+      return plain(labelOf(weekdayChoices, f.weekday))
     case 'end':
-      return labelOf(ends, f.end)
-    case 'until':
-      return typed ?? (f.until ? slashDate(f.until) : '')
-    case 'count':
-      return `${typed ?? f.count} 次`
-    case 'shift':
-      return labelOf(shifts, f.shift)
+      return plain(labelOf(ends, f.end))
+    default:
+      return plain(labelOf(shifts, f.shift))
   }
+}
+
+/** The value a field shows, as one string. */
+export function fieldText(state: RuleFormState, field: FieldKey): string {
+  const p = fieldParts(state, field)
+  return p.before + p.text + p.after
 }
 
 /** Whether h/l step through choices (shown with ‹ ›). */
@@ -389,24 +441,39 @@ function take(state: RuleFormState): RuleFormState {
   return { ...s, form: setNumber(s.form, s.field, n), error: null }
 }
 
-/** Moves `step` fields, after taking what was typed. */
-function move(state: RuleFormState, step: number): RuleFormState {
+/** Puts the cursor on `field`, the caret at the end of its value. */
+export function focusField(
+  state: RuleFormState,
+  field: FieldKey,
+): RuleFormState {
+  return {
+    ...state,
+    field,
+    typed: null,
+    caret: valueText(state.form, field).length,
+    dayCursor: state.form.weekdays.at(0) ?? 0,
+  }
+}
+
+/** Moves to another field, after taking what was typed. */
+function moveTo(
+  state: RuleFormState,
+  pick: (fields: Array<FieldKey>, at: number) => FieldKey,
+): RuleFormState {
   const s = take(state)
   if (s.error && s.typed !== null) return s
   const fields = formFields(s.form)
-  const i = fields.indexOf(s.field)
-  const field = fields[Math.max(0, Math.min(fields.length - 1, i + step))]
-  return { ...s, field, dayCursor: s.form.weekdays.at(0) ?? 0 }
+  return focusField(s, pick(fields, fields.indexOf(s.field)))
 }
 
-/** After a change, a field that is no longer shown gives way to the one before. */
+/** After a change, a field that is no longer shown gives way to the first. */
 function settle(state: RuleFormState): RuleFormState {
   const form = state.form
   if (form.end === 'until' && !form.until) {
     state = { ...state, form: { ...form, until: addDays(state.today, 365) } }
   }
   const fields = formFields(state.form)
-  return fields.includes(state.field) ? state : { ...state, field: fields[0] }
+  return fields.includes(state.field) ? state : focusField(state, fields[0])
 }
 
 function toggleDay(state: RuleFormState, day: number): RuleFormState {
@@ -431,30 +498,155 @@ function toggleDay(state: RuleFormState, day: number): RuleFormState {
   }
 }
 
+/** A number field's text after an edit, its value taken at once when it is one. */
+function editNumber(
+  state: RuleFormState,
+  text: string,
+  caret: number,
+): RuleFormState {
+  const field = state.field
+  const [lo, hi] = numberRange[field]?.(state.form) ?? [1, 99]
+  const n = Number(text)
+  const form =
+    text !== '' && Number.isInteger(n) && n >= lo && n <= hi
+      ? setNumber(state.form, field, n)
+      : state.form
+  return { ...state, typed: text, caret, form, error: null }
+}
+
+/** The date `iso` moved by `step` years, months or days (`unit` 0, 1, 2). */
+function stepDate(iso: string, unit: number, step: number): string {
+  if (unit === 2) return addDays(iso, step)
+  const [y, m, d] = iso.split('-').map(Number)
+  const months = y * 12 + (m - 1) + (unit === 0 ? 12 * step : step)
+  const ny = Math.floor(months / 12)
+  const nm = (months % 12) + 1
+  const last = new Date(Date.UTC(ny, nm, 0)).getUTCDate()
+  const pad = (v: number) => String(v).padStart(2, '0')
+  return `${ny}-${pad(nm)}-${pad(Math.min(d, last))}`
+}
+
+/** The runs of digits in `text`, as [start, end) pairs. */
+function digitRuns(text: string): Array<[number, number]> {
+  return [...text.matchAll(/\d+/g)].map((m) => [m.index, m.index + m[0].length])
+}
+
+/**
+ * Ctrl-a / Ctrl-x in the end date: the year, month or day the caret is in
+ * (as Vim changes the number under the cursor), the day when it is in none.
+ */
+function stepUntil(state: RuleFormState, step: number): RuleFormState {
+  const text = state.typed ?? valueText(state.form, 'until')
+  const runs = digitRuns(text)
+  let unit = 2
+  if (runs.length === 3) {
+    const found = runs.findIndex(
+      ([a, b]) => state.caret >= a && state.caret <= b,
+    )
+    if (found >= 0) unit = found
+  }
+  const s = take(state)
+  if (s.error && s.typed !== null) return s
+  const until = stepDate(s.form.until || s.today, unit, step)
+  const shown = slashDate(until)
+  return {
+    ...s,
+    form: { ...s.form, until },
+    typed: shown,
+    caret: digitRuns(shown)[unit][1],
+    error: null,
+  }
+}
+
+/** Keys that edit the text of a number or date field. */
+function editText(state: RuleFormState, key: string): RuleFormResult | null {
+  const field = state.field
+  const date = field === 'until'
+  const text = state.typed ?? valueText(state.form, field)
+  const caret = Math.min(state.caret, text.length)
+  const ok = (s: RuleFormState): RuleFormResult => ({ state: settle(s) })
+  const edited = (next: string, at: number): RuleFormResult =>
+    date
+      ? ok({ ...state, typed: next, caret: at, error: null })
+      : ok(editNumber(state, next, at))
+
+  switch (key) {
+    case 'h':
+    case '<Left>':
+      return ok({ ...state, typed: text, caret: Math.max(0, caret - 1) })
+    case 'l':
+    case '<Right>':
+      return ok({
+        ...state,
+        typed: text,
+        caret: Math.min(text.length, caret + 1),
+      })
+    case '^':
+    case '<Home>':
+      return ok({ ...state, typed: text, caret: 0 })
+    case '$':
+    case '<End>':
+      return ok({ ...state, typed: text, caret: text.length })
+    case '<BS>':
+      if (caret === 0) return { state }
+      return edited(text.slice(0, caret - 1) + text.slice(caret), caret - 1)
+    case 'x':
+    case '<Del>':
+      if (caret >= text.length) return { state }
+      return edited(text.slice(0, caret) + text.slice(caret + 1), caret)
+    case '<C-a>':
+    case '<C-x>': {
+      const step = key === '<C-a>' ? 1 : -1
+      if (date) return ok(stepUntil(state, step))
+      const s = take(state)
+      if (s.error && s.typed !== null) return { state: s }
+      const form = stepNumber(s.form, field, step)
+      const shown = valueText(form, field)
+      return ok({
+        ...s,
+        form,
+        typed: shown,
+        caret: Math.min(caret, shown.length),
+      })
+    }
+  }
+
+  const typable = date ? /^[\d/.\-+t]$/ : /^\d$/
+  if (!typable.test(key)) return null
+  // Before any other key, typing replaces the value, as in a spreadsheet.
+  if (state.typed === null) return edited(key, 1)
+  const next = text.slice(0, caret) + key + text.slice(caret)
+  if (!date) {
+    const [, hi] = numberRange[field]?.(state.form) ?? [1, 99]
+    // At the end, one past the largest starts over with the digit; in the
+    // middle the digit is not taken.
+    if (Number(next) > hi)
+      return caret === text.length ? edited(key, 1) : { state }
+  }
+  return edited(next, caret + 1)
+}
+
 /** One key in the rule editor. */
 export function ruleFormKey(state: RuleFormState, key: string): RuleFormResult {
   const field = state.field
   const ok = (s: RuleFormState): RuleFormResult => ({ state: settle(s) })
   const clean = { ...state, error: null }
-  const typing = numberRange[field] !== undefined || field === 'until'
 
   switch (key) {
     case 'j':
     case '<Down>':
     case '<Tab>':
     case '<C-n>':
-      return ok(move(state, 1))
+      return ok(moveTo(state, (fs, i) => fs[Math.min(fs.length - 1, i + 1)]))
     case 'k':
     case '<Up>':
     case '<S-Tab>':
     case '<C-p>':
-      return ok(move(state, -1))
+      return ok(moveTo(state, (fs, i) => fs[Math.max(0, i - 1)]))
     case 'g':
-      return ok({ ...take(state), field: 'freq' })
-    case 'G': {
-      const fields = formFields(state.form)
-      return ok({ ...take(state), field: fields[fields.length - 1] })
-    }
+      return ok(moveTo(state, (fs) => fs[0]))
+    case 'G':
+      return ok(moveTo(state, (fs) => fs[fs.length - 1]))
     case '<CR>':
     case '<Esc>': {
       const s = take(state)
@@ -472,17 +664,9 @@ export function ruleFormKey(state: RuleFormState, key: string): RuleFormResult {
       // In a date, `/` is typed (2027/6/30).
       if (field !== 'until') return { done: 'text', text: '/' }
       break
-    case '<BS>':
-      if (state.typed === null) return { state }
-      return ok({ ...clean, typed: state.typed.slice(0, -1) })
   }
 
-  const step =
-    key === 'l' || key === '<Right>' || key === '<C-a>' || key === '+'
-      ? 1
-      : key === 'h' || key === '<Left>' || key === '<C-x>' || key === '-'
-        ? -1
-        : 0
+  if (isText(field)) return editText(state, key) ?? { state }
 
   if (field === 'weekdays') {
     if (key === 'h' || key === '<Left>')
@@ -495,48 +679,15 @@ export function ruleFormKey(state: RuleFormState, key: string): RuleFormResult {
     return { state }
   }
 
-  if (field === 'until') {
-    if (step !== 0 && key !== '+' && key !== '-' && state.typed === null) {
-      const from = state.form.until || state.today
-      return ok({
-        ...clean,
-        form: { ...state.form, until: addDays(from, step) },
-      })
-    }
-    if (/^[\d/.\-+t]$/.test(key)) {
-      return ok({ ...clean, typed: (state.typed ?? '') + key })
-    }
-    return { state }
-  }
-
-  if (isChoice(field)) {
-    if (step !== 0)
-      return ok({ ...clean, form: choose(state.form, field, step) })
-    // A digit picks the choice by its place: 1 is the first.
-    if (/^[1-9]$/.test(key))
-      return ok({
-        ...clean,
-        form: choose(state.form, field, 0, Number(key) - 1),
-      })
-    return { state }
-  }
-
-  if (typing) {
-    if (step !== 0) {
-      const s = take(state)
-      if (s.typed !== null) return { state: s }
-      return ok({ ...s, error: null, form: stepNumber(s.form, field, step) })
-    }
-    if (/^\d$/.test(key)) {
-      // Digits build the number; one past the largest starts over.
-      const [, hi] = numberRange[field]?.(state.form) ?? [1, 99]
-      const joined = (state.typed ?? '') + key
-      const typed = Number(joined) > hi ? key : joined
-      const n = Number(typed)
-      const form =
-        n >= 1 && n <= hi ? setNumber(state.form, field, n) : state.form
-      return ok({ ...clean, typed, form })
-    }
-  }
+  // A choice: h/l and Ctrl-a/Ctrl-x step through it.
+  const step = ['l', '<Right>', '<C-a>', '+'].includes(key)
+    ? 1
+    : ['h', '<Left>', '<C-x>', '-'].includes(key)
+      ? -1
+      : 0
+  if (step !== 0) return ok({ ...clean, form: choose(state.form, field, step) })
+  // A digit picks the choice by its place: 1 is the first.
+  if (/^[1-9]$/.test(key))
+    return ok({ ...clean, form: choose(state.form, field, 0, Number(key) - 1) })
   return { state }
 }

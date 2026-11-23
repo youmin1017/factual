@@ -1,6 +1,7 @@
 // Run with: node --experimental-strip-types src/lib/rule-form.test.ts
 import assert from 'node:assert/strict'
 import {
+  fieldParts,
   fieldText,
   formFields,
   formText,
@@ -156,5 +157,52 @@ assert.deepEqual(keys(s, '/'), { done: 'text', text: '/' })
 assert.deepEqual(keys(s, '<C-c>'), { done: 'cancel' })
 // The start fills in what a rule leaves open.
 assert.equal(formText(open('每週', '2026-11-27').form), '每週五')
+
+// The caret: h/l move it in a number or a date, digits go in where it is.
+s = open('每月 23 日')
+let at = state(keys(s, 'j', 'j', 'j'))
+assert.deepEqual(fieldParts(at, 'day'), {
+  before: '',
+  text: '23',
+  after: ' 日',
+  caret: 2,
+})
+at = state(keys(at, 'h'))
+assert.equal(fieldParts(at, 'day').caret, 1)
+assert.equal(fieldParts(at, 'freq').caret, null)
+// 2|3: x deletes the 3, then 1 goes in after the 2.
+assert.deepEqual(keys(at, 'x', '1', '<CR>'), {
+  done: 'commit',
+  text: '每月 21 日',
+})
+// |23: 1 in front would be 123, past 31, so it is not taken.
+assert.equal(state(keys(at, 'h', '1')).form.day, 23)
+assert.deepEqual(keys(at, 'h', 'x', '1', '<CR>'), {
+  done: 'commit',
+  text: '每月 13 日',
+})
+// Backspace deletes before the caret; Ctrl-a keeps the caret where it was.
+assert.equal(state(keys(at, '<BS>')).typed, '3')
+assert.equal(state(keys(at, '<C-a>')).caret, 1)
+assert.equal(state(keys(at, '<C-a>')).form.day, 24)
+
+// In the end date, Ctrl-a / Ctrl-x change the year, month or day the caret is in.
+s = state(keys(open('每月 5 日'), 'G', 'k', '2', 'j'))
+assert.equal(fieldText(s, 'until'), '2027/11/23')
+assert.equal(s.caret, 10)
+assert.equal(state(keys(s, '<C-a>')).form.until, '2027-11-24')
+r = state(keys(s, 'h', 'h', 'h', '<C-a>'))
+assert.equal(r.form.until, '2027-12-23')
+assert.equal(fieldParts(r, 'until').caret, 7)
+r = state(keys(r, '<C-a>'))
+assert.equal(r.form.until, '2028-01-23')
+assert.equal(fieldText(r, 'until'), '2028/1/23')
+assert.equal(r.caret, 6)
+assert.equal(state(keys(s, '^', '<C-x>')).form.until, '2026-11-23')
+// 2027/1|1/23: x, then 2, makes 2027/12/23.
+assert.deepEqual(keys(s, 'h', 'h', 'h', 'h', 'x', '2', '<CR>'), {
+  done: 'commit',
+  text: '每月 5 日，到 2027/12/23',
+})
 
 console.log('rule-form: ok')
