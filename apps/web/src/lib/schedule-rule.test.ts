@@ -232,3 +232,31 @@ assert.deepEqual(
 )
 
 console.log('schedule-rule: ok')
+
+// Templates: filled in for today, and every one a rule that parses.
+{
+  const { ruleTemplates } = await import('./schedule-rule.ts')
+  const list = ruleTemplates('2026-11-23') // a Monday
+  const byCommand = new Map(list.map((t) => [t.command, t.text]))
+  assert.equal(byCommand.get('每月'), '每月 23 日')
+  assert.equal(byCommand.get('每週'), '每週一')
+  assert.equal(byCommand.get('monthly'), 'monthly on the 23rd')
+  assert.equal(byCommand.get('weekly'), 'every mon')
+  assert.equal(byCommand.get('yearly'), 'yearly on 11/23')
+  for (const today of [
+    '2026-11-23',
+    '2027-01-01',
+    '2027-02-11',
+    '2027-03-12',
+    '2027-05-31',
+  ]) {
+    for (const t of ruleTemplates(today)) {
+      assert.ok(!('error' in parseRule(t.text)), `${t.command}: ${t.text}`)
+    }
+  }
+  assert.equal(
+    ruleTemplates('2027-03-12').find((t) => t.command === 'monthly')?.text,
+    'monthly on the 12th',
+  )
+}
+console.log('schedule-rule templates: ok')

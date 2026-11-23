@@ -696,3 +696,48 @@ export function nextOccurrences(
     date: shiftDate(nominal, shift, off),
   }))
 }
+
+// ---------- templates (`/` in the rule cell)
+
+export interface RuleTemplate {
+  /** What is typed after `/`: `monthly`, `每月`. */
+  command: string
+  /** The rule it puts in the cell, for today's date. */
+  text: string
+}
+
+const weekdayCodes = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+function ordinal(n: number): string {
+  const tens = n % 100
+  if (tens >= 11 && tens <= 13) return `${n}th`
+  return `${n}${{ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th'}`
+}
+
+/**
+ * The rules offered when the rule cell starts with `/`, filled in for
+ * `today` (ISO): its weekday, day of the month and date. Chinese first, as
+ * the interface is; every one of them is a rule `parseRule` reads.
+ */
+export function ruleTemplates(today: string): Array<RuleTemplate> {
+  const [, m, d] = today.split('-').map(Number)
+  const wd = weekdayOf(toDay(today))
+  return [
+    { command: '每月', text: `每月 ${d} 日` },
+    { command: '每週', text: `每週${dayNames[wd]}` },
+    { command: '每天', text: '每天' },
+    { command: '平日', text: '每週一二三四五' },
+    { command: '隔週', text: `每 2 週${dayNames[wd]}` },
+    { command: '月底', text: '每月最後一天' },
+    { command: '每季', text: `每季 ${d} 日` },
+    { command: '每年', text: `每年 ${m}/${d}` },
+    { command: 'monthly', text: `monthly on the ${ordinal(d)}` },
+    { command: 'weekly', text: `every ${weekdayCodes[wd]}` },
+    { command: 'daily', text: 'every day' },
+    { command: 'weekdays', text: 'every weekday' },
+    { command: 'biweekly', text: `every 2 weeks on ${weekdayCodes[wd]}` },
+    { command: 'month-end', text: 'every month on the last day' },
+    { command: 'quarterly', text: `quarterly on the ${ordinal(d)}` },
+    { command: 'yearly', text: `yearly on ${m}/${d}` },
+  ]
+}

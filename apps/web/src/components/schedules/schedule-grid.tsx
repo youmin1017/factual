@@ -13,7 +13,7 @@ import {
   problemMessages,
   rank,
 } from '#/lib/register'
-import { nextOccurrences, parseRule } from '#/lib/schedule-rule'
+import { nextOccurrences, parseRule, ruleTemplates } from '#/lib/schedule-rule'
 import {
   modeLabels,
   newScheduleRow,
@@ -613,9 +613,31 @@ export function ScheduleGrid({
           value: label,
           label,
         }))
+      case 'rule':
+        // `/monthly`, `/每月`, `/every`: a rule to start from.
+        if (!edit.startsWith('/')) return []
+        return rank(
+          ruleTemplates(today),
+          edit.slice(1),
+          (t) => `${t.command} ${t.text}`,
+        ).map((t) => ({ value: t.text, label: `/${t.command}`, hint: t.text }))
       default:
         return []
     }
+  }
+
+  /** In the rule cell, `/…` with a template highlighted. */
+  function templating(options: Array<Suggestion>): boolean {
+    return column === 'rule' && edit.startsWith('/') && options.length > 0
+  }
+
+  /** Puts the highlighted template in the cell and keeps editing it. */
+  function applyTemplate(options: Array<Suggestion>) {
+    const text = options[Math.min(pick, options.length - 1)].value
+    opened.current = null
+    setEdit(text)
+    setPick(0)
+    setNavigated(false)
   }
 
   function chosenText(): string {
@@ -623,6 +645,7 @@ export function ScheduleGrid({
     if (options.length === 0) return edit
     const highlighted = options[Math.min(pick, options.length - 1)].value
     if (navigated) return highlighted
+    if (column === 'rule') return edit.startsWith('/') ? highlighted : edit
     if (edit === '') return column === 'account' ? highlighted : edit
     if (column === 'category') {
       return findCategory(edit, ctx.categories.values()) ? edit : highlighted
@@ -1087,17 +1110,20 @@ export function ScheduleGrid({
         setNavigated(true)
         return true
       case '<Tab>':
-        finishCell('next')
+        if (templating(options)) applyTemplate(options)
+        else finishCell('next')
         return true
       case '<S-Tab>':
         finishCell('prev')
         return true
       case '<CR>':
-        finishCell('stay')
+        // A template goes into the cell first, to be adjusted.
+        if (templating(options)) applyTemplate(options)
+        else finishCell('stay')
         return true
       case '<Esc>': {
         if (dropOpened()) return true
-        const text = navigated ? chosenText() : edit
+        const text = navigated || templating(options) ? chosenText() : edit
         if (commitCell(text, true)) setMode('normal')
         return true
       }
@@ -1164,6 +1190,17 @@ export function ScheduleGrid({
   const preview = (() => {
     if (mode !== 'insert' || column !== 'rule' || bulk || !edit.trim())
       return null
+    if (edit.startsWith('/')) {
+      return options.length > 0
+        ? {
+            text: '選一個範本：Ctrl-n/Ctrl-p 移動，Enter 放進格子再改日期',
+            tone: 'info' as const,
+          }
+        : {
+            text: '沒有這個範本：/每月、/每週、/monthly、/weekly、/every…',
+            tone: 'error' as const,
+          }
+    }
     const parsed = parseRule(edit)
     if ('error' in parsed) return { text: parsed.error, tone: 'error' as const }
     const dates = nextOccurrences(

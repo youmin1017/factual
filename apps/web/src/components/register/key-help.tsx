@@ -216,6 +216,10 @@ export const scheduleKeys: Array<KeyGroup> = [
   {
     title: '週期的寫法',
     entries: [
+      [
+        '/',
+        '在週期欄打 / 選範本（/每月、/每週、/monthly、/weekly，或 /every 篩選），Enter 放進格子再改日期',
+      ],
       ['每天 每 3 天', '每天、每三天'],
       ['每週一三五 每 2 週五', '每週的哪幾天、每兩週'],
       ['每月 5 日 每月最後一天', '每月幾號、月底'],
