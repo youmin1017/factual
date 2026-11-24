@@ -405,9 +405,6 @@ func (h *Handlers) GetLoan(ctx context.Context, req api.GetLoanRequestObject) (a
 }
 
 func (h *Handlers) PreviewLoan(ctx context.Context, req api.PreviewLoanRequestObject) (api.PreviewLoanResponseObject, error) {
-	if err := h.s.loanAccount(ctx, h.s.q, req.BudgetId, req.AccountId); err != nil {
-		return nil, err
-	}
 	t, err := termsFromAPI(*req.Body)
 	if err != nil {
 		return nil, err
@@ -415,7 +412,10 @@ func (h *Handlers) PreviewLoan(ctx context.Context, req api.PreviewLoanRequestOb
 	today := h.s.today()
 	out := api.LoanPreview{Periods: []api.LoanPeriod{}}
 	for _, p := range loanTable(t, nil) {
+		// Nothing is tracked in a preview: periods up to today count as paid
+		// before, later ones as still to come.
 		ap := periodToAPI(p, today)
+		ap.State = api.LoanPeriodStatePlanned
 		if !p.date.After(today) {
 			ap.State = api.LoanPeriodStateBefore
 		}
@@ -469,18 +469,22 @@ func (s *Service) checkLoanRefs(ctx context.Context, budgetID, account uuid.UUID
 	return nil
 }
 
-func (h *Handlers) SetLoan(ctx context.Context, req api.SetLoanRequestObject) (api.SetLoanResponseObject, error) {
-	budgetID, account, in := req.BudgetId, req.AccountId, *req.Body
-	if err := h.s.loanAccount(ctx, h.s.q, budgetID, account); err != nil {
-		return nil, err
-	}
+// checkLoan checks terms as typed for a loan account: the terms, and the
+// account and categories it is paid from.
+func (s *Service) checkLoan(ctx context.Context, budgetID, account uuid.UUID, in api.LoanTerms) (loanTerms, error) {
 	t, err := termsFromAPI(in)
 	if err != nil {
-		return nil, err
+		return t, err
 	}
-	if err := h.s.checkLoanRefs(ctx, budgetID, account, in); err != nil {
-		return nil, err
-	}
+	return t, s.checkLoanRefs(ctx, budgetID, account, in)
+}
+
+// saveLoan saves a loan account's checked terms and rates in the caller's
+// transaction, with the schedule that pays it (none without an account to
+// pay from). The first time, the loan is tracked from the first payment
+// after today, and an account with no entries starts owing what the terms
+// leave owed then (ADR-098). It returns the schedule (uuid.Nil for none).
+func (s *Service) saveLoan(ctx context.Context, q *db.Queries, budgetID, account uuid.UUID, t loanTerms, in api.LoanTerms) (uuid.UUID, error) {
 	shift, ok := shiftToDB[in.HolidayShift]
 	if !ok {
 		shift = db.HolidayShiftNextWorkday
@@ -489,9 +493,9 @@ func (h *Handlers) SetLoan(ctx context.Context, req api.SetLoanRequestObject) (a
 	if caller := reqctx.Caller(ctx).UserID; caller != uuid.Nil {
 		by = uuid.NullUUID{UUID: caller, Valid: true}
 	}
-	today := h.s.today()
+	today := s.today()
 	var schedule uuid.UUID
-	err = h.s.inTx(ctx, func(q *db.Queries) error {
+	err := func() error {
 		trackedAfter := today
 		existing, err := q.GetLoan(ctx, db.GetLoanParams{BudgetID: budgetID, AccountID: account})
 		first := isNoRows(err)
@@ -562,7 +566,7 @@ func (h *Handlers) SetLoan(ctx context.Context, req api.SetLoanRequestObject) (a
 			return err
 		}
 		text := autopayRule(t.firstPayment.Day())
-		r, err := h.s.scheduleRule(ctx, text, from, shift, from, from.AddDate(0, 2, 0))
+		r, err := s.scheduleRule(ctx, text, from, shift, from, from.AddDate(0, 2, 0))
 		if err != nil {
 			return err
 		}
@@ -570,7 +574,7 @@ func (h *Handlers) SetLoan(ctx context.Context, req api.SetLoanRequestObject) (a
 		if err != nil {
 			return err
 		}
-		posted, err := h.s.postedSince(ctx, q, budgetID, from)
+		posted, err := s.postedSince(ctx, q, budgetID, from)
 		if err != nil {
 			return err
 		}
@@ -583,6 +587,24 @@ func (h *Handlers) SetLoan(ctx context.Context, req api.SetLoanRequestObject) (a
 			ID: schedule, BudgetID: budgetID, LoanAccountID: uuid.NullUUID{UUID: account, Valid: true},
 			Source: source, Rrule: text, StartDate: from, HolidayShift: shift, NextOccurrence: next, CreatedBy: by,
 		})
+	}()
+	return schedule, err
+}
+
+func (h *Handlers) SetLoan(ctx context.Context, req api.SetLoanRequestObject) (api.SetLoanResponseObject, error) {
+	budgetID, account, in := req.BudgetId, req.AccountId, *req.Body
+	if err := h.s.loanAccount(ctx, h.s.q, budgetID, account); err != nil {
+		return nil, err
+	}
+	t, err := h.s.checkLoan(ctx, budgetID, account, in)
+	if err != nil {
+		return nil, err
+	}
+	var schedule uuid.UUID
+	err = h.s.inTx(ctx, func(q *db.Queries) error {
+		var err error
+		schedule, err = h.s.saveLoan(ctx, q, budgetID, account, t, in)
+		return err
 	})
 	if err != nil {
 		return nil, apperr.FromDB(err)
@@ -590,7 +612,7 @@ func (h *Handlers) SetLoan(ctx context.Context, req api.SetLoanRequestObject) (a
 	// Periods already due (terms set again after some were missed) post now,
 	// as saving a schedule does (ADR-085).
 	if schedule != uuid.Nil {
-		if _, err := h.s.postDue(ctx, schedule, today); err != nil {
+		if _, err := h.s.postDue(ctx, schedule, h.s.today()); err != nil {
 			return nil, err
 		}
 	}

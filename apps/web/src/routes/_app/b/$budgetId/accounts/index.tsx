@@ -10,8 +10,10 @@ import {
   cardFieldValues,
   parseCardFields,
 } from '#/components/cards/card-settings'
+import { DatePicker } from '#/components/date-picker'
 import { ConfirmDialog, NameDialog } from '#/components/dialogs'
 import { LoanDialog } from '#/components/loans/loan-dialog'
+import { LoanFields } from '#/components/loans/loan-fields'
 import { PageHeader } from '#/components/section'
 import { Button } from '#/components/ui/button'
 import {
@@ -48,8 +50,10 @@ import {
   onBudgetChoice,
   summaryQuery,
 } from '#/lib/budget'
+import { loanFieldValues, parseLoanFields, problemField } from '#/lib/loan'
 import { parseAmount } from '#/lib/money'
 import { cn } from '#/lib/utils'
+import type { LoanFormProblem } from '#/components/loans/loan-fields'
 import type { Account, AccountKind, Budget } from '#/lib/budget'
 
 export const Route = createFileRoute('/_app/b/$budgetId/accounts/')({
@@ -62,8 +66,6 @@ function AccountsPage() {
   const accounts = useQuery(accountsQuery(budget.id))
   const summary = useQuery(summaryQuery(budget.id))
   const [creating, setCreating] = useState(false)
-  /** A loan account just created, whose terms are asked next (ADR-096). */
-  const [newLoan, setNewLoan] = useState<Account | null>(null)
   const canManage = budget.role === 'owner'
 
   const all = accounts.data ?? []
@@ -169,16 +171,6 @@ function AccountsPage() {
         <CreateAccountDialog
           budget={budget}
           onClose={() => setCreating(false)}
-          onCreated={(account) =>
-            account.kind === 'loan' && setNewLoan(account)
-          }
-        />
-      )}
-      {newLoan && (
-        <LoanDialog
-          budget={budget}
-          account={newLoan}
-          onClose={() => setNewLoan(null)}
         />
       )}
     </div>
@@ -430,11 +422,9 @@ function today(): string {
 function CreateAccountDialog({
   budget,
   onClose,
-  onCreated,
 }: {
   budget: Budget
   onClose: () => void
-  onCreated: (account: Account) => void
 }) {
   const invalidate = useInvalidateAccounts(budget.id)
   const [name, setName] = useState('')
@@ -445,20 +435,30 @@ function CreateAccountDialog({
   const [cardFields, setCardFields] = useState(() =>
     cardFieldValues(null, budget.minorUnits),
   )
+  // A loan takes its terms here (ADR-100), unless only what is owed is kept.
+  const [withTerms, setWithTerms] = useState(true)
+  const [loanFields, setLoanFields] = useState(() =>
+    loanFieldValues(null, budget.minorUnits, today()),
+  )
+  const [loanProblem, setLoanProblem] = useState<LoanFormProblem | null>(null)
   const [error, setError] = useState('')
 
   const kindInfo = accountKinds.find((k) => k.value === kind)
   const debt = kindInfo?.debt ?? false
   const choice = onBudgetChoice(kind)
+  const terms = kind === 'loan' && withTerms
 
   const create = $api.useMutation('post', '/budgets/{budgetId}/accounts', {
     onSuccess: async (account) => {
       toast.success(`已新增「${account.name}」`)
       await invalidate()
       onClose()
-      onCreated(account)
     },
-    onError: (e) => setError(apiErrorMessage(e)),
+    onError: (e) => {
+      const field = problemField(e.details?.field)
+      if (terms && field) setLoanProblem({ field, message: apiErrorMessage(e) })
+      else setError(apiErrorMessage(e))
+    },
   })
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -466,6 +466,23 @@ function CreateAccountDialog({
     setError('')
     if (!name.trim()) {
       setError('請輸入帳戶名稱')
+      return
+    }
+    if (terms) {
+      const loan = parseLoanFields(loanFields, budget.minorUnits)
+      if ('field' in loan) return setLoanProblem(loan)
+      create.mutate({
+        params: { path: { budgetId: budget.id } },
+        body: {
+          name: name.trim(),
+          kind,
+          onBudget: false,
+          // What is owed comes from the terms.
+          openingBalance: 0,
+          openingDate: today(),
+          loan,
+        },
+      })
       return
     }
     const amount = parseAmount(balance, budget.minorUnits)
@@ -501,11 +518,17 @@ function CreateAccountDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className={
+          terms ? 'max-h-[90vh] overflow-y-auto sm:max-w-2xl' : 'sm:max-w-md'
+        }
+      >
         <DialogHeader>
           <DialogTitle>新增帳戶</DialogTitle>
           <DialogDescription>
-            填入某一天的實際餘額，之後的交易從那天開始記。
+            {terms
+              ? '照銀行的貸款契約填。今天以前的期數當作已經繳過，剩餘本金會自動算出來；之後每期還款自動入帳，並拆成本金和利息。'
+              : '填入某一天的實際餘額，之後的交易從那天開始記。'}
           </DialogDescription>
         </DialogHeader>
 
@@ -539,36 +562,64 @@ function CreateAccountDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="account-balance">
-                {debt ? '目前欠款' : '目前餘額'}
-              </Label>
-              <Input
-                id="account-balance"
-                inputMode="decimal"
-                className="font-mono"
-                placeholder="0"
-                value={balance}
-                onChange={(e) => setBalance(e.target.value)}
+          {terms ? (
+            <>
+              <LoanFields
+                budgetId={budget.id}
+                minorUnits={budget.minorUnits}
+                values={loanFields}
+                onChange={(next) => {
+                  setLoanFields(next)
+                  setLoanProblem(null)
+                }}
+                problem={loanProblem}
               />
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-muted-foreground"
+                onClick={() => setWithTerms(false)}
+              >
+                不填貸款條件，只記目前欠款
+              </Button>
+            </>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="account-balance">
+                  {debt ? '目前欠款' : '目前餘額'}
+                </Label>
+                <Input
+                  id="account-balance"
+                  inputMode="decimal"
+                  className="font-mono"
+                  placeholder="0"
+                  value={balance}
+                  onChange={(e) => setBalance(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="account-date">日期</Label>
+                <DatePicker
+                  id="account-date"
+                  className="w-full"
+                  value={date}
+                  onChange={setDate}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="account-date">日期</Label>
-              <Input
-                id="account-date"
-                type="date"
-                className="font-mono"
-                value={date}
-                required
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </div>
-          </div>
-          {kind === 'loan' && (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              目前欠款可以留空：新增後接著填貸款條件，會照條件算出今天的剩餘本金。
-            </p>
+          )}
+          {kind === 'loan' && !withTerms && (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-muted-foreground"
+              onClick={() => setWithTerms(true)}
+            >
+              改填貸款條件，自動算出剩餘本金和每期還款
+            </Button>
           )}
           {kind === 'credit_card' && (
             <CardFields

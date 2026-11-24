@@ -905,14 +905,16 @@ paths:
           description: Removed
         '404':
           $ref: '#/components/responses/NotFound'
-  /budgets/{budgetId}/accounts/{accountId}/loan/preview:
+  /budgets/{budgetId}/loans/preview:
     parameters:
       - $ref: '#/components/parameters/BudgetId'
-      - $ref: '#/components/parameters/AccountId'
     post:
       operationId: previewLoan
       tags: [ledger]
       summary: The table terms would give, without saving them
+      description: |
+        Needs no account, so terms typed while a loan account is being
+        created preview too (ADR-100).
       x-auth: authenticated
       x-budget: read
       requestBody:
@@ -930,8 +932,6 @@ paths:
                 $ref: '#/components/schemas/LoanPreview'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
   /budgets/{budgetId}/accounts/{accountId}/loan/align:
     parameters:
       - $ref: '#/components/parameters/BudgetId'
@@ -2076,6 +2076,14 @@ components:
           format: date
         card:
           $ref: '#/components/schemas/CardSettings'
+        loan:
+          allOf:
+            - $ref: '#/components/schemas/LoanTerms'
+          description: |
+            A loan's terms, saved with the account (ADR-100): the opening
+            balance is then what the terms leave owed (openingBalance and
+            openingDate are ignored), and its schedule pays it when it has an
+            account to pay from. Only for kind loan.
     AccountUpdate:
       type: object
       required: [name, closed]

@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { PlusIcon, XIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Amount } from '#/components/amount'
 import { Button } from '#/components/ui/button'
 import {
@@ -11,49 +10,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '#/components/ui/dialog'
-import { Input } from '#/components/ui/input'
-import { Label } from '#/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '#/components/ui/select'
 import { api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
-import {
-  accountsQuery,
-  categoriesQuery,
-  loanQuery,
-  summaryQuery,
-} from '#/lib/budget'
+import { accountsQuery, loanQuery, summaryQuery } from '#/lib/budget'
 import {
   checkGap,
   loanFieldValues,
-  methodLabels,
-  monthAfter,
   parseLoanFields,
-  payment,
-  prepayLabels,
   problemField,
-  shiftLabels,
 } from '#/lib/loan'
-import { categoryRefs, formatDate, isoDate } from '#/lib/register'
-import { cn } from '#/lib/utils'
-import { PeriodTable } from './period-table'
+import { formatDate, isoDate } from '#/lib/register'
+import { LoanFields } from './loan-fields'
 import type { Account, Budget } from '#/lib/budget'
-import type {
-  LoanDetails,
-  LoanField,
-  LoanFieldValues,
-  LoanMethod,
-  LoanPreview,
-  LoanShift,
-  PrepayMode,
-} from '#/lib/loan'
-
-const NONE = 'none'
+import type { LoanDetails, LoanFieldValues } from '#/lib/loan'
+import type { LoanFormProblem } from './loan-fields'
 
 /** Reloads everything a loan's terms or an alignment change. */
 export function useInvalidateLoan(budgetId: string) {
@@ -72,10 +42,11 @@ export function useInvalidateLoan(budgetId: string) {
 }
 
 /**
- * A loan account's terms (ADR-096): typed once from the bank's contract,
- * previewed as they are typed, and saved with the schedule that pays them
- * (ADR-097). When the account's balance is not what the terms leave owed,
- * saving offers to align it (ADR-098).
+ * An existing loan account's terms (ADR-096), from its menu or its page:
+ * typed from the bank's contract, previewed as they are typed, and saved
+ * with the schedule that pays them (ADR-097). When the account's balance is
+ * not what the terms leave owed, saving offers to align it (ADR-098). A new
+ * loan account takes its terms in the new-account dialog (ADR-100).
  */
 export function LoanDialog({
   budget,
@@ -120,50 +91,16 @@ function LoanForm({
   onSaved?: () => void
 }) {
   const mu = budget.minorUnits
-  const accounts = useQuery(accountsQuery(budget.id))
-  const categories = useQuery(categoriesQuery(budget.id))
   const invalidate = useInvalidateLoan(budget.id)
-  const [v, setValues] = useState(initial)
-  const [problem, setProblem] = useState<{
-    field: LoanField | null
-    message: string
-  } | null>(null)
-  const [preview, setPreview] = useState<LoanPreview | null>(null)
+  const [values, setValues] = useState(initial)
+  const [problem, setProblem] = useState<LoanFormProblem | null>(null)
   const [saving, setSaving] = useState(false)
   /** After saving, when the account and the terms disagree. */
   const [saved, setSaved] = useState<LoanDetails | null>(null)
 
-  useEffect(() => {
-    const terms = parseLoanFields(v, mu)
-    if ('field' in terms) return
-    const timer = setTimeout(async () => {
-      const { data } = await api.POST(
-        '/budgets/{budgetId}/accounts/{accountId}/loan/preview',
-        {
-          params: { path: { budgetId: budget.id, accountId: account.id } },
-          body: terms,
-        },
-      )
-      if (data) setPreview(data)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [v, mu, budget.id, account.id])
-
-  const set = (patch: Partial<LoanFieldValues>) => {
-    setValues({ ...v, ...patch })
-    setProblem(null)
-  }
-
-  const payers = (accounts.data ?? []).filter(
-    (a) => a.onBudget && !a.closed && a.kind !== 'credit_card',
-  )
-  const expense = [...categoryRefs(categories.data ?? []).values()]
-    .filter((c) => c.kind === 'expense' && !c.isSystem && !c.archived)
-    .sort((a, b) => a.path.localeCompare(b.path))
-
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const terms = parseLoanFields(v, mu)
+    const terms = parseLoanFields(values, mu)
     if ('field' in terms) return setProblem(terms)
     setSaving(true)
     const { data, error } = await api.PUT(
@@ -201,96 +138,6 @@ function LoanForm({
     )
   }
 
-  const err = (field: LoanField) =>
-    problem?.field === field ? 'border-destructive' : undefined
-  const text = (
-    field: 'principal' | 'months' | 'grace',
-    label: string,
-    placeholder: string,
-  ) => (
-    <div className="space-y-1.5">
-      <Label htmlFor={`loan-${field}`}>{label}</Label>
-      <Input
-        id={`loan-${field}`}
-        inputMode={field === 'principal' ? 'decimal' : 'text'}
-        className={cn('font-mono', err(field))}
-        placeholder={placeholder}
-        value={v[field]}
-        onChange={(e) => set({ [field]: e.target.value })}
-      />
-    </div>
-  )
-  const date = (field: 'start' | 'firstPayment', label: string) => (
-    <div className="space-y-1.5">
-      <Label htmlFor={`loan-${field}`}>{label}</Label>
-      <Input
-        id={`loan-${field}`}
-        type="date"
-        className={cn('font-mono', err(field))}
-        value={v[field]}
-        onChange={(e) => {
-          const next = e.target.value
-          // A new 撥款日 moves the first payment along when it followed it.
-          if (field === 'start' && v.firstPayment === monthAfter(v.start))
-            set({ start: next, firstPayment: monthAfter(next) })
-          else set({ [field]: next })
-        }}
-      />
-    </div>
-  )
-  const choice = <T extends string>(
-    id: string,
-    label: string,
-    value: T,
-    options: Record<T, string>,
-    onChange: (value: T) => void,
-  ) => (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <Select value={value} onValueChange={(x) => onChange(x as T)}>
-        <SelectTrigger id={id} className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {(Object.keys(options) as Array<T>).map((k) => (
-            <SelectItem key={k} value={k}>
-              {options[k]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
-  const category = (
-    field: 'principalCategory' | 'interestCategory',
-    label: string,
-  ) => (
-    <div className="space-y-1.5">
-      <Label htmlFor={`loan-${field}`}>{label}</Label>
-      <Select
-        value={v[field] || NONE}
-        onValueChange={(x) => set({ [field]: x === NONE ? '' : x })}
-      >
-        <SelectTrigger
-          id={`loan-${field}`}
-          className={cn('w-full', err(field))}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>選擇分類</SelectItem>
-          {expense.map((c) => (
-            <SelectItem key={c.id} value={c.id}>
-              {c.path}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
-
-  const now = new Date()
-  const last = preview?.periods.at(-1)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
@@ -300,170 +147,17 @@ function LoanForm({
             照銀行的貸款契約填。設定後每期還款自動入帳，並拆成本金和利息；以前繳過的期數不用補記。
           </DialogDescription>
         </DialogHeader>
-        <form id="loan-form" className="space-y-4" onSubmit={onSubmit}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {text('principal', '撥款金額', '1,000,000')}
-            {date('start', '撥款日')}
-            {date('firstPayment', '首期繳款日')}
-            {text('months', '期數（月）', '240 或 20年')}
-            {text('grace', '寬限期（月）', '0')}
-            {choice<LoanMethod>(
-              'loan-method',
-              '攤還方式',
-              v.method,
-              methodLabels,
-              (method) => set({ method }),
-            )}
-          </div>
-
-          <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">年利率</legend>
-            {v.rates.map((r, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  aria-label={i === 0 ? '從撥款日起' : `第 ${i + 1} 段的生效日`}
-                  className="w-40 font-mono"
-                  disabled={i === 0}
-                  value={i === 0 ? v.start : r.from}
-                  onChange={(e) =>
-                    set({
-                      rates: v.rates.with(i, { ...r, from: e.target.value }),
-                    })
-                  }
-                />
-                <Input
-                  aria-label={`第 ${i + 1} 段年利率`}
-                  inputMode="decimal"
-                  className={cn('w-24 font-mono', err('rates'))}
-                  placeholder="2.35"
-                  value={r.rate}
-                  onChange={(e) =>
-                    set({
-                      rates: v.rates.with(i, { ...r, rate: e.target.value }),
-                    })
-                  }
-                />
-                <span className="text-sm text-muted-foreground">%</span>
-                {i === 0 ? (
-                  <span className="text-xs text-muted-foreground">
-                    從撥款日起
-                  </span>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="刪除這段利率"
-                    onClick={() =>
-                      set({ rates: v.rates.filter((_, j) => j !== i) })
-                    }
-                  >
-                    <XIcon />
-                  </Button>
-                )}
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto p-0"
-              onClick={() =>
-                set({
-                  rates: [
-                    ...v.rates,
-                    { from: isoDate(now), rate: v.rates.at(-1)?.rate ?? '' },
-                  ],
-                })
-              }
-            >
-              <PlusIcon />
-              利率調整
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              機動利率調過幾次就加幾段；只影響還沒入帳的期數。
-            </p>
-          </fieldset>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="loan-payFrom">扣款帳戶</Label>
-              <Select
-                value={v.payFrom || NONE}
-                onValueChange={(x) => set({ payFrom: x === NONE ? '' : x })}
-              >
-                <SelectTrigger
-                  id="loan-payFrom"
-                  className={cn('w-full', err('payFrom'))}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>不自動還款（自己記）</SelectItem>
-                  {payers.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      從「{a.name}」扣款
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {v.payFrom && category('principalCategory', '本金記在')}
-            {v.payFrom && category('interestCategory', '利息記在')}
-            {choice<PrepayMode>(
-              'loan-prepay',
-              '提前還款時',
-              v.prepay,
-              prepayLabels,
-              (prepay) => set({ prepay }),
-            )}
-            {v.payFrom &&
-              choice<LoanShift>(
-                'loan-shift',
-                '扣款日遇假日',
-                v.shift,
-                shiftLabels,
-                (shift) => set({ shift }),
-              )}
-          </div>
-
-          {problem && (
-            <p className="text-sm text-destructive" role="alert">
-              {problem.message}
-            </p>
-          )}
-
-          {preview && (
-            <div className="space-y-2 rounded-md border border-rule p-3">
-              <p className="text-sm">
-                每月 <Amount value={preview.payment} minorUnits={mu} />
-                <span className="text-muted-foreground">
-                  {' '}
-                  · 共 {preview.periods.length} 期 · 總利息{' '}
-                </span>
-                <Amount value={preview.totalInterest} minorUnits={mu} />
-                {last && (
-                  <span className="text-muted-foreground">
-                    {' '}
-                    · {formatDate(last.date, now)} 還清
-                  </span>
-                )}
-              </p>
-              <PeriodTable
-                periods={preview.periods}
-                minorUnits={mu}
-                now={now}
-                className="max-h-48"
-              />
-              <p className="text-xs text-muted-foreground">
-                「設定前」是今天以前的期數，當作已經照表繳過。和銀行的還款明細差幾元是正常的，存檔後可以對齊。
-                {preview.periods[0] &&
-                  payment(preview.periods[0]) !== preview.payment &&
-                  ' 首期不滿一個月時按天數計息。'}
-              </p>
-            </div>
-          )}
+        <form id="loan-form" onSubmit={onSubmit}>
+          <LoanFields
+            budgetId={budget.id}
+            minorUnits={mu}
+            values={values}
+            onChange={(next) => {
+              setValues(next)
+              setProblem(null)
+            }}
+            problem={problem}
+          />
         </form>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>

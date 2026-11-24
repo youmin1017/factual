@@ -66,11 +66,12 @@ func TestLoans(t *testing.T) {
 	}
 
 	// The preview: 1,000,000 at 2% over 20 years pays 5,059 a month.
-	rec = admin.do(http.MethodPost, budgetPath(f.budget, loanPath+"/preview"), terms)
+	rec = admin.do(http.MethodPost, budgetPath(f.budget, "/loans/preview"), terms)
 	wantStatus(t, rec, http.StatusOK)
 	var preview api.LoanPreview
 	decode(t, rec, &preview)
-	if preview.Payment != 5059 || len(preview.Periods) != 240 || preview.Periods[0].State != api.LoanPeriodStateBefore {
+	if preview.Payment != 5059 || len(preview.Periods) != 240 || preview.Periods[0].State != api.LoanPeriodStateBefore ||
+		preview.Periods[22].State != api.LoanPeriodStatePlanned {
 		t.Fatalf("preview: payment %d, %d periods, first %+v", preview.Payment, len(preview.Periods), preview.Periods[0])
 	}
 
@@ -284,5 +285,36 @@ func TestLoans(t *testing.T) {
 	}
 	if schedules != 0 || posted != 2 {
 		t.Fatalf("after removing: %d schedules, %d payments", schedules, posted)
+	}
+
+	// A loan account can be created with its terms (ADR-100): one request,
+	// its opening balance from the terms; terms on another kind, or bad
+	// terms, create nothing. Back on 11/20, as when the first was set up.
+	setClock(testToday)
+	before := len(listAccounts(t, admin, f.budget))
+	withTerms := accountInput("車貸二", api.Loan, false, -123)
+	withTerms.Loan = &terms
+	rec = admin.do(http.MethodPost, budgetPath(f.budget, "/accounts"), withTerms)
+	wantStatus(t, rec, http.StatusCreated)
+	var created api.Account
+	decode(t, rec, &created)
+	got := getLoan(t, admin, f.budget, created)
+	if created.Balance != -owed || got.PrincipalLeft != owed || got.ScheduleId == nil || got.TrackedFrom.String() != "2026-12-10" {
+		t.Fatalf("created with terms: balance %d, left %d, tracked from %v, schedule %v", created.Balance, got.PrincipalLeft, got.TrackedFrom, got.ScheduleId)
+	}
+	onBank := accountInput("活存", api.Bank, true, 0)
+	onBank.Loan = &terms
+	rec = admin.do(http.MethodPost, budgetPath(f.budget, "/accounts"), onBank)
+	if e := decodeError(t, rec); e.Code != "not_a_loan" {
+		t.Fatalf("terms on a bank account: %+v", e)
+	}
+	badTerms := terms
+	badTerms.TermMonths = 0
+	withBad := accountInput("車貸三", api.Loan, false, 0)
+	withBad.Loan = &badTerms
+	rec = admin.do(http.MethodPost, budgetPath(f.budget, "/accounts"), withBad)
+	wantStatus(t, rec, http.StatusBadRequest)
+	if n := len(listAccounts(t, admin, f.budget)); n != before+1 {
+		t.Fatalf("accounts = %d, want %d", n, before+1)
 	}
 }

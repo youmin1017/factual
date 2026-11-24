@@ -651,19 +651,22 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/budgets/{budgetId}/accounts/{accountId}/loan/preview': {
+  '/budgets/{budgetId}/loans/preview': {
     parameters: {
       query?: never
       header?: never
       path: {
         budgetId: components['parameters']['BudgetId']
-        accountId: components['parameters']['AccountId']
       }
       cookie?: never
     }
     get?: never
     put?: never
-    /** The table terms would give, without saving them */
+    /**
+     * The table terms would give, without saving them
+     * @description Needs no account, so terms typed while a loan account is being
+     *     created preview too (ADR-100).
+     */
     post: operations['previewLoan']
     delete?: never
     options?: never
@@ -1432,6 +1435,13 @@ export interface components {
       /** Format: date */
       openingDate: string
       card?: components['schemas']['CardSettings']
+      /**
+       * @description A loan's terms, saved with the account (ADR-100): the opening
+       *     balance is then what the terms leave owed (openingBalance and
+       *     openingDate are ignored), and its schedule pays it when it has an
+       *     account to pay from. Only for kind loan.
+       */
+      loan?: components['schemas']['LoanTerms']
     }
     AccountUpdate: {
       name: string
@@ -3283,7 +3293,6 @@ export interface operations {
       header?: never
       path: {
         budgetId: components['parameters']['BudgetId']
-        accountId: components['parameters']['AccountId']
       }
       cookie?: never
     }
@@ -3303,7 +3312,6 @@ export interface operations {
         }
       }
       400: components['responses']['BadRequest']
-      404: components['responses']['NotFound']
     }
   }
   alignLoan: {

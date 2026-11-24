@@ -207,6 +207,9 @@ importers:
       cn:
         specifier: ^0.5.2
         version: 0.5.2
+      date-fns:
+        specifier: ^4.4.0
+        version: 4.4.0
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@19.3.1)
@@ -225,6 +228,9 @@ importers:
       react:
         specifier: ^19.2.0
         version: 19.3.1
+      react-day-picker:
+        specifier: ^10.0.2
+        version: 10.0.2(@types/react@19.3.0)(react@19.3.1)
       react-dom:
         specifier: ^19.2.0
         version: 19.3.1(react@19.3.1)
@@ -366,6 +372,9 @@ packages:
     resolution: {integrity: sha512-Ox2kYyxy7NoXdKWdHeDEjZxClwzO4SKM8plAaVwmAJPxHMqA0rLOoAsa+hBDwRLpctf+ZRnAd/ykguuJidnaTA==}
     peerDependencies:
       solid-js: ^1.8
+
+  '@date-fns/tz@1.5.0':
+    resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
 
   '@emnapi/core@2.0.0-beta.2':
     resolution: {integrity: sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A==}
@@ -2353,6 +2362,9 @@ packages:
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
+  date-fns@4.4.0:
+    resolution: {integrity: sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==}
+
   dayjs@1.11.23:
     resolution: {integrity: sha512-QDTCU0M0MxR3hQfnlDJfwekQiaanm1ubOD231u73WBckQ/fsamwRLiE2GBz6D3a/xF1NgfiDLJjXBa1hYOYTtQ==}
 
@@ -2839,6 +2851,16 @@ packages:
       '@types/react-dom':
         optional: true
 
+  react-day-picker@10.0.2:
+    resolution: {integrity: sha512-QetiKtZWE9Uaw/pM/SYNv6WPYOTRnSJ2puL0GgwkmUFMIwiY0dtjH1W4B7DOVXVNQM0ZOClGpH/heOfBSzWeiA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/react': '>=16.8.0'
+      react: '>=16.8.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
   react-dom@19.3.1:
     resolution: {integrity: sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ==}
     peerDependencies:
@@ -3313,6 +3335,8 @@ snapshots:
     dependencies:
       '@floating-ui/dom': 1.8.0
       solid-js: 1.9.19
+
+  '@date-fns/tz@1.5.0': {}
 
   '@emnapi/core@2.0.0-beta.2':
     dependencies:
@@ -5209,6 +5233,8 @@ snapshots:
 
   csstype@3.2.3: {}
 
+  date-fns@4.4.0: {}
+
   dayjs@1.11.23: {}
 
   debug@4.4.3(supports-color@10.2.2):
@@ -5733,6 +5759,14 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  react-day-picker@10.0.2(@types/react@19.3.0)(react@19.3.1):
+    dependencies:
+      '@date-fns/tz': 1.5.0
+      date-fns: 4.4.0
+      react: 19.3.1
+    optionalDependencies:
+      '@types/react': 19.3.0
 
   react-dom@19.3.1(react@19.3.1):
     dependencies:

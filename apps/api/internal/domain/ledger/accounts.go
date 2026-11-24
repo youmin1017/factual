@@ -67,6 +67,18 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 			return nil, err
 		}
 	}
+	// A loan's terms come with the account (ADR-100); its opening balance is
+	// then what they leave owed.
+	var terms loanTerms
+	if b.Loan != nil {
+		if b.Kind != api.Loan {
+			return nil, notALoan()
+		}
+		var err error
+		if terms, err = h.s.checkLoan(ctx, req.BudgetId, uuid.Nil, *b.Loan); err != nil {
+			return nil, err
+		}
+	}
 
 	var id uuid.UUID
 	err := h.s.inTx(ctx, func(q *db.Queries) error {
@@ -81,6 +93,10 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 			if err := h.s.saveCard(ctx, q, req.BudgetId, id, *b.Card, off); err != nil {
 				return err
 			}
+		}
+		if b.Loan != nil {
+			_, err := h.s.saveLoan(ctx, q, req.BudgetId, id, terms, *b.Loan)
+			return err
 		}
 		if b.OpeningBalance == 0 {
 			return nil

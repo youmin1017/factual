@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Amount } from '#/components/amount'
+import { DatePicker } from '#/components/date-picker'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { api } from '#/lib/api'
@@ -190,12 +191,11 @@ function AlignForm({
       onSubmit={(e) => void onSubmit(e)}
     >
       <span className="text-muted-foreground">銀行顯示</span>
-      <Input
-        type="date"
+      <DatePicker
         aria-label="日期"
-        className="h-7 w-36 font-mono"
+        className="h-7 w-36"
         value={date}
-        onChange={(e) => setDate(e.target.value)}
+        onChange={setDate}
       />
       <span className="text-muted-foreground">的剩餘本金是</span>
       <Input
