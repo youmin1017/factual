@@ -19,6 +19,7 @@ import { Route as AppSettingsEditorRouteImport } from './routes/_app/settings/ed
 import { Route as AppSettingsHolidaysRouteImport } from './routes/_app/settings/holidays'
 import { Route as AppSettingsOidcProvidersRouteImport } from './routes/_app/settings/oidc-providers'
 import { Route as AppBBudgetIdIndexRouteImport } from './routes/_app/b/$budgetId/index'
+import { Route as AppBBudgetIdGoalsRouteImport } from './routes/_app/b/$budgetId/goals'
 import { Route as AppBBudgetIdPayeesRouteImport } from './routes/_app/b/$budgetId/payees'
 import { Route as AppBBudgetIdSchedulesRouteImport } from './routes/_app/b/$budgetId/schedules'
 import { Route as AppBBudgetIdAccountsIndexRouteImport } from './routes/_app/b/$budgetId/accounts/index'
@@ -74,6 +75,11 @@ const AppBBudgetIdIndexRoute = AppBBudgetIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppBBudgetIdRoute,
 } as any)
+const AppBBudgetIdGoalsRoute = AppBBudgetIdGoalsRouteImport.update({
+  id: '/goals',
+  path: '/goals',
+  getParentRoute: () => AppBBudgetIdRoute,
+} as any)
 const AppBBudgetIdPayeesRoute = AppBBudgetIdPayeesRouteImport.update({
   id: '/payees',
   path: '/payees',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/holidays': typeof AppSettingsHolidaysRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/b/$budgetId/schedules': typeof AppBBudgetIdSchedulesRoute
   '/b/$budgetId/': typeof AppBBudgetIdIndexRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/holidays': typeof AppSettingsHolidaysRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/b/$budgetId/schedules': typeof AppBBudgetIdSchedulesRoute
   '/b/$budgetId': typeof AppBBudgetIdIndexRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/_app/settings/editor': typeof AppSettingsEditorRoute
   '/_app/settings/holidays': typeof AppSettingsHolidaysRoute
   '/_app/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/_app/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/_app/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/_app/b/$budgetId/schedules': typeof AppBBudgetIdSchedulesRoute
   '/_app/b/$budgetId/': typeof AppBBudgetIdIndexRoute
@@ -154,6 +163,7 @@ export interface FileRouteTypes {
     | '/settings/editor'
     | '/settings/holidays'
     | '/settings/oidc-providers'
+    | '/b/$budgetId/goals'
     | '/b/$budgetId/payees'
     | '/b/$budgetId/schedules'
     | '/b/$budgetId/'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/settings/editor'
     | '/settings/holidays'
     | '/settings/oidc-providers'
+    | '/b/$budgetId/goals'
     | '/b/$budgetId/payees'
     | '/b/$budgetId/schedules'
     | '/b/$budgetId'
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/_app/settings/editor'
     | '/_app/settings/holidays'
     | '/_app/settings/oidc-providers'
+    | '/_app/b/$budgetId/goals'
     | '/_app/b/$budgetId/payees'
     | '/_app/b/$budgetId/schedules'
     | '/_app/b/$budgetId/'
@@ -268,6 +280,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBBudgetIdIndexRouteImport
       parentRoute: typeof AppBBudgetIdRoute
     }
+    '/_app/b/$budgetId/goals': {
+      id: '/_app/b/$budgetId/goals'
+      path: '/goals'
+      fullPath: '/b/$budgetId/goals'
+      preLoaderRoute: typeof AppBBudgetIdGoalsRouteImport
+      parentRoute: typeof AppBBudgetIdRoute
+    }
     '/_app/b/$budgetId/payees': {
       id: '/_app/b/$budgetId/payees'
       path: '/payees'
@@ -300,6 +319,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppBBudgetIdRouteChildren {
+  AppBBudgetIdGoalsRoute: typeof AppBBudgetIdGoalsRoute
   AppBBudgetIdPayeesRoute: typeof AppBBudgetIdPayeesRoute
   AppBBudgetIdSchedulesRoute: typeof AppBBudgetIdSchedulesRoute
   AppBBudgetIdIndexRoute: typeof AppBBudgetIdIndexRoute
@@ -308,6 +328,7 @@ interface AppBBudgetIdRouteChildren {
 }
 
 const AppBBudgetIdRouteChildren: AppBBudgetIdRouteChildren = {
+  AppBBudgetIdGoalsRoute: AppBBudgetIdGoalsRoute,
   AppBBudgetIdPayeesRoute: AppBBudgetIdPayeesRoute,
   AppBBudgetIdSchedulesRoute: AppBBudgetIdSchedulesRoute,
   AppBBudgetIdIndexRoute: AppBBudgetIdIndexRoute,

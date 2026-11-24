@@ -61,7 +61,7 @@ const reference: Array<[string, string]> = [
   ],
   [
     'autocmd FileType sidebar nnoremap l <CR>',
-    '只在某個窗格有效：在側欄按 l 打開帳戶。窗格有 sidebar（側欄）、register（明細）、split（拆分視窗）、budget（預算頁）、schedules（排程）、main（其他頁面），可用逗號列出多個',
+    '只在某個窗格有效：在側欄按 l 打開帳戶。窗格有 sidebar（側欄）、register（明細）、split（拆分視窗）、budget（預算頁）、schedules（排程）、goals（目標）、main（其他頁面），可用逗號列出多個',
   ],
   ['<Esc> <CR> <Tab> <BS>', 'Esc、Enter、Tab、Backspace'],
   ['<C-d> <S-Tab> <Up>', 'Ctrl-d、Shift-Tab、方向鍵'],

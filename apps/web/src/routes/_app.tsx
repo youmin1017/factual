@@ -117,6 +117,13 @@ function AppLayout() {
                     排程
                   </Link>
                   <Link
+                    to="/b/$budgetId/goals"
+                    params={{ budgetId: budget.id }}
+                    className={navLinkClass}
+                  >
+                    目標
+                  </Link>
+                  <Link
                     to="/b/$budgetId/payees"
                     params={{ budgetId: budget.id }}
                     className={navLinkClass}

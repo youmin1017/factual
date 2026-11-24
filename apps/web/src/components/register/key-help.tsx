@@ -317,6 +317,74 @@ export const scheduleKeys: Array<KeyGroup> = [
   },
 ]
 
+/** The goals page (ADR-094); the line order is the priority. */
+export const goalKeys: Array<KeyGroup> = [
+  {
+    title: '移動',
+    entries: [
+      ['j k', '下一個、上一個目標（方向鍵也可以）'],
+      ['h l', '左右一欄（0 到最左，$ 到最右）'],
+      ['gg G', '第一個、最後一個'],
+      ['Ctrl-d Ctrl-u', '往下、往上半頁'],
+    ],
+  },
+  {
+    title: '修改',
+    entries: [
+      ['i a Enter', '修改這一格（已存、本月、預計完成、狀態是算出來的）'],
+      ['c s', '清空再輸入'],
+      ['o O', '在下面、上面新增目標'],
+      ['dd', '刪除（移到最下面標記，:w 才刪；再 dd 取消）；3dd 三個'],
+      ['dd p', '貼到別處：調整優先序（ddp 往下一個，ddkP 往上一個）'],
+      ['yy p P', '複製成新的目標、貼在下面、上面'],
+      ['u Ctrl-r', '復原、重做'],
+      ['.', '重複上一個 dd 或 p'],
+      ['gx', '打開這個目標的連結'],
+    ],
+  },
+  {
+    title: '選取多個',
+    entries: [
+      ['V', '開始選取（Shift-點擊也可以）'],
+      ['y d', '複製、刪除選取的目標'],
+      ['c', '選取的目標這一欄都改成同一個值'],
+      [':', ':done、:archive、:wait 作用在選取的目標'],
+      ['gv', '選回上一次的範圍'],
+    ],
+  },
+  {
+    title: '類型',
+    entries: [
+      ['目標金額', '存到一個金額；填「每月」就每月最多存那麼多，不填只看進度'],
+      ['期限前存到', '期限前存到金額：每月要的是還差的錢除以剩下的月數'],
+      ['維持水位', '目標填幾個月：維持那麼多個月的平均支出（備用金）'],
+      ['每月固定', '每月存固定金額，沒有終點'],
+    ],
+  },
+  {
+    title: '輸入中',
+    entries: [
+      ['Enter Esc', '完成這一格'],
+      ['Tab Shift-Tab', '完成，到下一格、上一格'],
+      ['Ctrl-n Ctrl-p', '選建議'],
+      ['+30', '日期欄：今天起第幾天'],
+      ['Ctrl-c', '放棄這次輸入'],
+    ],
+  },
+  {
+    title: '指令',
+    entries: [
+      [':w', '儲存'],
+      [':done :undone', '標記達成（買了或不再需要）：不再分到預算的錢；取消'],
+      [':archive :unarchive', '封存、取消封存'],
+      [':wait 30', '考慮 30 天：存滿了也先顯示冷靜中；:wait 0 取消'],
+      [':open', '打開連結'],
+      [':e!', '放棄所有未儲存的變更'],
+      [':q', '離開'],
+    ],
+  },
+]
+
 const modeNames: Record<keyof Keymap, string> = {
   normal: '一般',
   visual: '選取',
@@ -329,6 +397,7 @@ const paneNames: Record<Pane, string> = {
   split: '拆分視窗',
   budget: '預算頁',
   schedules: '排程',
+  goals: '目標',
   main: '其他頁面',
 }
 

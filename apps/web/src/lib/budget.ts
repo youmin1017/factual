@@ -120,6 +120,16 @@ export function schedulesQuery(budgetId: string) {
 }
 
 /**
+ * The budget's goals with what the goals page needs to project them (M10);
+ * the editor owns the lines once loaded, the figures follow each reload.
+ */
+export function goalsQuery(budgetId: string) {
+  return $api.queryOptions('get', '/budgets/{budgetId}/goals', {
+    params: { path: { budgetId } },
+  })
+}
+
+/**
  * Occurrences not yet posted in the next 30 days: the registers' 預定 rows
  * (ADR-085). Like a register, read once and reloaded after changes.
  */

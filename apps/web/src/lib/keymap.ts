@@ -35,6 +35,7 @@ export const panes = [
   'split',
   'budget',
   'schedules',
+  'goals',
   'main',
 ] as const
 export type Pane = (typeof panes)[number]
