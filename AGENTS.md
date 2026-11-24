@@ -5,7 +5,7 @@ Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets
 ## Map
 - `apps/api` Go module `factual/apps/api` (echo, oapi-codegen, sqlc on pgx/v5, goose).
 - `apps/web` TanStack Start in SPA mode (pnpm workspace member): React 19 + React Compiler, Tailwind, shadcn/ui (Radix), TanStack Query, openapi-fetch.
-- `Dockerfile` (repo root) builds the one image; `deploy/` holds the production `docker-compose.yml` and `.env.example`; `docs/DEPLOYMENT.md` documents running, backing up and upgrading it (ADR-083).
+- `Dockerfile` (repo root) builds the one image; `.github/workflows/image.yml` builds it on pull requests and pushes it to `ghcr.io/youmin1017/factual` from `main` (`latest`) and `v*` tags (ADR-101); `deploy/` holds the production `docker-compose.yml` (which runs that image) and `.env.example`; `docs/DEPLOYMENT.md` documents running, backing up and upgrading it (ADR-083).
 - `docs/PROJECT_BRIEF.md` goal, phases, milestones and what is out of scope.
 - `docs/DECISIONS.md` the decisions (ADRs) behind the architecture and the ledger model; read the relevant ones before changing either.
 

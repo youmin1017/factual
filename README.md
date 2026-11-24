@@ -47,7 +47,7 @@ API 啟動時會自動套用尚未執行的 migration。第一次啟動會建立
 - `apps/web`:TanStack Start(React、SPA 模式)、Tailwind、shadcn/ui、TanStack Query、oxlint、oxfmt。
   - `src/lib/api.gen.ts`:由規格產生的型別;一律透過 `src/lib/api.ts` 呼叫 API。
 
-- `deploy`:正式環境的 `docker-compose.yml` 範例與 `.env.example`;映像檔由根目錄的 `Dockerfile` 建置。
+- `deploy`:正式環境的 `docker-compose.yml` 範例與 `.env.example`;映像檔由根目錄的 `Dockerfile` 建置，GitHub Actions（`.github/workflows/image.yml`）會把它發布到 `ghcr.io/youmin1017/factual`。
 
 目標、階段與里程碑在 `docs/PROJECT_BRIEF.md`;架構與帳務模型的決策紀錄在 `docs/DECISIONS.md`。
 
