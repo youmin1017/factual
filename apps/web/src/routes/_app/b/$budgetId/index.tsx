@@ -19,6 +19,7 @@ import {
   accountsQuery,
   budgetMonthQuery,
   categoriesQuery,
+  goalsQuery,
   schedulesQuery,
   summaryQuery,
   upcomingQuery,
@@ -107,6 +108,8 @@ function BudgetPage() {
   const summary = useQuery(summaryQuery(budget.id))
   // Names for the schedules in a target's parts, and what is coming up.
   const schedules = useQuery(schedulesQuery(budget.id))
+  // Names and priority of goals, for :fill and the targets' parts (ADR-093).
+  const goals = useQuery(goalsQuery(budget.id))
   const upcoming = useQuery(upcomingQuery(budget.id))
   const monthData = useQueries({
     queries: shownMonths.map((m) => ({
@@ -179,6 +182,12 @@ function BudgetPage() {
       const rule = describeRRule(sc.rule, sc.holidayShift) ?? sc.source
       return [sc.id, `${who}（${rule}）`]
     }),
+  )
+  const goalInfo = new Map(
+    (goals.data?.goals ?? []).map((g, order) => [
+      g.id,
+      { name: g.name, order },
+    ]),
   )
   // Scheduled money that goes through envelopes or the pool.
   const coming = (upcoming.data ?? []).filter((o) => o.categoryId)
@@ -448,6 +457,8 @@ function BudgetPage() {
         lastMonth={lastMonth}
         categoryApi={categoryApi}
         scheduleNames={scheduleNames}
+        goals={goalInfo}
+        pool={pool}
         setBase={setBase}
       />
     </div>

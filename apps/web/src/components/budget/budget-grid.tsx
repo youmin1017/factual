@@ -17,7 +17,7 @@ import {
   afterSubtree,
   categoryNodes,
   copyLastMonth,
-  fillTargets,
+  fillPlan,
   monthLabel,
   newPlace,
   offTarget,
@@ -148,6 +148,8 @@ export function BudgetGrid({
   lastMonth,
   categoryApi,
   scheduleNames,
+  goals,
+  pool,
   setBase,
 }: {
   /** The months shown, each with the same lines (`pageMonths`). */
@@ -169,6 +171,10 @@ export function BudgetGrid({
   categoryApi: CategoryApi
   /** How a schedule is named in a target's parts: `健身房（每月 5 日）`. */
   scheduleNames: Map<string, string>
+  /** The budget's goals by id: their name and place in the priority. */
+  goals: Map<string, { name: string; order: number }>
+  /** Money not given to any envelope (ADR-025); `:fill` stops at it. */
+  pool: number
   /** Sets an envelope's base amount (0 removes it); an error message, or null. */
   setBase: (categoryId: string, amount: number) => Promise<string | null>
 }) {
@@ -463,10 +469,26 @@ export function BudgetGrid({
 
   // ---------- targets (ADR-086)
 
-  /** `:fill`: the envelopes of `sel` with a target get it, as one undo step. */
-  function fill(sel: Array<BudgetLine>, selected: boolean) {
-    const set = fillTargets(sel)
+  /**
+   * `:fill`: the envelopes of `sel` with a target get it, as one undo step:
+   * bases and schedules first, then goals by priority, as far as the pool
+   * goes (ADR-093); `:fill!` (`force`) fills them all.
+   */
+  function fill(sel: Array<BudgetLine>, selected: boolean, force: boolean) {
+    const goalOrder = new Map([...goals].map(([id, g]) => [id, g.order]))
+    const { set, short } = fillPlan(sel, { pool, goalOrder, force })
+    const money = (n: number) => formatAmount(n, minorUnits)
+    const missing = short
+      .map(
+        (x) =>
+          `${x.goalId ? (goals.get(x.goalId)?.name ?? '儲蓄目標') : `「${x.line.path}」`} ${money(x.missing)}`,
+      )
+      .join('、')
+    const lacking = short.length
+      ? `資金池不夠，還差：${missing}（:fill! 全部照目標）`
+      : ''
     if (set.length === 0) {
+      if (lacking) return say(`沒有分配任何預算：${lacking}`, 'error')
       return say(
         selected
           ? '選取的預算都已經照目標分配了（或沒有目標）'
@@ -475,7 +497,7 @@ export function BudgetGrid({
     }
     setAllocations(
       set,
-      `${monthName}照目標分配了 ${set.length} 個預算（u 可以復原）`,
+      `${monthName}照目標分配了 ${set.length} 個預算${lacking ? `；${lacking}` : ''}（u 可以復原）`,
     )
   }
 
@@ -523,11 +545,9 @@ export function BudgetGrid({
           `${scheduleNames.get(s.scheduleId) ?? '排程'} ${money(s.amount)}`,
       ),
       // Savings goals ask after the schedules (ADR-093).
-      ...(goal.goals.length > 0
-        ? [
-            `儲蓄目標 ${money(goal.goals.reduce((sum, g) => sum + g.amount, 0))}`,
-          ]
-        : []),
+      ...goal.goals.map(
+        (g) => `${goals.get(g.goalId)?.name ?? '儲蓄目標'} ${money(g.amount)}`,
+      ),
     ]
     const diff = goal.total - line.allocated
     const off =
@@ -1173,8 +1193,8 @@ export function BudgetGrid({
       setAllocation(current, current.allocated + amount)
     } else if (cmd === 'copylast') {
       void copyLast()
-    } else if (cmd === 'fill') {
-      fill(selected ?? lines, selected !== null)
+    } else if (cmd === 'fill' || cmd === 'fill!') {
+      fill(selected ?? lines, selected !== null, cmd === 'fill!')
     } else if (/^base(\s|$)/.test(cmd)) {
       base(cmd.slice(4).trim())
     } else if (cmd === 'share') {

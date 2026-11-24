@@ -372,17 +372,88 @@ export function offTarget(line: BudgetLine): boolean {
   )
 }
 
+/** A part of a target `:fill` could not fund, and how much of it is missing. */
+export interface FillShort {
+  line: BudgetLine
+  /** The goal it belongs to; null for the base and the schedules. */
+  goalId: string | null
+  missing: number
+}
+
+export interface FillPlan {
+  set: Array<{ line: BudgetLine; amount: number }>
+  short: Array<FillShort>
+}
+
 /**
- * `:fill` (ADR-086): every envelope of `lines` with a target, allocated
- * that target; envelopes already there are left out, so running it again
- * changes nothing.
+ * `:fill` (ADR-086, ADR-093): every envelope of `lines` with a target,
+ * allocated that target; envelopes already there are left out, so running
+ * it again changes nothing. Money comes from the pool in order: every
+ * envelope's base and schedules first, in the page's order, then the goals
+ * in their priority (`goalOrder`, lower first); it stops where the pool
+ * runs out and says what it could not fund. What an envelope already has
+ * counts first; an envelope given more than its target gives the rest back.
+ * `force` (`:fill!`) fills every target whatever the pool.
  */
-export function fillTargets(
+export function fillPlan(
   lines: Array<BudgetLine>,
-): Array<{ line: BudgetLine; amount: number }> {
-  return lines
-    .filter((l) => offTarget(l) && !l.archived)
-    .map((line) => ({ line, amount: line.target?.total ?? 0 }))
+  {
+    pool,
+    goalOrder = new Map(),
+    force = false,
+  }: { pool: number; goalOrder?: Map<string, number>; force?: boolean },
+): FillPlan {
+  const envelopes = lines.filter((l) => offTarget(l) && !l.archived)
+  let left = force ? Number.POSITIVE_INFINITY : pool
+  const level = new Map<string, number>()
+  const wanted = new Map<string, number>()
+  for (const line of envelopes) {
+    const total = line.target?.total ?? 0
+    // Money above the target goes back to the pool first.
+    if (line.allocated > total) left += line.allocated - total
+    level.set(line.id, Math.min(line.allocated, total))
+    wanted.set(line.id, 0)
+  }
+  const short: Array<FillShort> = []
+  function give(line: BudgetLine, goalId: string | null, amount: number) {
+    if (amount <= 0) return
+    const want = (wanted.get(line.id) ?? 0) + amount
+    wanted.set(line.id, want)
+    const has = level.get(line.id) ?? 0
+    if (want <= has) return
+    const granted = Math.min(want - has, Math.max(left, 0))
+    level.set(line.id, has + granted)
+    left -= granted
+    const missing = Math.min(amount, want - has - granted)
+    if (missing > 0) short.push({ line, goalId, missing })
+  }
+  for (const line of envelopes) {
+    const t = line.target
+    if (!t) continue
+    give(
+      line,
+      null,
+      (t.base ?? 0) + t.schedules.reduce((s, x) => s + x.amount, 0),
+    )
+  }
+  const goals = envelopes
+    .flatMap((line, at) =>
+      (line.target?.goals ?? []).map((g, i) => ({ line, g, at, i })),
+    )
+    .toSorted(
+      (a, b) =>
+        (goalOrder.get(a.g.goalId) ?? Number.MAX_SAFE_INTEGER) -
+          (goalOrder.get(b.g.goalId) ?? Number.MAX_SAFE_INTEGER) ||
+        a.at - b.at ||
+        a.i - b.i,
+    )
+  for (const { line, g } of goals) give(line, g.goalId, g.amount)
+  return {
+    set: envelopes
+      .map((line) => ({ line, amount: level.get(line.id) ?? 0 }))
+      .filter(({ line, amount }) => amount !== line.allocated),
+    short,
+  }
 }
 
 /**

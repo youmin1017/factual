@@ -5,7 +5,7 @@ import {
   budgetLines,
   categoryNodes,
   copyLastMonth,
-  fillTargets,
+  fillPlan,
   incomeLines,
   monthLabel,
   monthTotals,
@@ -290,14 +290,114 @@ assert.equal(monthLabel('2026-03'), '2026 年 3 月')
   assert.ok(!offTarget(rentLine))
   // Only envelopes off their target, and not archived ones.
   assert.deepEqual(
-    fillTargets(withTargets).map((f) => [f.line.id, f.amount]),
+    fillPlan(withTargets, { pool: 10000 }).set.map((f) => [
+      f.line.id,
+      f.amount,
+    ]),
     [['food', 6500]],
   )
   // Run again once filled: nothing to do.
   const filled = withTargets.map((l) =>
     l.id === 'food' ? { ...l, allocated: 6500 } : l,
   )
-  assert.deepEqual(fillTargets(filled), [])
+  assert.deepEqual(fillPlan(filled, { pool: 10000 }), { set: [], short: [] })
+  // The pool limits it; what the envelope has counts first.
+  const tight = fillPlan(withTargets, { pool: 1000 })
+  assert.deepEqual(
+    tight.set.map((f) => [f.line.id, f.amount]),
+    [['food', 6000]],
+  )
+  assert.deepEqual(
+    tight.short.map((x) => [x.line.id, x.goalId, x.missing]),
+    [['food', null, 500]],
+  )
+  // :fill! fills it whatever the pool.
+  assert.deepEqual(
+    fillPlan(withTargets, { pool: -50, force: true }).set.map((f) => f.amount),
+    [6500],
+  )
+  // Nothing in the pool takes nothing back from envelopes below target.
+  assert.deepEqual(fillPlan(withTargets, { pool: -50 }).set, [])
+
+  // :fill with goals (ADR-093): bases and schedules first in page order,
+  // then the goals in priority order, until the pool runs out.
+  {
+    const goalMonth = {
+      envelopes: [
+        { categoryId: 'food', allocated: 0, activity: 0, carried: 0 },
+        { categoryId: 'rent', allocated: 0, activity: 0, carried: 0 },
+        { categoryId: 'power', allocated: 900, activity: 0, carried: 0 },
+      ],
+      incomes: [],
+      targets: [
+        {
+          categoryId: 'food',
+          total: 3000 + 800,
+          base: 3000,
+          schedules: [],
+          goals: [{ goalId: 'phones', amount: 800 }],
+        },
+        {
+          categoryId: 'rent',
+          total: 10000 + 2000,
+          base: null,
+          schedules: [{ scheduleId: 'rent', amount: 10000 }],
+          goals: [{ goalId: 'trip', amount: 2000 }],
+        },
+        // Over its target: the rest goes back to the pool first.
+        {
+          categoryId: 'power',
+          total: 600,
+          base: 600,
+          schedules: [],
+          goals: [],
+        },
+      ],
+    }
+    const goalLines = pageLines(categories, goalMonth)
+    const order = new Map([
+      ['trip', 0],
+      ['phones', 1],
+    ])
+    // 14,000 + 300 given back: 3,000 and 10,000 first, then the trip (the
+    // first goal) gets 1,300 of its 2,000 and the headphones nothing.
+    const plan = fillPlan(goalLines, { pool: 14000, goalOrder: order })
+    assert.deepEqual(
+      plan.set.map((f) => [f.line.id, f.amount]),
+      [
+        ['food', 3000],
+        ['rent', 11300],
+        ['power', 600],
+      ],
+    )
+    assert.deepEqual(
+      plan.short.map((x) => [x.goalId, x.missing]),
+      [
+        ['trip', 700],
+        ['phones', 800],
+      ],
+    )
+    // The other priority: the headphones first.
+    const other = fillPlan(goalLines, {
+      pool: 14000,
+      goalOrder: new Map([
+        ['phones', 0],
+        ['trip', 1],
+      ]),
+    })
+    assert.deepEqual(
+      other.set.map((f) => [f.line.id, f.amount]),
+      [
+        ['food', 3800],
+        ['rent', 10500],
+        ['power', 600],
+      ],
+    )
+    assert.deepEqual(
+      other.short.map((x) => [x.goalId, x.missing]),
+      [['trip', 1500]],
+    )
+  }
   // :copylast leaves envelopes with a target alone.
   const empty = pageLines(categories, {
     ...month,
