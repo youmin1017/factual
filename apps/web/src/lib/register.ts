@@ -256,7 +256,16 @@ export function plannedId(scheduleId: string, occurrence: string): string {
 /** The transaction an occurrence posts, as the server writes it (ADR-085). */
 export function plannedTransaction(o: Occurrence): Transaction {
   const id = plannedId(o.scheduleId, o.occurrence)
-  const entries: Transaction['entries'] = [
+  // An occurrence of several lines (a loan payment's principal and
+  // interest, ADR-097) lists every entry it posts.
+  const entries: Transaction['entries'] = o.entries?.map((e, i) => ({
+    id: `${id}-${i}`,
+    accountId: e.accountId,
+    categoryId: e.categoryId,
+    amount: e.amount,
+    memo: e.memo,
+    cleared: 'uncleared',
+  })) ?? [
     {
       id: `${id}-0`,
       accountId: o.accountId,
@@ -266,7 +275,7 @@ export function plannedTransaction(o: Occurrence): Transaction {
       cleared: 'uncleared',
     },
   ]
-  if (o.transferAccountId) {
+  if (!o.entries && o.transferAccountId) {
     entries.push({
       id: `${id}-1`,
       accountId: o.transferAccountId,

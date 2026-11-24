@@ -72,6 +72,25 @@ export function statementsQuery(budgetId: string, accountId: string) {
   )
 }
 
+/**
+ * A loan account's terms, standing and table (ADR-096..098); null while it
+ * has no terms. Reloaded with its register, whose saves change it.
+ */
+export function loanQuery(budgetId: string, accountId: string) {
+  return queryOptions({
+    queryKey: ['loan', budgetId, accountId],
+    queryFn: async ({ signal }) => {
+      const { data, error, response } = await api.GET(
+        '/budgets/{budgetId}/accounts/{accountId}/loan',
+        { params: { path: { budgetId, accountId } }, signal },
+      )
+      if (response.status === 404) return null
+      if (error) throw error
+      return data
+    },
+  })
+}
+
 export type CardSettings = Schemas['CardSettings']
 export type Statement = Schemas['Statement']
 

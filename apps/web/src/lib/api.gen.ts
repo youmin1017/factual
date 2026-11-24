@@ -618,6 +618,85 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/accounts/{accountId}/loan': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    /**
+     * A loan's terms, where it stands and its table (ADR-096..098)
+     * @description 404 for an account that is not a loan or whose terms are not set.
+     */
+    get: operations['getLoan']
+    /**
+     * Set a loan account's terms
+     * @description Saves the terms and its rates, and the schedule that pays it when it
+     *     has an account to pay from (ADR-097). The first time, the loan is
+     *     tracked from the first payment after today, and an account with no
+     *     entries gets an opening balance of what the terms leave owed then
+     *     (ADR-098); setting terms again keeps that day. Problems carry the
+     *     field in `details.field`.
+     */
+    put: operations['setLoan']
+    post?: never
+    /** Remove a loan's terms and its schedule; posted payments stay */
+    delete: operations['deleteLoan']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/accounts/{accountId}/loan/preview': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** The table terms would give, without saving them */
+    post: operations['previewLoan']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/accounts/{accountId}/loan/align': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Align what the loan owes on a day with what the bank shows (ADR-098)
+     * @description Posts the difference on the loan account alone (payee 貸款調整, no
+     *     category), so neither the pool nor an envelope changes; nothing when
+     *     they already agree. Later periods are computed from the aligned
+     *     balance.
+     */
+    post: operations['alignLoan']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/budgets/{budgetId}/statements/{statementId}/due': {
     parameters: {
       query?: never
@@ -1720,6 +1799,174 @@ export interface components {
       /** Format: int64 */
       amount: number
       estimate: boolean
+      /**
+       * @description Every entry the occurrence posts, when it is more than one line
+       *     (a loan payment, principal and interest, ADR-097).
+       */
+      entries?: components['schemas']['OccurrenceEntry'][]
+    }
+    /**
+     * @description 本息平均攤還 (level payments) or 本金平均攤還 (equal principal).
+     * @enum {string}
+     */
+    LoanMethod: 'annuity' | 'equalPrincipal'
+    /**
+     * @description What an extra payment does, end earlier or keep the end and pay less.
+     * @enum {string}
+     */
+    PrepayMode: 'shortenTerm' | 'reducePayment'
+    LoanRate: {
+      /** Format: date */
+      effectiveFrom: string
+      /**
+       * Format: double
+       * @description Percent a year, up to four decimals (2.35 is 2.35%).
+       */
+      annualRate: number
+    }
+    LoanTerms: {
+      /**
+       * Format: int64
+       * @description The amount lent.
+       */
+      principal: number
+      /** Format: int32 */
+      termMonths: number
+      /**
+       * Format: date
+       * @description 撥款日.
+       */
+      startDate: string
+      /**
+       * Format: date
+       * @description 首期繳款日; its day of the month is the payment day.
+       */
+      firstPaymentDate: string
+      method: components['schemas']['LoanMethod']
+      /**
+       * Format: int32
+       * @description Months at the start that pay only interest.
+       */
+      graceMonths: number
+      prepayMode: components['schemas']['PrepayMode']
+      /** @description The first from 撥款日, later ones are rate changes from their date. */
+      rates: components['schemas']['LoanRate'][]
+      /**
+       * Format: uuid
+       * @description The on-budget account payments come from; without one nothing is posted.
+       */
+      payFromAccountId: string | null
+      /** Format: uuid */
+      principalCategoryId: string | null
+      /** Format: uuid */
+      interestCategoryId: string | null
+      holidayShift: components['schemas']['HolidayShift']
+    }
+    /**
+     * @description `before`: paid before the loan was set up (from the terms); `posted`:
+     *     paid by its schedule (actual figures); `skipped`; `pending`: its date has
+     *     come but it is not posted; `planned`: still to come.
+     * @enum {string}
+     */
+    LoanPeriodState: 'before' | 'posted' | 'skipped' | 'pending' | 'planned'
+    LoanPeriod: {
+      /** Format: int32 */
+      n: number
+      /**
+       * Format: date
+       * @description The payment date the terms give (before moving off days off).
+       */
+      date: string
+      /** Format: double */
+      annualRate: number
+      /** Format: int64 */
+      principal: number
+      /** Format: int64 */
+      interest: number
+      /**
+       * Format: int64
+       * @description What is owed after it.
+       */
+      balance: number
+      state: components['schemas']['LoanPeriodState']
+    }
+    LoanPreview: {
+      /**
+       * Format: int64
+       * @description The first payment that repays principal (after any grace).
+       */
+      payment: number
+      /** Format: int64 */
+      totalInterest: number
+      periods: components['schemas']['LoanPeriod'][]
+    }
+    /** @description What the terms say is owed on a day against what the loan account says. */
+    LoanCheck: {
+      /** Format: date */
+      date: string
+      /** Format: int64 */
+      computed: number
+      /** Format: int64 */
+      recorded: number
+    }
+    LoanDetails: {
+      /** Format: uuid */
+      accountId: string
+      terms: components['schemas']['LoanTerms']
+      /**
+       * Format: date
+       * @description The first payment its schedule pays; earlier ones were paid before it was set up.
+       */
+      trackedFrom: string | null
+      /** Format: uuid */
+      scheduleId: string | null
+      /**
+       * Format: int64
+       * @description What the loan account says is owed today.
+       */
+      principalLeft: number
+      /** Format: int64 */
+      principalRepaid: number
+      /**
+       * Format: int64
+       * @description The terms' interest before it was set up plus what its payments posted.
+       */
+      interestPaid: number
+      /** Format: int32 */
+      periodsLeft: number
+      nextPayment: components['schemas']['LoanPeriod'] | null
+      /** Format: date */
+      payoffDate: string | null
+      /** @description Before the first tracked payment, terms against the account (null when it is paid off). */
+      check: components['schemas']['LoanCheck'] | null
+      periods: components['schemas']['LoanPeriod'][]
+    }
+    LoanAlign: {
+      /** Format: date */
+      date: string
+      /**
+       * Format: int64
+       * @description What the bank shows as owed at the end of that day.
+       */
+      principalLeft: number
+    }
+    LoanAligned: {
+      /** Format: uuid */
+      transactionId: string | null
+      /**
+       * Format: int64
+       * @description The change posted on the loan account (positive lowers what is owed).
+       */
+      adjustment: number
+    }
+    OccurrenceEntry: {
+      memo: string
+      /** Format: uuid */
+      accountId: string
+      /** Format: uuid */
+      categoryId: string | null
+      /** Format: int64 */
+      amount: number
     }
     OccurrenceRef: {
       /** Format: date */
@@ -2942,6 +3189,139 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['BillingChanged']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  getLoan: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description The loan */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LoanDetails']
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  setLoan: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoanTerms']
+      }
+    }
+    responses: {
+      /** @description The loan */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LoanDetails']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  deleteLoan: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Removed */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  previewLoan: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoanTerms']
+      }
+    }
+    responses: {
+      /** @description The table */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LoanPreview']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+    }
+  }
+  alignLoan: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+        accountId: components['parameters']['AccountId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoanAlign']
+      }
+    }
+    responses: {
+      /** @description Aligned */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LoanAligned']
         }
       }
       400: components['responses']['BadRequest']

@@ -11,6 +11,7 @@ import {
   newRow,
   parseDate,
   plannedId,
+  plannedRows,
   rowFromTransaction,
   rowStatus,
   rowsFromTransactions,
@@ -477,6 +478,41 @@ assert.deepEqual(
   assert.equal(other.planned?.occurrence, '2026-11-25')
   // They are not in the balance yet.
   assert.deepEqual(runningBalances(buffer), [-2400, -2400, -2400, -2400])
+}
+
+// A loan payment's 預定 row (ADR-097): its occurrence lists the entries,
+// so on the paying account it is a split of principal (a transfer to the
+// loan) and interest, and stays clean until edited.
+{
+  const interest = 'interest'
+  const loanDue: Occurrence = {
+    scheduleId: '6f1c2a10-0000-4000-8000-000000000003',
+    occurrence: '2026-12-10',
+    date: '2026-12-10',
+    payee: '',
+    note: '第 23/240 期',
+    accountId: bank,
+    transferAccountId: null,
+    categoryId: null,
+    amount: -5059,
+    estimate: false,
+    entries: [
+      { accountId: bank, categoryId: food, amount: -3400, memo: '本金' },
+      { accountId: loan, categoryId: null, amount: 3400, memo: '本金' },
+      { accountId: bank, categoryId: interest, amount: -1659, memo: '利息' },
+    ],
+  }
+  const [row] = plannedRows([loanDue], [bank])
+  assert.equal(row.amount, -5059)
+  assert.deepEqual(
+    row.splits?.map((l) => [l.transferTo, l.categoryId, l.amount, l.memo]),
+    [
+      [loan, food, -3400, '本金'],
+      [null, interest, -1659, '利息'],
+    ],
+  )
+  assert.equal(rowStatus(row, ctx), 'clean')
+  assert.equal(saveInput(row, ctx).entries.length, 3)
 }
 
 console.log('register: ok')

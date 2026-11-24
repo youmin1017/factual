@@ -208,6 +208,12 @@ interface Props {
   onQuit: () => void
   /** A credit card's register: the card and its statements (ADR-088). */
   card?: { id: string; statements: CardStatements }
+  /**
+   * Changed when something outside the grid changed the register (a loan's
+   * terms or alignment, ADR-098): it reads the register again, keeping
+   * unsaved changes.
+   */
+  stamp?: number
 }
 
 // Version 3: rows carry their key and account (ADR-071). Older drafts are dropped.
@@ -282,6 +288,7 @@ export function RegisterGrid({
   reload,
   onQuit,
   card,
+  stamp = 0,
 }: Props) {
   const key = draftKey(budgetId, view.key)
   /** The register's inner width: the text columns grow to fill it. */
@@ -1260,6 +1267,13 @@ export function RegisterGrid({
     setRows(next)
     setCursor((c) => ({ ...c, row: clamp(c.row, next.length) }))
   }
+
+  const seenStamp = useRef(stamp)
+  useEffect(() => {
+    if (stamp === seenStamp.current) return
+    seenStamp.current = stamp
+    void refresh()
+  })
 
   /** :post and :skip: each 預定 transaction of the rows, once. */
   async function onOccurrences(targets: Array<Row>, action: 'post' | 'skip') {

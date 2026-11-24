@@ -11,6 +11,7 @@ import {
   parseCardFields,
 } from '#/components/cards/card-settings'
 import { ConfirmDialog, NameDialog } from '#/components/dialogs'
+import { LoanDialog } from '#/components/loans/loan-dialog'
 import { PageHeader } from '#/components/section'
 import { Button } from '#/components/ui/button'
 import {
@@ -61,6 +62,8 @@ function AccountsPage() {
   const accounts = useQuery(accountsQuery(budget.id))
   const summary = useQuery(summaryQuery(budget.id))
   const [creating, setCreating] = useState(false)
+  /** A loan account just created, whose terms are asked next (ADR-096). */
+  const [newLoan, setNewLoan] = useState<Account | null>(null)
   const canManage = budget.role === 'owner'
 
   const all = accounts.data ?? []
@@ -166,6 +169,16 @@ function AccountsPage() {
         <CreateAccountDialog
           budget={budget}
           onClose={() => setCreating(false)}
+          onCreated={(account) =>
+            account.kind === 'loan' && setNewLoan(account)
+          }
+        />
+      )}
+      {newLoan && (
+        <LoanDialog
+          budget={budget}
+          account={newLoan}
+          onClose={() => setNewLoan(null)}
         />
       )}
     </div>
@@ -225,6 +238,7 @@ function AccountRow({
   const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [card, setCard] = useState(false)
+  const [loan, setLoan] = useState(false)
   const path = {
     params: { path: { budgetId: budget.id, accountId: account.id } },
   }
@@ -321,6 +335,11 @@ function AccountRow({
                 帳單設定…
               </DropdownMenuItem>
             )}
+            {account.kind === 'loan' && (
+              <DropdownMenuItem onSelect={() => setLoan(true)}>
+                貸款設定…
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem disabled={index <= 0} onSelect={() => move(-1)}>
               上移
             </DropdownMenuItem>
@@ -357,6 +376,13 @@ function AccountRow({
           budget={budget}
           account={account}
           onClose={() => setCard(false)}
+        />
+      )}
+      {loan && (
+        <LoanDialog
+          budget={budget}
+          account={account}
+          onClose={() => setLoan(false)}
         />
       )}
       {renaming && (
@@ -404,9 +430,11 @@ function today(): string {
 function CreateAccountDialog({
   budget,
   onClose,
+  onCreated,
 }: {
   budget: Budget
   onClose: () => void
+  onCreated: (account: Account) => void
 }) {
   const invalidate = useInvalidateAccounts(budget.id)
   const [name, setName] = useState('')
@@ -428,6 +456,7 @@ function CreateAccountDialog({
       toast.success(`已新增「${account.name}」`)
       await invalidate()
       onClose()
+      onCreated(account)
     },
     onError: (e) => setError(apiErrorMessage(e)),
   })
@@ -536,6 +565,11 @@ function CreateAccountDialog({
               />
             </div>
           </div>
+          {kind === 'loan' && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              目前欠款可以留空：新增後接著填貸款條件，會照條件算出今天的剩餘本金。
+            </p>
+          )}
           {kind === 'credit_card' && (
             <CardFields
               budgetId={budget.id}

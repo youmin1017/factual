@@ -1,7 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useState } from 'react'
 import { Amount } from '#/components/amount'
 import { StatementSummary } from '#/components/cards/statement-summary'
+import { LoanSummary } from '#/components/loans/loan-summary'
 import { RegisterGrid } from '#/components/register/register-grid'
 import { api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
@@ -96,6 +98,8 @@ function RegisterPage() {
     enabled: isCard,
   })
   const keymap = useKeymap()
+  /** Bumped when the loan's terms or alignment changed its register. */
+  const [stamp, setStamp] = useState(0)
 
   const failed = [accounts, categories, payees, register, upcoming].find(
     (q) => q.isError,
@@ -170,6 +174,8 @@ function RegisterPage() {
           '/budgets/{budgetId}/accounts/{accountId}/statements',
         ],
       }),
+      // What a loan owes and has paid (ADR-098).
+      queryClient.invalidateQueries({ queryKey: ['loan', budget.id] }),
     ])
     const [transactions, next] = await Promise.all([
       queryClient.fetchQuery(registerQuery(budget.id, viewKey)),
@@ -220,6 +226,13 @@ function RegisterPage() {
       {account?.kind === 'credit_card' && (
         <StatementSummary budget={budget} account={account} />
       )}
+      {account?.kind === 'loan' && (
+        <LoanSummary
+          budget={budget}
+          account={account}
+          onChanged={() => setStamp((n) => n + 1)}
+        />
+      )}
 
       {members.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -247,6 +260,7 @@ function RegisterPage() {
           }))}
           keymap={keymap}
           reload={reload}
+          stamp={stamp}
           card={
             isCard && cardStatements.data
               ? { id: viewKey, statements: cardStatements.data }
