@@ -3149,6 +3149,14 @@ components:
           type: integer
           format: int64
           description: What the schedule asks of the envelope this month (spending is positive).
+        loanAccountId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The loan a loan's schedule pays (ADR-097): its principal and
+            interest count in their categories' envelopes. Such schedules are
+            not on the schedules page.
     HolidayCalendar:
       type: object
       required: [years, days]

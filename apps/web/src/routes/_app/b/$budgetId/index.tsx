@@ -183,6 +183,17 @@ function BudgetPage() {
       return [sc.id, `${who}（${rule}）`]
     }),
   )
+  // A loan's payments are not on the schedules page; they are named after
+  // the loan (ADR-097).
+  for (const t of loaded.flatMap((m) => m.targets)) {
+    for (const sc of t.schedules) {
+      if (sc.loanAccountId)
+        scheduleNames.set(
+          sc.scheduleId,
+          `${accountName.get(sc.loanAccountId) ?? '貸款'}還款`,
+        )
+    }
+  }
   const goalInfo = new Map(
     (goals.data?.goals ?? []).map((g, order) => [
       g.id,

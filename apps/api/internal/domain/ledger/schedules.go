@@ -983,6 +983,24 @@ func monthTargets(ctx context.Context, f *budgetFacts, month time.Time) ([]api.E
 			if r.Paused || r.BudgetMode == db.BudgetModeNone {
 				continue
 			}
+			if r.LoanAccountID.Valid {
+				// A loan's payments ask their principal and interest in the
+				// month they post (ADR-097).
+				shares, err := f.loanParts(ctx, r, month, false)
+				if err != nil {
+					return nil, err
+				}
+				for env, amount := range shares {
+					if amount == 0 {
+						continue
+					}
+					t := target(env)
+					loan := r.LoanAccountID.UUID
+					t.Schedules = append(t.Schedules, api.ScheduleShare{ScheduleId: r.ID, Amount: amount, LoanAccountId: &loan})
+					t.Total += amount
+				}
+				continue
+			}
 			rr, err := parseRule(r.Rrule, r.StartDate)
 			if err != nil {
 				continue

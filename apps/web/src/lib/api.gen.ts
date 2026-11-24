@@ -2157,6 +2157,13 @@ export interface components {
        * @description What the schedule asks of the envelope this month (spending is positive).
        */
       amount: number
+      /**
+       * Format: uuid
+       * @description The loan a loan's schedule pays (ADR-097): its principal and
+       *     interest count in their categories' envelopes. Such schedules are
+       *     not on the schedules page.
+       */
+      loanAccountId?: string | null
     }
     HolidayCalendar: {
       /** @description Years with an imported calendar. */

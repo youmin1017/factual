@@ -29,6 +29,13 @@ type budgetFacts struct {
 	avg      map[time.Time][2]int64
 	off      map[time.Time]func(time.Time) bool
 	reserve  map[time.Time]map[uuid.UUID]int64
+	loans    map[uuid.UUID]*loanPlan
+}
+
+// loanPlan is a loan and its table, as the ledger has it now.
+type loanPlan struct {
+	setup   loanSetup
+	periods []loanPeriod
 }
 
 func (s *Service) facts(budgetID uuid.UUID) *budgetFacts {
@@ -38,7 +45,70 @@ func (s *Service) facts(budgetID uuid.UUID) *budgetFacts {
 		avg:      map[time.Time][2]int64{},
 		off:      map[time.Time]func(time.Time) bool{},
 		reserve:  map[time.Time]map[uuid.UUID]int64{},
+		loans:    map[uuid.UUID]*loanPlan{},
 	}
+}
+
+// loanPlan is the loan an account holds, worked out once per request.
+func (f *budgetFacts) loanPlan(ctx context.Context, account uuid.UUID) (*loanPlan, error) {
+	if p, ok := f.loans[account]; ok {
+		return p, nil
+	}
+	l, err := f.s.loadLoan(ctx, f.s.q, f.budgetID, account)
+	if err != nil {
+		return nil, err
+	}
+	a, _, err := f.s.loanLedger(ctx, f.s.q, f.budgetID, l)
+	if err != nil {
+		return nil, err
+	}
+	p := &loanPlan{setup: l, periods: loanTable(l.terms, a)}
+	f.loans[account] = p
+	return p, nil
+}
+
+// loanParts is what a loan's schedule asks of each envelope (ADR-097):
+// the principal and interest of the payments posting in the month (posted
+// ones as they were posted), or with held, of those posting in the month
+// or earlier and not posted yet, which is what it holds then (ADR-095).
+// Payments made before the loan was set up and skipped ones count for
+// nothing; it is always budgeted in full in its month.
+func (f *budgetFacts) loanParts(ctx context.Context, r db.ListSchedulesRow, month time.Time, held bool) (map[uuid.UUID]int64, error) {
+	out := map[uuid.UUID]int64{}
+	plan, err := f.loanPlan(ctx, r.LoanAccountID.UUID)
+	if err != nil {
+		return nil, err
+	}
+	row := plan.setup.row
+	if !row.PayFromAccountID.Valid {
+		return out, nil
+	}
+	envelope, err := f.envelopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	off, err := f.daysOff(ctx, month)
+	if err != nil {
+		return nil, err
+	}
+	ru := rule{shift: r.HolidayShift, off: off}
+	add := func(category uuid.NullUUID, amount int64) {
+		if env, ok := envelope[category.UUID]; ok && category.Valid && amount != 0 {
+			out[env] += amount
+		}
+	}
+	for _, p := range plan.periods {
+		if !p.tracked || p.skipped {
+			continue
+		}
+		posts := monthStart(ru.move(p.date))
+		if held && (p.posted || posts.After(month)) || !held && !posts.Equal(month) {
+			continue
+		}
+		add(row.PrincipalCategoryID, p.principal)
+		add(row.InterestCategoryID, p.interest)
+	}
+	return out, nil
 }
 
 func (f *budgetFacts) categories(ctx context.Context) ([]db.ListCategoriesRow, error) {
@@ -218,6 +288,16 @@ func (f *budgetFacts) scheduleReserve(ctx context.Context, month time.Time) (map
 		}
 		for _, r := range d.rows {
 			if r.Paused || r.BudgetMode == db.BudgetModeNone {
+				continue
+			}
+			if r.LoanAccountID.Valid {
+				held, err := f.loanParts(ctx, r, month, true)
+				if err != nil {
+					return nil, err
+				}
+				for env, v := range held {
+					out[env] += v
+				}
 				continue
 			}
 			rr, err := parseRule(r.Rrule, r.StartDate)

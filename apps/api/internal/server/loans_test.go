@@ -131,6 +131,47 @@ func TestLoans(t *testing.T) {
 		t.Fatalf("upcoming: %+v", occ)
 	}
 
+	// December's targets ask the 23rd payment's principal and interest in
+	// their envelopes, and its schedule holds them until it posts (ADR-097);
+	// November asks nothing (its payment came before the loan was set up).
+	p23 := periodOf(t, l, 23)
+	month := func(m string) api.BudgetMonth {
+		t.Helper()
+		rec := admin.do(http.MethodGet, budgetPath(f.budget, "/months/"+m), nil)
+		wantStatus(t, rec, http.StatusOK)
+		var out api.BudgetMonth
+		decode(t, rec, &out)
+		return out
+	}
+	loanShare := func(m api.BudgetMonth, env uuid.UUID) int64 {
+		for _, tg := range m.Targets {
+			for _, sc := range tg.Schedules {
+				if tg.CategoryId == env && sc.LoanAccountId != nil && *sc.LoanAccountId == house.Id {
+					return sc.Amount
+				}
+			}
+		}
+		return 0
+	}
+	held := func(m api.BudgetMonth, env uuid.UUID) int64 {
+		for _, sp := range m.SpokenFor {
+			if sp.CategoryId == env {
+				return sp.Schedules
+			}
+		}
+		return 0
+	}
+	dec := month("2026-12")
+	if loanShare(dec, f.principal.Id) != p23.Principal || loanShare(dec, interestCat.Id) != p23.Interest {
+		t.Fatalf("December targets: principal %d, interest %d; want %+v", loanShare(dec, f.principal.Id), loanShare(dec, interestCat.Id), p23)
+	}
+	if held(dec, f.principal.Id) != p23.Principal || held(dec, interestCat.Id) != p23.Interest {
+		t.Fatalf("December holds %d / %d", held(dec, f.principal.Id), held(dec, interestCat.Id))
+	}
+	if nov := month("2026-11"); loanShare(nov, f.principal.Id) != 0 || held(nov, interestCat.Id) != 0 {
+		t.Fatalf("November asks %d, holds %d", loanShare(nov, f.principal.Id), held(nov, interestCat.Id))
+	}
+
 	// 12/10: the job posts the 23rd payment, split into principal and
 	// interest; the loan owes its principal less.
 	setClock(time.Date(2026, 12, 10, 9, 0, 0, 0, time.UTC))
@@ -141,9 +182,13 @@ func TestLoans(t *testing.T) {
 		t.Fatalf("posted again: %d", n)
 	}
 	l = getLoan(t, admin, f.budget, house)
-	p23 := periodOf(t, l, 23)
+	p23 = periodOf(t, l, 23)
 	if p23.State != api.LoanPeriodStatePosted || l.PrincipalLeft != owed-p23.Principal {
 		t.Fatalf("after posting: %+v, left %d", p23, l.PrincipalLeft)
+	}
+	// Posted, it still counts in December's target but holds nothing.
+	if dec = month("2026-12"); loanShare(dec, f.principal.Id) != p23.Principal || held(dec, f.principal.Id) != 0 {
+		t.Fatalf("December after posting: asks %d, holds %d", loanShare(dec, f.principal.Id), held(dec, f.principal.Id))
 	}
 	var memo string
 	var interest int64
