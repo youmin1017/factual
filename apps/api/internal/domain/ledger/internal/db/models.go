@@ -25,7 +25,7 @@ const (
 	AccountKindSuspense   AccountKind = "suspense"
 )
 
-func (e *AccountKind) Scan(src interface{}) error {
+func (e *AccountKind) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = AccountKind(s)
@@ -43,7 +43,7 @@ type NullAccountKind struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullAccountKind) Scan(value interface{}) error {
+func (ns *NullAccountKind) Scan(value any) error {
 	if value == nil {
 		ns.AccountKind, ns.Valid = "", false
 		return nil
@@ -82,7 +82,7 @@ const (
 	BudgetModeSpread BudgetMode = "spread"
 )
 
-func (e *BudgetMode) Scan(src interface{}) error {
+func (e *BudgetMode) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = BudgetMode(s)
@@ -100,7 +100,7 @@ type NullBudgetMode struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullBudgetMode) Scan(value interface{}) error {
+func (ns *NullBudgetMode) Scan(value any) error {
 	if value == nil {
 		ns.BudgetMode, ns.Valid = "", false
 		return nil
@@ -135,7 +135,7 @@ const (
 	BudgetRoleViewer BudgetRole = "viewer"
 )
 
-func (e *BudgetRole) Scan(src interface{}) error {
+func (e *BudgetRole) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = BudgetRole(s)
@@ -153,7 +153,7 @@ type NullBudgetRole struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullBudgetRole) Scan(value interface{}) error {
+func (ns *NullBudgetRole) Scan(value any) error {
 	if value == nil {
 		ns.BudgetRole, ns.Valid = "", false
 		return nil
@@ -187,7 +187,7 @@ const (
 	CategoryKindIncome  CategoryKind = "income"
 )
 
-func (e *CategoryKind) Scan(src interface{}) error {
+func (e *CategoryKind) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = CategoryKind(s)
@@ -205,7 +205,7 @@ type NullCategoryKind struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullCategoryKind) Scan(value interface{}) error {
+func (ns *NullCategoryKind) Scan(value any) error {
 	if value == nil {
 		ns.CategoryKind, ns.Valid = "", false
 		return nil
@@ -239,7 +239,7 @@ const (
 	ClearedStateReconciled ClearedState = "reconciled"
 )
 
-func (e *ClearedState) Scan(src interface{}) error {
+func (e *ClearedState) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = ClearedState(s)
@@ -257,7 +257,7 @@ type NullClearedState struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullClearedState) Scan(value interface{}) error {
+func (ns *NullClearedState) Scan(value any) error {
 	if value == nil {
 		ns.ClearedState, ns.Valid = "", false
 		return nil
@@ -284,6 +284,61 @@ func (e ClearedState) Valid() bool {
 	return false
 }
 
+type GoalKind string
+
+const (
+	GoalKindTarget       GoalKind = "target"
+	GoalKindTargetByDate GoalKind = "target_by_date"
+	GoalKindMaintain     GoalKind = "maintain"
+	GoalKindMonthly      GoalKind = "monthly"
+)
+
+func (e *GoalKind) Scan(src any) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GoalKind(s)
+	case string:
+		*e = GoalKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GoalKind: %T", src)
+	}
+	return nil
+}
+
+type NullGoalKind struct {
+	GoalKind GoalKind
+	Valid    bool // Valid is true if GoalKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGoalKind) Scan(value any) error {
+	if value == nil {
+		ns.GoalKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GoalKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGoalKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GoalKind), nil
+}
+
+func (e GoalKind) Valid() bool {
+	switch e {
+	case GoalKindTarget,
+		GoalKindTargetByDate,
+		GoalKindMaintain,
+		GoalKindMonthly:
+		return true
+	}
+	return false
+}
+
 type HolidayShift string
 
 const (
@@ -292,7 +347,7 @@ const (
 	HolidayShiftPrevWorkday HolidayShift = "prev_workday"
 )
 
-func (e *HolidayShift) Scan(src interface{}) error {
+func (e *HolidayShift) Scan(src any) error {
 	switch s := src.(type) {
 	case []byte:
 		*e = HolidayShift(s)
@@ -310,7 +365,7 @@ type NullHolidayShift struct {
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullHolidayShift) Scan(value interface{}) error {
+func (ns *NullHolidayShift) Scan(value any) error {
 	if value == nil {
 		ns.HolidayShift, ns.Valid = "", false
 		return nil

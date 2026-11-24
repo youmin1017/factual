@@ -25,7 +25,7 @@ func monthly(id uuid.UUID, account uuid.UUID, category *uuid.UUID, dayOfMonth st
 	return api.ScheduleInput{
 		Id: id, Source: "每月 " + dayOfMonth + " 日", Rule: "FREQ=MONTHLY;BYMONTHDAY=" + dayOfMonth, Start: start,
 		HolidayShift: api.NoShift, Payee: "訂閱", AccountId: account, CategoryId: category, Amount: amount,
-		BudgetMode: api.Full,
+		BudgetMode: api.BudgetModeFull,
 	}
 }
 
@@ -337,13 +337,13 @@ func TestBudgetTargets(t *testing.T) {
 	spotify := monthly(uuid.New(), f.card.Id, &f.food.Id, "20", date(2026, 12, 20), -149)
 	gas := monthly(uuid.New(), f.bank.Id, &fuel.Id, "1", date(2026, 12, 1), -1000)
 	gym := monthly(uuid.New(), f.card.Id, &f.food.Id, "1", date(2026, 12, 1), -999)
-	gym.BudgetMode = api.NotBudgeted
+	gym.BudgetMode = api.BudgetModeNotBudgeted
 	paused := monthly(uuid.New(), f.card.Id, &f.food.Id, "2", date(2026, 12, 2), -777)
 	paused.Paused = true
 	yearly := api.ScheduleInput{
 		Id: uuid.New(), Source: "每年 3/15", Rule: "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15", Start: date(2027, 3, 15),
 		HolidayShift: api.NoShift, Payee: "保費", AccountId: f.bank.Id, CategoryId: &insurance.Id, Amount: -1200,
-		BudgetMode: api.Spread,
+		BudgetMode: api.BudgetModeSpread,
 	}
 	mustSaveSchedules(t, admin, f.budget, netflix, spotify, gas, gym, paused, yearly)
 

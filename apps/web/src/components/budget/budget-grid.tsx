@@ -522,6 +522,12 @@ export function BudgetGrid({
         (s) =>
           `${scheduleNames.get(s.scheduleId) ?? '排程'} ${money(s.amount)}`,
       ),
+      // Savings goals ask after the schedules (ADR-093).
+      ...(goal.goals.length > 0
+        ? [
+            `儲蓄目標 ${money(goal.goals.reduce((sum, g) => sum + g.amount, 0))}`,
+          ]
+        : []),
     ]
     const diff = goal.total - line.allocated
     const off =

@@ -264,10 +264,17 @@ assert.equal(monthLabel('2026-03'), '2026 年 3 月')
         total: 6500,
         base: 5000,
         schedules: [{ scheduleId: 's1', amount: 1500 }],
+        goals: [],
       },
-      { categoryId: 'rent', total: 12000, base: null, schedules: [] },
+      {
+        categoryId: 'rent',
+        total: 12000,
+        base: null,
+        schedules: [],
+        goals: [],
+      },
       // An archived envelope with a target still shows.
-      { categoryId: 'old', total: 300, base: 300, schedules: [] },
+      { categoryId: 'old', total: 300, base: 300, schedules: [], goals: [] },
     ],
   }
   const withTargets = pageLines(categories, month)

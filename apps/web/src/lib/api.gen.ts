@@ -934,6 +934,57 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/goals': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    /**
+     * The budget's goals in priority order, with what each has saved (ADR-092, ADR-094)
+     * @description Every goal, achieved and archived ones included, in priority order,
+     *     with what it has saved today (its envelope's balance handed down the
+     *     envelope's open goals in that order) and what it asks this month
+     *     (ADR-093). Also what the page needs to project when each goal is
+     *     reached: the budget's average monthly spending, its typical monthly
+     *     income, this month's targets without goals and the envelopes'
+     *     balances.
+     */
+    get: operations['listGoals']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/goals/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the goals page's buffer in one database transaction (:w)
+     * @description Upserts are keyed by the client-generated goal id. All or nothing,
+     *     with problems reported per goal (ADR-044).
+     */
+    post: operations['saveGoals']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/holidays': {
     parameters: {
       query?: never
@@ -1676,12 +1727,153 @@ export interface components {
       categoryId: string
       /**
        * Format: int64
-       * @description base plus the schedules' amounts.
+       * @description base plus the schedules' and the goals' amounts.
        */
       total: number
       /** Format: int64 */
       base: number | null
       schedules: components['schemas']['ScheduleShare'][]
+      /** @description What the envelope's open goals ask this month, in priority order (ADR-093). */
+      goals: components['schemas']['GoalShare'][]
+    }
+    GoalShare: {
+      /** Format: uuid */
+      goalId: string
+      /** Format: int64 */
+      amount: number
+    }
+    /**
+     * @description 目標金額 (a total, optionally saved at most monthlyAmount a month),
+     *     期限前存到 (a total by a date), 維持水位 (maintainMonths times the
+     *     average monthly spending, optionally at most monthlyAmount a month),
+     *     每月固定 (monthlyAmount every month, no total) (ADR-092).
+     * @enum {string}
+     */
+    GoalKind: 'target' | 'targetByDate' | 'maintain' | 'monthly'
+    /**
+     * @description 存錢中, 已存滿, 冷靜中 (full but its waitUntil is still ahead), 已達成
+     *     (marked by the owner), 已封存.
+     * @enum {string}
+     */
+    GoalStatus: 'saving' | 'full' | 'waiting' | 'achieved' | 'archived'
+    GoalInput: {
+      /** Format: uuid */
+      id: string
+      /**
+       * Format: uuid
+       * @description An expense category; the goal counts for the envelope it is budgeted in.
+       */
+      categoryId: string
+      name: string
+      kind: components['schemas']['GoalKind']
+      /**
+       * Format: int64
+       * @description target and targetByDate.
+       */
+      targetAmount: number | null
+      /**
+       * Format: date
+       * @description targetByDate.
+       */
+      targetDate: string | null
+      /**
+       * Format: int64
+       * @description monthly; at most this much a month for target and maintain.
+       */
+      monthlyAmount: number | null
+      /**
+       * Format: int32
+       * @description maintain.
+       */
+      maintainMonths: number | null
+      note: string
+      /** @description Where the thing to buy is sold. */
+      url: string
+      /**
+       * Format: date
+       * @description A cooling-off date; full goals show 冷靜中 until then.
+       */
+      waitUntil: string | null
+      achieved: boolean
+      archived: boolean
+      /**
+       * Format: int32
+       * @description Position in the budget's priority order (lower first).
+       */
+      sortOrder: number
+    }
+    Goal: components['schemas']['GoalInput'] & {
+      /**
+       * Format: uuid
+       * @description The envelope the goal counts for; null when its category is in none.
+       */
+      envelopeId: string | null
+      /** Format: date-time */
+      createdAt: string
+      /** Format: date-time */
+      achievedAt: string | null
+      /**
+       * Format: int64
+       * @description Its share of its envelope's balance today.
+       */
+      saved: number
+      /**
+       * Format: int64
+       * @description The amount it saves towards (the level for maintain); null for monthly.
+       */
+      total: number | null
+      /**
+       * Format: int64
+       * @description What it asks of its envelope this month (ADR-093).
+       */
+      ask: number
+      status: components['schemas']['GoalStatus']
+    }
+    EnvelopeBalance: {
+      /** Format: uuid */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description At the end of the current month.
+       */
+      balance: number
+      /**
+       * Format: int64
+       * @description At the start of the current month.
+       */
+      carried: number
+    }
+    GoalList: {
+      /** @description The current month, YYYY-MM. */
+      month: string
+      goals: components['schemas']['Goal'][]
+      /**
+       * Format: int64
+       * @description Average monthly spending over the last six complete months that have any.
+       */
+      averageSpending: number
+      /**
+       * Format: int64
+       * @description Median monthly income over the last six complete months that have any.
+       */
+      typicalIncome: number
+      /**
+       * Format: int64
+       * @description This month's targets without goals (bases and schedules).
+       */
+      baseTargets: number
+      /** @description Every envelope with money, folded as the targets are. */
+      envelopes: components['schemas']['EnvelopeBalance'][]
+    }
+    GoalBatch: {
+      upserts: components['schemas']['GoalInput'][]
+      deletes: string[]
+    }
+    GoalBatchSaved: {
+      /** Format: int32 */
+      upserted: number
+      /** Format: int32 */
+      deleted: number
     }
     ScheduleShare: {
       /** Format: uuid */
@@ -3147,6 +3339,67 @@ export interface operations {
       }
       400: components['responses']['BadRequest']
       404: components['responses']['NotFound']
+    }
+  }
+  listGoals: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Goals */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['GoalList']
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  saveGoals: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GoalBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['GoalBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      /** @description Nothing was saved; the goals listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
     }
   }
   getHolidays: {

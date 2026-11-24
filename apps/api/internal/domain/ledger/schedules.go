@@ -56,7 +56,7 @@ var shiftToDB = map[api.HolidayShift]db.HolidayShift{
 }
 
 var modeToDB = map[api.BudgetMode]db.BudgetMode{
-	api.NotBudgeted: db.BudgetModeNone, api.Full: db.BudgetModeFull, api.Spread: db.BudgetModeSpread,
+	api.BudgetModeNotBudgeted: db.BudgetModeNone, api.BudgetModeFull: db.BudgetModeFull, api.BudgetModeSpread: db.BudgetModeSpread,
 }
 
 func shiftFromDB(v db.HolidayShift) api.HolidayShift {
@@ -74,7 +74,7 @@ func modeFromDB(v db.BudgetMode) api.BudgetMode {
 			return k
 		}
 	}
-	return api.NotBudgeted
+	return api.BudgetModeNotBudgeted
 }
 
 // scheduleEntry is one entry of the transaction a schedule posts.
@@ -912,7 +912,7 @@ func (s *Service) monthTargets(ctx context.Context, budgetID uuid.UUID, month ti
 	target := func(id uuid.UUID) *api.EnvelopeTarget {
 		t, ok := targets[id]
 		if !ok {
-			t = &api.EnvelopeTarget{CategoryId: id, Schedules: []api.ScheduleShare{}}
+			t = &api.EnvelopeTarget{CategoryId: id, Schedules: []api.ScheduleShare{}, Goals: []api.GoalShare{}}
 			targets[id] = t
 		}
 		return t
@@ -965,6 +965,19 @@ func (s *Service) monthTargets(ctx context.Context, budgetID uuid.UUID, month ti
 				t.Schedules = append(t.Schedules, api.ScheduleShare{ScheduleId: r.ID, Amount: amount})
 				t.Total += amount
 			}
+		}
+	}
+
+	// Goals ask after the schedules, in priority order (ADR-093).
+	goals, asks, err := s.goalAsks(ctx, budgetID, month, envelope)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range goals {
+		if amount := asks[g.id]; amount > 0 {
+			t := target(g.envelope)
+			t.Goals = append(t.Goals, api.GoalShare{GoalId: g.id, Amount: amount})
+			t.Total += amount
 		}
 	}
 	out := make([]api.EnvelopeTarget, 0, len(targets))
