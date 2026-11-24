@@ -640,13 +640,31 @@ function baseInput(tx: Transaction): TransactionInput {
 
 export type RowStatus = 'clean' | 'new' | 'changed' | 'deleted'
 
+/**
+ * Statuses already worked out, per context and row. Rows are never changed
+ * in place (an edit makes a new row), so an edit recomputes only the rows it
+ * touched instead of comparing every row of the register again.
+ */
+const statusCache = new WeakMap<Context, WeakMap<Row, RowStatus>>()
+
 export function rowStatus(row: Row, ctx: Context): RowStatus {
   if (!row.base) return 'new'
   if (row.deleted) return 'deleted'
-  // A transfer is saved without a payee; compare it the same way.
-  const saved = baseInput(row.base)
-  if (row.transferTo) saved.payee = ''
-  return canonical(toInput(row, ctx)) === canonical(saved) ? 'clean' : 'changed'
+  let known = statusCache.get(ctx)
+  if (!known) {
+    known = new WeakMap()
+    statusCache.set(ctx, known)
+  }
+  let status = known.get(row)
+  if (!status) {
+    // A transfer is saved without a payee; compare it the same way.
+    const saved = baseInput(row.base)
+    if (row.transferTo) saved.payee = ''
+    status =
+      canonical(toInput(row, ctx)) === canonical(saved) ? 'clean' : 'changed'
+    known.set(row, status)
+  }
+  return status
 }
 
 export interface RowProblem {

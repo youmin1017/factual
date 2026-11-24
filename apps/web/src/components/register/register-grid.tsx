@@ -375,9 +375,9 @@ export function RegisterGrid({
   useEffect(() => {
     writeDraft(
       key,
-      rows.filter((r) => rowStatus(r, ctx) !== 'clean'),
+      rows.filter((_, i) => statuses[i] !== 'clean'),
     )
-  }, [key, rows, ctx])
+  }, [key, rows, statuses])
 
   const virtualizer = useVirtualizer({
     count: rows.length,

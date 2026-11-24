@@ -153,3 +153,22 @@ func TestEveryOperationDeclaresAccess(t *testing.T) {
 		}
 	}
 }
+
+// API responses are gzipped when the client accepts it; small ones, like the
+// health check, are sent as they are.
+func TestAPICompression(t *testing.T) {
+	rec := request(t, fakeDB{}, http.MethodGet, "/api/healthz", "Accept-Encoding", "gzip")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if got := rec.Header().Get("Vary"); !strings.Contains(got, "Accept-Encoding") {
+		t.Fatalf("Vary = %q, want Accept-Encoding (gzip middleware on the API)", got)
+	}
+	if got := rec.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding = %q for a small response, want none", got)
+	}
+	var got api.Health
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body: %v (%q)", err, rec.Body)
+	}
+}

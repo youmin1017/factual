@@ -901,12 +901,12 @@ func envelopeOf(cats []db.ListCategoriesRow) map[uuid.UUID]uuid.UUID {
 }
 
 // monthTargets is every envelope's target for the month (ADR-086).
-func (s *Service) monthTargets(ctx context.Context, budgetID uuid.UUID, month time.Time) ([]api.EnvelopeTarget, error) {
-	cats, err := s.q.ListCategories(ctx, budgetID)
+func monthTargets(ctx context.Context, f *budgetFacts, month time.Time) ([]api.EnvelopeTarget, error) {
+	cats, err := f.categories(ctx)
 	if err != nil {
 		return nil, err
 	}
-	envelope := envelopeOf(cats)
+	envelope := f.envelope
 	envelopes := envelopeSet(cats)
 	targets := map[uuid.UUID]*api.EnvelopeTarget{}
 	target := func(id uuid.UUID) *api.EnvelopeTarget {
@@ -926,12 +926,12 @@ func (s *Service) monthTargets(ctx context.Context, budgetID uuid.UUID, month ti
 		}
 	}
 
-	d, err := s.loadSchedules(ctx, budgetID)
+	d, err := f.schedules(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if len(d.rows) > 0 {
-		off, err := s.daysOff(ctx, month.AddDate(0, -targetWindow-1, 0), month.AddDate(0, targetWindow+2, 0))
+		off, err := f.daysOff(ctx, month)
 		if err != nil {
 			return nil, err
 		}
@@ -969,7 +969,7 @@ func (s *Service) monthTargets(ctx context.Context, budgetID uuid.UUID, month ti
 	}
 
 	// Goals ask after the schedules, in priority order (ADR-093).
-	goals, asks, err := s.goalAsks(ctx, budgetID, month, envelope)
+	goals, asks, err := goalAsks(ctx, f, month)
 	if err != nil {
 		return nil, err
 	}

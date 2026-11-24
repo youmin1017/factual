@@ -40,7 +40,8 @@ func (h *Handlers) GetBudgetMonth(ctx context.Context, req api.GetBudgetMonthReq
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.s.q.ListEnvelopeMonth(ctx, db.ListEnvelopeMonthParams{BudgetID: req.BudgetId, Month: month})
+	f := h.s.facts(req.BudgetId)
+	rows, err := f.envelopeMonth(ctx, month)
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +59,11 @@ func (h *Handlers) GetBudgetMonth(ctx context.Context, req api.GetBudgetMonthReq
 	for _, r := range incomeRows {
 		incomes = append(incomes, api.IncomeMonth{CategoryId: r.CategoryID.UUID, Received: r.Received})
 	}
-	targets, err := h.s.monthTargets(ctx, req.BudgetId, month)
+	targets, err := monthTargets(ctx, f, month)
 	if err != nil {
 		return nil, err
 	}
-	spoken, err := h.s.spokenFor(ctx, req.BudgetId, month)
+	spoken, err := spokenFor(ctx, f, month)
 	if err != nil {
 		return nil, err
 	}

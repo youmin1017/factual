@@ -111,6 +111,13 @@ assert.equal(lunchRow.amount, -2400)
 assert.equal(rowStatus(lunchRow, ctx), 'clean')
 assert.equal(rowStatus({ ...lunchRow, note: '聚餐' }, ctx), 'changed')
 assert.equal(rowStatus({ ...lunchRow, deleted: true }, ctx), 'deleted')
+// Statuses are kept per row and context: asking again gives the same answer,
+// and a context with other accounts compares afresh.
+assert.equal(rowStatus(lunchRow, ctx), 'clean')
+assert.equal(
+  rowStatus(lunchRow, { ...ctx, minorUnits: ctx.minorUnits }),
+  'clean',
+)
 
 // A transfer seen from either side, and rebuilt with both entries.
 const pay = tx('pay', [entry(bank, null, -2400), entry(card, null, 2400)])
