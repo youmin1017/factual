@@ -185,8 +185,9 @@ func (h *Handlers) ListSchedules(ctx context.Context, req api.ListSchedulesReque
 	}
 	out := make([]api.Schedule, 0, len(d.rows))
 	for _, r := range d.rows {
-		// A card's autopay is set with the card (ADR-090).
-		if r.CardID.Valid {
+		// A card's autopay is set with the card (ADR-090), a loan's payments
+		// with the loan (ADR-097).
+		if r.CardID.Valid || r.LoanAccountID.Valid {
 			continue
 		}
 		account, transfer, category, amount := lines(d.entries[r.ID])
@@ -284,6 +285,10 @@ func (h *Handlers) SaveSchedules(ctx context.Context, req api.SaveSchedulesReque
 			probs.add(u.Id, "", "autopay_schedule", "a card's autopay is set in the card's settings")
 			continue
 		}
+		if old[u.Id].LoanAccountID.Valid {
+			probs.add(u.Id, "", "loan_schedule", "a loan's payments are set in the loan's terms")
+			continue
+		}
 		rr, err := parseRule(u.Rule, u.Start.Time)
 		if err != nil {
 			probs.add(u.Id, "rule", "invalid_rule", "the rule is not a daily, weekly, monthly or yearly RRULE")
@@ -324,6 +329,8 @@ func (h *Handlers) SaveSchedules(ctx context.Context, req api.SaveSchedulesReque
 			probs.add(id, "", "not_found", "schedule not found")
 		} else if old[id].CardID.Valid {
 			probs.add(id, "", "autopay_schedule", "a card's autopay is set in the card's settings")
+		} else if old[id].LoanAccountID.Valid {
+			probs.add(id, "", "loan_schedule", "a loan's payments are set in the loan's terms")
 		}
 	}
 	if len(probs) > 0 {
@@ -463,6 +470,19 @@ func (s *Service) postDue(ctx context.Context, scheduleID uuid.UUID, today time.
 				break
 			}
 			cur = addDays(o.Nominal, 1)
+			if sc.LoanAccountID.Valid {
+				id, ended, err := s.postLoan(ctx, q, sc, o, sc.CreatedBy)
+				if err != nil {
+					return err
+				}
+				if ended {
+					break
+				}
+				if id != uuid.Nil {
+					count++
+				}
+				continue
+			}
 			if sc.CardID.Valid {
 				id, err := s.postAutopay(ctx, q, sc, o, sc.CreatedBy)
 				if err != nil {
@@ -622,6 +642,18 @@ func (h *Handlers) ListUpcoming(ctx context.Context, req api.ListUpcomingRequest
 	out := []api.Occurrence{}
 	for _, r := range d.rows {
 		if r.Paused || !r.NextOccurrence.Valid {
+			continue
+		}
+		if r.LoanAccountID.Valid {
+			rr, err := parseRule(r.Rrule, r.StartDate)
+			if err != nil {
+				continue
+			}
+			occs, err := h.s.loanUpcoming(ctx, req.BudgetId, r, rule{rr: rr, shift: r.HolidayShift, off: off}, posted[r.ID], d.skips[r.ID], until)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, occs...)
 			continue
 		}
 		var autopayFrom uuid.UUID
@@ -805,7 +837,19 @@ func (h *Handlers) PostOccurrence(ctx context.Context, req api.PostOccurrenceReq
 		}
 		by := uuid.NullUUID{UUID: reqctx.Caller(ctx).UserID, Valid: true}
 		o := occurrence{Nominal: occ, Date: r.move(occ)}
-		if sc.CardID.Valid {
+		if sc.LoanAccountID.Valid {
+			// A loan's payment is what its table asks for the period (ADR-097).
+			l, p, ok, _, err := h.s.loanDue(ctx, q, sc.BudgetID, sc.LoanAccountID.UUID, occ)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return apperr.New(http.StatusConflict, "loan_nothing_due", "the loan asks for nothing on that date")
+			}
+			if id, err = insertOccurrenceID(ctx, q, sc.BudgetID, sc.ID, sc.PayeeID, periodNote(l, p), false, by, o, loanEntries(l, p)); err != nil {
+				return err
+			}
+		} else if sc.CardID.Valid {
 			// Autopay posts what its statement still asks (ADR-090).
 			_, amount, err := h.s.autopayDue(ctx, sc.BudgetID, sc.CardID.UUID, o)
 			if err != nil {

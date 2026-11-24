@@ -204,7 +204,7 @@ func (q *Queries) LastPostedOccurrences(ctx context.Context, ids []uuid.UUID) ([
 const listDueSchedules = `-- name: ListDueSchedules :many
 select s.id, s.budget_id
   from schedules s
- where s.next_occurrence <= $1 and s.paused_at is null and s.kind = 'template'
+ where s.next_occurrence <= $1 and s.paused_at is null
  order by s.next_occurrence
 `
 
@@ -307,10 +307,10 @@ func (q *Queries) ListScheduleSkips(ctx context.Context, budgetID uuid.UUID) ([]
 const listSchedules = `-- name: ListSchedules :many
 select s.id, s.source, s.rrule, s.start_date, s.holiday_shift, s.payee_id, p.name as payee_name,
        s.note, s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused,
-       s.budget_mode, s.created_by, s.created_at, s.card_id
+       s.budget_mode, s.created_by, s.created_at, s.card_id, s.loan_account_id
   from schedules s
   left join payees p on p.id = s.payee_id
- where s.budget_id = $1 and s.kind = 'template'
+ where s.budget_id = $1
  order by s.created_at, s.id
 `
 
@@ -330,6 +330,7 @@ type ListSchedulesRow struct {
 	CreatedBy        uuid.NullUUID
 	CreatedAt        time.Time
 	CardID           uuid.NullUUID
+	LoanAccountID    uuid.NullUUID
 }
 
 func (q *Queries) ListSchedules(ctx context.Context, budgetID uuid.UUID) ([]ListSchedulesRow, error) {
@@ -357,6 +358,7 @@ func (q *Queries) ListSchedules(ctx context.Context, budgetID uuid.UUID) ([]List
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.CardID,
+			&i.LoanAccountID,
 		); err != nil {
 			return nil, err
 		}
@@ -371,7 +373,7 @@ func (q *Queries) ListSchedules(ctx context.Context, budgetID uuid.UUID) ([]List
 const lockSchedule = `-- name: LockSchedule :one
 select s.id, s.budget_id, s.rrule, s.start_date, s.holiday_shift, s.payee_id, s.note,
        s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused, s.created_by,
-       s.card_id
+       s.card_id, s.loan_account_id
   from schedules s
  where s.id = $1
    for update
@@ -390,6 +392,7 @@ type LockScheduleRow struct {
 	Paused           bool
 	CreatedBy        uuid.NullUUID
 	CardID           uuid.NullUUID
+	LoanAccountID    uuid.NullUUID
 }
 
 func (q *Queries) LockSchedule(ctx context.Context, id uuid.UUID) (LockScheduleRow, error) {
@@ -408,6 +411,7 @@ func (q *Queries) LockSchedule(ctx context.Context, id uuid.UUID) (LockScheduleR
 		&i.Paused,
 		&i.CreatedBy,
 		&i.CardID,
+		&i.LoanAccountID,
 	)
 	return i, err
 }

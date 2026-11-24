@@ -392,6 +392,108 @@ func (e HolidayShift) Valid() bool {
 	return false
 }
 
+type LoanMethod string
+
+const (
+	LoanMethodAnnuity        LoanMethod = "annuity"
+	LoanMethodEqualPrincipal LoanMethod = "equal_principal"
+)
+
+func (e *LoanMethod) Scan(src any) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = LoanMethod(s)
+	case string:
+		*e = LoanMethod(s)
+	default:
+		return fmt.Errorf("unsupported scan type for LoanMethod: %T", src)
+	}
+	return nil
+}
+
+type NullLoanMethod struct {
+	LoanMethod LoanMethod
+	Valid      bool // Valid is true if LoanMethod is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullLoanMethod) Scan(value any) error {
+	if value == nil {
+		ns.LoanMethod, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.LoanMethod.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullLoanMethod) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.LoanMethod), nil
+}
+
+func (e LoanMethod) Valid() bool {
+	switch e {
+	case LoanMethodAnnuity,
+		LoanMethodEqualPrincipal:
+		return true
+	}
+	return false
+}
+
+type PrepayMode string
+
+const (
+	PrepayModeShortenTerm   PrepayMode = "shorten_term"
+	PrepayModeReducePayment PrepayMode = "reduce_payment"
+)
+
+func (e *PrepayMode) Scan(src any) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PrepayMode(s)
+	case string:
+		*e = PrepayMode(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PrepayMode: %T", src)
+	}
+	return nil
+}
+
+type NullPrepayMode struct {
+	PrepayMode PrepayMode
+	Valid      bool // Valid is true if PrepayMode is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPrepayMode) Scan(value any) error {
+	if value == nil {
+		ns.PrepayMode, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PrepayMode.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPrepayMode) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PrepayMode), nil
+}
+
+func (e PrepayMode) Valid() bool {
+	switch e {
+	case PrepayModeShortenTerm,
+		PrepayModeReducePayment:
+		return true
+	}
+	return false
+}
+
 type CreditCard struct {
 	AccountID        uuid.UUID
 	StatementDay     int16

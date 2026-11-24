@@ -1,10 +1,10 @@
 -- name: ListSchedules :many
 select s.id, s.source, s.rrule, s.start_date, s.holiday_shift, s.payee_id, p.name as payee_name,
        s.note, s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused,
-       s.budget_mode, s.created_by, s.created_at, s.card_id
+       s.budget_mode, s.created_by, s.created_at, s.card_id, s.loan_account_id
   from schedules s
   left join payees p on p.id = s.payee_id
- where s.budget_id = $1 and s.kind = 'template'
+ where s.budget_id = $1
  order by s.created_at, s.id;
 
 -- name: ListScheduleEntries :many
@@ -67,13 +67,13 @@ select schedule_id::uuid as schedule_id, occurrence_date::date as occurrence_dat
 -- date given (today plus the longest shift back to a working day).
 select s.id, s.budget_id
   from schedules s
- where s.next_occurrence <= $1 and s.paused_at is null and s.kind = 'template'
+ where s.next_occurrence <= $1 and s.paused_at is null
  order by s.next_occurrence;
 
 -- name: LockSchedule :one
 select s.id, s.budget_id, s.rrule, s.start_date, s.holiday_shift, s.payee_id, s.note,
        s.amount_is_estimate, s.next_occurrence, (s.paused_at is not null)::boolean as paused, s.created_by,
-       s.card_id
+       s.card_id, s.loan_account_id
   from schedules s
  where s.id = $1
    for update;
