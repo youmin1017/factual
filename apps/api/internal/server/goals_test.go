@@ -216,3 +216,68 @@ func TestGoals(t *testing.T) {
 		t.Fatalf("after delete %d goals", len(list.Goals))
 	}
 }
+
+// What schedules hold is not free, and goals share only the rest (ADR-095).
+func TestSpokenFor(t *testing.T) {
+	hs := newHarness(t)
+	admin := hs.browser().mustLogin(adminName, adminPassword)
+	f := newLedgerFixture(t, admin)
+	rec := createCategory(t, admin, f.budget, nil, "保險", api.Expense)
+	wantStatus(t, rec, http.StatusCreated)
+	var insurance api.Category
+	decode(t, rec, &insurance)
+
+	// A yearly 1,200 on 3/15 spread over the year before it (this year's
+	// is posted when saved), and 3,000 on the 25th budgeted in full.
+	yearly := api.ScheduleInput{
+		Id: uuid.New(), Source: "每年 3/15", Rule: "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15",
+		Start: date(2026, time.March, 15), HolidayShift: api.NoShift, Payee: "保費", AccountId: f.bank.Id,
+		CategoryId: &insurance.Id, Amount: -1200, BudgetMode: api.BudgetModeSpread,
+	}
+	mustSaveSchedules(t, admin, f.budget, yearly,
+		monthly(uuid.New(), f.bank.Id, &insurance.Id, "25", date(2026, time.November, 25), -3000))
+	if code := allocate(admin, f.budget, "2026-11", map[uuid.UUID]int64{insurance.Id: 6000}); code != http.StatusNoContent {
+		t.Fatalf("allocate = %d", code)
+	}
+	cover := api.GoalInput{
+		Id: uuid.New(), CategoryId: insurance.Id, Name: "醫療險升級", Kind: api.Target,
+		TargetAmount: ptr[int64](2000), MonthlyAmount: ptr[int64](500),
+	}
+	if code, _, probs := saveGoals(t, admin, f.budget, []api.GoalInput{cover}); code != http.StatusOK {
+		t.Fatalf("save goal = %d %+v", code, probs)
+	}
+
+	// 保險 ends November with -1,200 + 6,000 = 4,800. The schedules hold 800
+	// (April to November of the yearly) and 3,000 (the 25th, not posted);
+	// the goal saves 1,000 of the rest.
+	nov, _ := budgetMonth(t, admin, f.budget, "2026-11")
+	var held *api.SpokenFor
+	for i := range nov.SpokenFor {
+		if nov.SpokenFor[i].CategoryId == insurance.Id {
+			held = &nov.SpokenFor[i]
+		}
+	}
+	if held == nil || held.Schedules != 3800 || held.Goals != 1000 {
+		t.Fatalf("spoken for = %+v", nov.SpokenFor)
+	}
+	// The target: 100 of the yearly, the 3,000 and the goal's 500.
+	if tg := monthTargetsOf(t, admin, f.budget, "2026-11")[insurance.Id]; tg.Total != 100+3000+500 {
+		t.Fatalf("target = %+v", tg)
+	}
+	list, goals := listGoals(t, admin, f.budget)
+	if g := goals[cover.Id]; g.Saved != 1000 || g.Ask != 500 || g.Status != api.GoalStatusSaving {
+		t.Fatalf("goal = %+v", g)
+	}
+	for _, e := range list.Envelopes {
+		// What goals share: November's end less 3,800, and what came in
+		// (-1,200) less the 700 held at October's end.
+		if e.CategoryId == insurance.Id && (e.Balance != 1000 || e.Carried != -1900) {
+			t.Fatalf("envelope = %+v", e)
+		}
+	}
+	// October: the yearly holds 700; no goal yet.
+	oct, _ := budgetMonth(t, admin, f.budget, "2026-10")
+	if len(oct.SpokenFor) != 1 || oct.SpokenFor[0].Schedules != 700 || oct.SpokenFor[0].Goals != 0 {
+		t.Fatalf("october spoken for = %+v", oct.SpokenFor)
+	}
+}

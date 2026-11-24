@@ -227,8 +227,72 @@ func (s *Service) envelopeMoney(ctx context.Context, budgetID uuid.UUID, month t
 	return carried, balance, nil
 }
 
+// scheduleReserve is what each envelope holds at the end of the month for
+// its schedules' occurrences still to come or not posted yet (ADR-095);
+// envelopes holding nothing are left out.
+func (s *Service) scheduleReserve(ctx context.Context, budgetID uuid.UUID, month time.Time,
+	envelope map[uuid.UUID]uuid.UUID,
+) (map[uuid.UUID]int64, error) {
+	out := map[uuid.UUID]int64{}
+	d, err := s.loadSchedules(ctx, budgetID)
+	if err != nil || len(d.rows) == 0 {
+		return out, err
+	}
+	from := month.AddDate(0, -targetWindow-1, 0)
+	off, err := s.daysOff(ctx, from, month.AddDate(0, targetWindow+2, 0))
+	if err != nil {
+		return nil, err
+	}
+	posted, err := s.postedSince(ctx, s.q, budgetID, from)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range d.rows {
+		if r.Paused || r.BudgetMode == db.BudgetModeNone {
+			continue
+		}
+		rr, err := parseRule(r.Rrule, r.StartDate)
+		if err != nil {
+			continue
+		}
+		ru := rule{rr: rr, shift: r.HolidayShift, off: off}
+		for _, e := range d.entries[r.ID] {
+			if !e.CategoryID.Valid {
+				continue
+			}
+			env, ok := envelope[e.CategoryID.UUID]
+			if !ok {
+				continue
+			}
+			out[env] += setAside(targetInput{
+				rule: ru, mode: r.BudgetMode, created: r.CreatedAt, skipped: d.skips[r.ID], amount: -e.Amount,
+			}, month, posted[r.ID])
+		}
+	}
+	for env, v := range out {
+		if v <= 0 {
+			delete(out, env)
+		}
+	}
+	return out, nil
+}
+
+// less is each envelope's money less what its schedules hold: what its goals
+// share (ADR-095).
+func less(money, reserve map[uuid.UUID]int64) map[uuid.UUID]int64 {
+	out := make(map[uuid.UUID]int64, len(money)+len(reserve))
+	for env, m := range money {
+		out[env] = m
+	}
+	for env, r := range reserve {
+		out[env] -= r
+	}
+	return out
+}
+
 // goalAsks is what the active goals ask of their envelopes in the month, in
-// priority order, worked out from the balances carried into it (ADR-093).
+// priority order, worked out from the balances carried into it, less what
+// the schedules held then (ADR-093, ADR-095).
 func (s *Service) goalAsks(ctx context.Context, budgetID uuid.UUID, month time.Time,
 	envelope map[uuid.UUID]uuid.UUID,
 ) ([]goal, map[uuid.UUID]int64, error) {
@@ -244,6 +308,11 @@ func (s *Service) goalAsks(ctx context.Context, budgetID uuid.UUID, month time.T
 	if err != nil {
 		return nil, nil, err
 	}
+	held, err := s.scheduleReserve(ctx, budgetID, month.AddDate(0, -1, 0), envelope)
+	if err != nil {
+		return nil, nil, err
+	}
+	carried = less(carried, held)
 	avg, _, err := s.averages(ctx, budgetID, month)
 	if err != nil {
 		return nil, nil, err
@@ -276,6 +345,16 @@ func (h *Handlers) ListGoals(ctx context.Context, req api.ListGoalsRequestObject
 	if err != nil {
 		return nil, err
 	}
+	// Goals share what the schedules do not hold (ADR-095).
+	heldBefore, err := h.s.scheduleReserve(ctx, budgetID, month.AddDate(0, -1, 0), envelope)
+	if err != nil {
+		return nil, err
+	}
+	held, err := h.s.scheduleReserve(ctx, budgetID, month, envelope)
+	if err != nil {
+		return nil, err
+	}
+	carried, balance = less(carried, heldBefore), less(balance, held)
 	spending, income, err := h.s.averages(ctx, budgetID, month)
 	if err != nil {
 		return nil, err
@@ -497,4 +576,50 @@ func (h *Handlers) SaveGoals(ctx context.Context, req api.SaveGoalsRequestObject
 		return nil, apperr.FromDB(err)
 	}
 	return api.SaveGoals200JSONResponse{Upserted: int32(len(params)), Deleted: deleted}, nil
+}
+
+// spokenFor is, per envelope, what its schedules hold and what its goals
+// have saved at the end of the month (ADR-095); envelopes with neither are
+// left out.
+func (s *Service) spokenFor(ctx context.Context, budgetID uuid.UUID, month time.Time) ([]api.SpokenFor, error) {
+	cats, err := s.q.ListCategories(ctx, budgetID)
+	if err != nil {
+		return nil, err
+	}
+	envelope := envelopeOf(cats)
+	held, err := s.scheduleReserve(ctx, budgetID, month, envelope)
+	if err != nil {
+		return nil, err
+	}
+	saved := map[uuid.UUID]int64{}
+	rows, err := s.q.ListGoals(ctx, budgetID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > 0 {
+		_, balance, err := s.envelopeMoney(ctx, budgetID, month, envelope)
+		if err != nil {
+			return nil, err
+		}
+		avg, _, err := s.averages(ctx, budgetID, month)
+		if err != nil {
+			return nil, err
+		}
+		goals := make([]goal, 0, len(rows))
+		for _, r := range rows {
+			goals = append(goals, toGoal(r, envelope))
+		}
+		shares := shareBalances(goals, less(balance, held), func(g goal) bool { return g.activeIn(month) }, avg)
+		for _, g := range goals {
+			saved[g.envelope] += shares[g.id]
+		}
+	}
+	out := []api.SpokenFor{}
+	for env := range envelopeSet(cats) {
+		if held[env] > 0 || saved[env] > 0 {
+			out = append(out, api.SpokenFor{CategoryId: env, Schedules: held[env], Goals: saved[env]})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CategoryId.String() < out[j].CategoryId.String() })
+	return out, nil
 }

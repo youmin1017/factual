@@ -62,9 +62,13 @@ func (h *Handlers) GetBudgetMonth(ctx context.Context, req api.GetBudgetMonthReq
 	if err != nil {
 		return nil, err
 	}
+	spoken, err := h.s.spokenFor(ctx, req.BudgetId, month)
+	if err != nil {
+		return nil, err
+	}
 	return api.GetBudgetMonth200JSONResponse{
 		Month: month.Format("2006-01"), Pool: pool, Income: income, Envelopes: envelopes, Incomes: incomes,
-		Targets: targets,
+		Targets: targets, SpokenFor: spoken,
 	}, nil
 }
 

@@ -2,10 +2,12 @@
 import assert from 'node:assert/strict'
 import {
   afterSubtree,
+  available,
   budgetLines,
   categoryNodes,
   copyLastMonth,
   fillPlan,
+  findEnvelope,
   incomeLines,
   monthLabel,
   monthTotals,
@@ -407,6 +409,42 @@ assert.equal(monthLabel('2026-03'), '2026 年 3 月')
     copyLastMonth(empty, lines).map((c) => c.categoryId),
     ['power'],
   )
+}
+
+// 可動用 and finding an envelope by name (ADR-095).
+{
+  const month = {
+    envelopes: [
+      { categoryId: 'food', allocated: 6000, activity: 0, carried: -1200 },
+    ],
+    incomes: [],
+    spokenFor: [{ categoryId: 'food', schedules: 3800, goals: 1000 }],
+  }
+  const spoken = pageLines(categories, month)
+  const spokenFood = spoken.find((l) => l.id === 'food')
+  assert.ok(spokenFood)
+  assert.deepEqual(spokenFood.spoken, {
+    categoryId: 'food',
+    schedules: 3800,
+    goals: 1000,
+  })
+  assert.equal(available(spokenFood), 4800 - 3800 - 1000)
+  // Members and groups never hold any of it.
+  assert.equal(spoken.find((l) => l.id === 'eat-out')?.spoken, null)
+  const rent = spoken.find((l) => l.id === 'rent')
+  assert.ok(rent)
+  assert.equal(available(rent), 0)
+
+  const found = (text: string) => {
+    const got = findEnvelope(spoken, text)
+    return typeof got === 'string' ? got : got.id
+  }
+  assert.equal(found('居住/房租'), 'rent')
+  assert.equal(found('房租'), 'rent')
+  assert.equal(found(' 飲食 '), 'food')
+  assert.match(found('外食'), /共用預算/)
+  assert.match(found('居住'), /找不到/)
+  assert.match(found(''), /名稱/)
 }
 
 console.log('budget-month: ok')

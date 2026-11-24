@@ -1765,7 +1765,7 @@ components:
           description: Sum of the tracking (off-budget) accounts.
     BudgetMonth:
       type: object
-      required: [month, pool, income, envelopes, incomes, targets]
+      required: [month, pool, income, envelopes, incomes, targets, spokenFor]
       properties:
         month:
           type: string
@@ -1795,6 +1795,31 @@ components:
             envelope (a pooled parent for its subcategories' schedules).
           items:
             $ref: '#/components/schemas/EnvelopeTarget'
+        spokenFor:
+          type: array
+          description: |
+            Per envelope, the money it holds at the end of the month that is
+            not free to move (ADR-095): what its schedules have set aside for
+            occurrences still to come, and what its goals have saved from the
+            rest. Envelopes with neither are left out.
+          items:
+            $ref: '#/components/schemas/SpokenFor'
+    SpokenFor:
+      type: object
+      required: [categoryId, schedules, goals]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+          description: The envelope.
+        schedules:
+          type: integer
+          format: int64
+          description: Set aside for its schedules' occurrences not posted yet.
+        goals:
+          type: integer
+          format: int64
+          description: What its goals have saved.
     IncomeMonth:
       type: object
       required: [categoryId, received]
@@ -2729,7 +2754,9 @@ components:
           description: This month's targets without goals (bases and schedules).
         envelopes:
           type: array
-          description: Every envelope with money, folded as the targets are.
+          description: |
+            Every envelope with money, folded as the targets are, less what
+            its schedules hold (ADR-095): the money its goals share.
           items:
             $ref: '#/components/schemas/EnvelopeBalance'
     GoalBatch:

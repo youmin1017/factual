@@ -12,6 +12,7 @@ type CategoryKind = Schemas['CategoryKind']
 type EnvelopeMonth = Schemas['EnvelopeMonth']
 type IncomeMonth = Schemas['IncomeMonth']
 export type EnvelopeTarget = Schemas['EnvelopeTarget']
+export type SpokenFor = Schemas['SpokenFor']
 
 /**
  * - `section`: the heading of the expense or the income categories.
@@ -49,6 +50,12 @@ export interface BudgetLine {
    * schedules it covers ask for; null when it has none.
    */
   target: EnvelopeTarget | null
+  /**
+   * What an envelope holds at the end of the month that is not free to move
+   * (ADR-095): set aside for its schedules, saved by its goals; null when
+   * nothing is.
+   */
+  spoken: SpokenFor | null
 }
 
 export interface MonthTotals {
@@ -64,6 +71,8 @@ export interface LineOptions {
   all?: boolean
   /** The month's targets, by envelope (ADR-086). */
   targets?: Array<EnvelopeTarget>
+  /** What the month's envelopes hold for schedules and goals (ADR-095). */
+  spokenFor?: Array<SpokenFor>
 }
 
 /** `2026-11` → `2026-12`; `delta` may be negative. */
@@ -128,12 +137,18 @@ function childrenByParent(
 export function budgetLines(
   categories: Array<Category>,
   envelopes: Array<EnvelopeMonth>,
-  { showArchived = false, all = false, targets = [] }: LineOptions = {},
+  {
+    showArchived = false,
+    all = false,
+    targets = [],
+    spokenFor = [],
+  }: LineOptions = {},
 ): Array<BudgetLine> {
   const byParent = childrenByParent(
     categories.filter((c) => c.kind === 'expense' && !c.isSystem),
   )
   const targetOf = new Map(targets.map((t) => [t.categoryId, t]))
+  const spokenOf = new Map(spokenFor.map((x) => [x.categoryId, x]))
   const own = new Map(envelopes.map((e) => [e.categoryId, e]))
   const zero = { allocated: 0, activity: 0, carried: 0 }
 
@@ -165,6 +180,7 @@ export function budgetLines(
       balance: 0,
       archived: archived || c.archived,
       target: kind === 'envelope' ? (targetOf.get(c.id) ?? null) : null,
+      spoken: kind === 'envelope' ? (spokenOf.get(c.id) ?? null) : null,
     }
     const at = lines.length
     lines.push(line)
@@ -253,6 +269,7 @@ export function incomeLines(
       carried: 0,
       archived: archived || c.archived,
       target: null,
+      spoken: null,
     }
     const at = lines.length
     lines.push(line)
@@ -281,6 +298,7 @@ function section(kind: CategoryKind, totals: MonthTotals): BudgetLine {
     carried: 0,
     archived: false,
     target: null,
+    spoken: null,
     ...totals,
   }
 }
@@ -292,12 +310,14 @@ export function pageLines(
     envelopes: Array<EnvelopeMonth>
     incomes: Array<IncomeMonth>
     targets?: Array<EnvelopeTarget>
+    spokenFor?: Array<SpokenFor>
   },
   options: LineOptions = {},
 ): Array<BudgetLine> {
   const expense = budgetLines(categories, month.envelopes, {
     ...options,
     targets: month.targets,
+    spokenFor: month.spokenFor,
   })
   const income = incomeLines(categories, month.incomes, options)
   const received = income
@@ -329,6 +349,7 @@ export function pageMonths(
     envelopes: Array<EnvelopeMonth>
     incomes: Array<IncomeMonth>
     targets?: Array<EnvelopeTarget>
+    spokenFor?: Array<SpokenFor>
   }>,
   options: LineOptions = {},
 ): Array<MonthLines> {
@@ -361,6 +382,40 @@ export function targetTotal(lines: Array<BudgetLine>): number {
     (sum, l) => sum + (l.kind === 'envelope' ? (l.target?.total ?? 0) : 0),
     0,
   )
+}
+
+/**
+ * 可動用 (ADR-095): an envelope's balance less what its schedules hold and
+ * its goals have saved; below zero when it holds less than that.
+ */
+export function available(line: BudgetLine): number {
+  return (
+    line.balance - (line.spoken?.schedules ?? 0) - (line.spoken?.goals ?? 0)
+  )
+}
+
+/**
+ * The envelope a command names (`:move 500 飲食`): by path, else by a name
+ * only one envelope has; a message when there is none or several.
+ */
+export function findEnvelope(
+  lines: Array<BudgetLine>,
+  text: string,
+): BudgetLine | string {
+  const s = text.trim().replace(/^\/+|\/+$/g, '')
+  if (!s) return '請寫出預算的名稱，例如 :move 500 飲食'
+  const envelopes = lines.filter((l) => l.kind === 'envelope' && !l.archived)
+  const byPath = envelopes.find((l) => l.path === s)
+  if (byPath) return byPath
+  const byName = envelopes.filter((l) => l.name === s)
+  if (byName.length === 1) return byName[0]
+  if (byName.length > 1)
+    return `有 ${byName.length} 個預算叫「${s}」：請寫完整路徑，例如 ${byName[0].path}`
+  const member = lines.find(
+    (l) => l.kind === 'member' && (l.path === s || l.name === s),
+  )
+  if (member) return `「${member.path}」和上層共用預算：請寫上層的名稱`
+  return `找不到預算「${s}」`
 }
 
 /** Whether an envelope's allocation is not what its target asks. */

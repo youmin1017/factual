@@ -137,3 +137,42 @@ func TestSpreadSavesUpBeforeEachOccurrence(t *testing.T) {
 		}
 	}
 }
+
+func TestSetAside(t *testing.T) {
+	// A yearly 1,200 on 3/15 spread over the year before it: by the end of
+	// November, eight months (April to November) of 100 are put by.
+	yearly := mustRule(t, "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15", d(2026, 3, 15), db.HolidayShiftNone, nil)
+	in := targetInput{rule: yearly, mode: db.BudgetModeSpread, created: d(2026, 3, 1), amount: 1200}
+	posted := map[time.Time]bool{d(2026, 3, 15): true}
+	if s := setAside(in, d(2026, 11, 1), posted); s != 800 {
+		t.Errorf("spread set aside in November = %d, want 800", s)
+	}
+	if s := setAside(in, d(2027, 2, 1), posted); s != 1100 {
+		t.Errorf("spread set aside in February = %d, want 1100", s)
+	}
+	// In its month, all of it until it is posted; nothing once posted.
+	if s := setAside(in, d(2027, 3, 1), posted); s != 1200 {
+		t.Errorf("spread set aside in its month = %d, want 1200", s)
+	}
+	posted[d(2027, 3, 15)] = true
+	if s := setAside(in, d(2027, 3, 1), posted); s != 0 {
+		t.Errorf("spread set aside once posted = %d, want 0", s)
+	}
+
+	// A full monthly 3,000 on the 25th: held in its month until posted.
+	monthly := mustRule(t, "FREQ=MONTHLY;BYMONTHDAY=25", d(2026, 11, 25), db.HolidayShiftNone, nil)
+	full := targetInput{rule: monthly, mode: db.BudgetModeFull, amount: 3000, skipped: map[time.Time]bool{}}
+	if s := setAside(full, d(2026, 11, 1), nil); s != 3000 {
+		t.Errorf("full set aside before posting = %d, want 3000", s)
+	}
+	if s := setAside(full, d(2026, 10, 1), nil); s != 0 {
+		t.Errorf("full set aside before its first month = %d, want 0", s)
+	}
+	if s := setAside(full, d(2026, 11, 1), map[time.Time]bool{d(2026, 11, 25): true}); s != 0 {
+		t.Errorf("full set aside once posted = %d, want 0", s)
+	}
+	full.skipped[d(2026, 11, 25)] = true
+	if s := setAside(full, d(2026, 11, 1), nil); s != 0 {
+		t.Errorf("full set aside when skipped = %d, want 0", s)
+	}
+}

@@ -156,11 +156,38 @@ func monthShare(in targetInput, month time.Time) int64 {
 		return sum
 	}
 
+	var sum int64
+	for _, sp := range in.spans(month) {
+		mk := monthIndex(sp.occ.Date)
+		if m > mk || m < mk-sp.n+1 || in.skipped[sp.occ.Nominal] {
+			continue
+		}
+		share := in.amount / int64(sp.n)
+		if m == mk {
+			share += in.amount % int64(sp.n)
+		}
+		sum += share
+	}
+	return sum
+}
+
+// span is a spread occurrence and the number of months it is spread over,
+// its own month the last (ADR-086).
+type span struct {
+	occ occurrence
+	n   int
+}
+
+// spans are the occurrences around the month that a spread schedule asks
+// money for: each over the months after the one before it, the first from
+// the month the schedule was made (but over no more months than the gap to
+// the next).
+func (in targetInput) spans(month time.Time) []span {
 	from := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -targetWindow, 0)
 	to := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, targetWindow+1, -1)
 	occ := in.rule.between(from, to)
 	first := day(in.rule.rr.After(in.rule.rr.GetDTStart(), true))
-	var sum int64
+	out := make([]span, 0, len(occ))
 	for k, o := range occ {
 		mk := monthIndex(o.Date)
 		var n int
@@ -177,17 +204,45 @@ func monthShare(in targetInput, month time.Time) int64 {
 		default:
 			continue // its previous occurrence is before the window
 		}
-		if n < 1 {
-			n = 1
+		out = append(out, span{occ: o, n: max(n, 1)})
+	}
+	return out
+}
+
+// setAside is what the schedule's envelope holds for it at the end of the
+// month (ADR-095): of every occurrence still to come then (dated after the
+// month) or not posted yet, the part budgeted in that month or before it.
+// A full schedule is budgeted in its own month; a spread one over the
+// months before it.
+func setAside(in targetInput, month time.Time, posted map[time.Time]bool) int64 {
+	if in.mode == db.BudgetModeNone || in.amount == 0 {
+		return 0
+	}
+	start := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, -1)
+	pending := func(o occurrence) bool {
+		return !in.skipped[o.Nominal] && (o.Date.After(end) || !posted[o.Nominal])
+	}
+	var sum int64
+	if in.mode == db.BudgetModeFull {
+		for _, o := range in.rule.between(start.AddDate(0, -targetWindow, 0), end) {
+			if pending(o) {
+				sum += in.amount
+			}
 		}
-		if m > mk || m < mk-n+1 || in.skipped[o.Nominal] {
+		return sum
+	}
+	m := monthIndex(month)
+	for _, sp := range in.spans(month) {
+		mk := monthIndex(sp.occ.Date)
+		lo := mk - sp.n + 1
+		if lo > m || !pending(sp.occ) {
 			continue
 		}
-		share := in.amount / int64(n)
-		if m == mk {
-			share += in.amount % int64(n)
+		sum += int64(min(m, mk)-lo+1) * (in.amount / int64(sp.n))
+		if mk <= m {
+			sum += in.amount % int64(sp.n)
 		}
-		sum += share
 	}
 	return sum
 }

@@ -1,4 +1,4 @@
-import { EllipsisIcon } from 'lucide-react'
+import { EllipsisIcon, LockIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Amount } from '#/components/amount'
 import { CellEditor, eraseBeforeCaret } from '#/components/register/cell-editor'
@@ -15,9 +15,11 @@ import {
 } from '#/components/ui/dropdown-menu'
 import {
   afterSubtree,
+  available,
   categoryNodes,
   copyLastMonth,
   fillPlan,
+  findEnvelope,
   monthLabel,
   newPlace,
   offTarget,
@@ -501,6 +503,74 @@ export function BudgetGrid({
     )
   }
 
+  // ---------- moving money between envelopes (ADR-095)
+
+  /** Says when taking `amount` from `line` dips into what it holds for others. */
+  function dipNote(line: BudgetLine, amount: number): string {
+    const free = available(line)
+    return amount > free
+      ? `（動用了「${line.path}」為排程和目標保留的 ${formatAmount(amount - Math.max(free, 0), minorUnits)}）`
+      : ''
+  }
+
+  /** `:move N 分類`: N of the cursor's month from the cursor's envelope to another. */
+  function moveMoney(arg: string) {
+    const line = current
+    if (!line) return
+    const why = notEditable(line)
+    if (why) return say(why, 'error')
+    const m = /^(\S+)\s+(.+)$/.exec(arg)
+    if (!m)
+      return say('用法：:move 500 飲食（從這個預算移 500 到「飲食」）', 'error')
+    const amount = evalAmount(m[1], minorUnits)
+    if (amount === null || amount <= 0)
+      return say(`「${m[1]}」不是大於 0 的金額`, 'error')
+    const to = findEnvelope(lines, m[2])
+    if (typeof to === 'string') return say(to, 'error')
+    if (to.id === line.id) return say('要移到另一個預算', 'error')
+    setAllocations(
+      [
+        { line, amount: line.allocated - amount },
+        { line: to, amount: to.allocated + amount },
+      ],
+      `${monthName}從「${line.path}」移 ${formatAmount(amount, minorUnits)} 到「${to.path}」${dipNote(line, amount)}（u 可以復原）`,
+    )
+  }
+
+  /**
+   * `:cover 分類`: the cursor's overspent envelope gets what it is short in
+   * the cursor's month from another envelope; `:cover` alone takes it from
+   * the pool.
+   */
+  function coverGap(arg: string) {
+    const line = current
+    if (!line) return
+    const why = notEditable(line)
+    if (why) return say(why, 'error')
+    if (line.balance >= 0)
+      return say(`「${line.path}」${monthName}沒有超支`, 'error')
+    const gap = -line.balance
+    const money = formatAmount(gap, minorUnits)
+    if (!arg) {
+      return setAllocations(
+        [{ line, amount: line.allocated + gap }],
+        `從資金池補了「${line.path}」超支的 ${money}${
+          pool < gap ? '（資金池不夠，變成負的）' : ''
+        }（u 可以復原）`,
+      )
+    }
+    const from = findEnvelope(lines, arg)
+    if (typeof from === 'string') return say(from, 'error')
+    if (from.id === line.id) return say('要從另一個預算補', 'error')
+    setAllocations(
+      [
+        { line: from, amount: from.allocated - gap },
+        { line, amount: line.allocated + gap },
+      ],
+      `用「${from.path}」的 ${money} 補了「${line.path}」的超支${dipNote(from, gap)}（u 可以復原）`,
+    )
+  }
+
   /** `:base N`: the cursor's envelope's base amount; `:base` alone says it. */
   function base(arg: string) {
     const line = current
@@ -531,6 +601,21 @@ export function BudgetGrid({
         ? `已移除「${line.path}」的基本額`
         : `「${line.path}」每個月的基本額是 ${formatAmount(to, minorUnits)}；:fill 照目標分配`,
     )
+  }
+
+  /** What the cursor's envelope holds for others, for the status line. */
+  function spokenText(line: BudgetLine): string | null {
+    const x = line.spoken
+    if (line.kind !== 'envelope' || !x) return null
+    const money = (n: number) => formatAmount(n, minorUnits)
+    const parts = [
+      ...(x.schedules > 0 ? [`排程預留 ${money(x.schedules)}`] : []),
+      ...(x.goals > 0 ? [`目標已存 ${money(x.goals)}`] : []),
+    ]
+    const free = available(line)
+    return `可動用 ${money(free)}（餘額 ${money(line.balance)}：${parts.join('、')}）${
+      free < 0 ? '，不夠付已保留的' : ''
+    }`
   }
 
   /** The cursor's target and its parts, for the status line. */
@@ -1193,6 +1278,10 @@ export function BudgetGrid({
       setAllocation(current, current.allocated + amount)
     } else if (cmd === 'copylast') {
       void copyLast()
+    } else if (/^move(\s|$)/.test(cmd)) {
+      moveMoney(cmd.slice(4).trim())
+    } else if (/^cover(\s|$)/.test(cmd)) {
+      coverGap(cmd.slice(5).trim())
     } else if (cmd === 'fill' || cmd === 'fill!') {
       fill(selected ?? lines, selected !== null, cmd === 'fill!')
     } else if (/^base(\s|$)/.test(cmd)) {
@@ -1702,9 +1791,11 @@ export function BudgetGrid({
               : `y d c 作用在${monthLabel(month)}的分配`}
             ）
           </span>
-        ) : current && targetText(current) ? (
+        ) : current && (targetText(current) || spokenText(current)) ? (
           <span className="truncate text-muted-foreground">
-            {targetText(current)}
+            {[targetText(current), spokenText(current)]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         ) : (
           <span className="truncate text-muted-foreground">
@@ -1963,14 +2054,34 @@ function MonthCells({
         ) : (
           !member &&
           !income && (
-            <Amount
-              value={cell.balance}
-              minorUnits={minorUnits}
-              className={cn(
-                cell.balance > 0 && 'text-positive',
-                cell.balance === 0 && 'text-muted-foreground',
+            <span
+              className="flex items-center gap-1.5"
+              title={
+                cell.spoken
+                  ? `可動用 ${formatAmount(available(cell), minorUnits)}：排程預留 ${formatAmount(cell.spoken.schedules, minorUnits)}、目標已存 ${formatAmount(cell.spoken.goals, minorUnits)}`
+                  : undefined
+              }
+            >
+              {cell.spoken && (
+                <LockIcon
+                  aria-label="有為排程或目標保留的錢"
+                  className={cn(
+                    'size-3 shrink-0',
+                    available(cell) < 0
+                      ? 'text-destructive'
+                      : 'text-muted-foreground',
+                  )}
+                />
               )}
-            />
+              <Amount
+                value={cell.balance}
+                minorUnits={minorUnits}
+                className={cn(
+                  cell.balance > 0 && 'text-positive',
+                  cell.balance === 0 && 'text-muted-foreground',
+                )}
+              />
+            </span>
           )
         )}
       </span>

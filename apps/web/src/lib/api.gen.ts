@@ -1240,6 +1240,30 @@ export interface components {
        *     envelope (a pooled parent for its subcategories' schedules).
        */
       targets: components['schemas']['EnvelopeTarget'][]
+      /**
+       * @description Per envelope, the money it holds at the end of the month that is
+       *     not free to move (ADR-095): what its schedules have set aside for
+       *     occurrences still to come, and what its goals have saved from the
+       *     rest. Envelopes with neither are left out.
+       */
+      spokenFor: components['schemas']['SpokenFor'][]
+    }
+    SpokenFor: {
+      /**
+       * Format: uuid
+       * @description The envelope.
+       */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description Set aside for its schedules' occurrences not posted yet.
+       */
+      schedules: number
+      /**
+       * Format: int64
+       * @description What its goals have saved.
+       */
+      goals: number
     }
     IncomeMonth: {
       /** Format: uuid */
@@ -1862,7 +1886,10 @@ export interface components {
        * @description This month's targets without goals (bases and schedules).
        */
       baseTargets: number
-      /** @description Every envelope with money, folded as the targets are. */
+      /**
+       * @description Every envelope with money, folded as the targets are, less what
+       *     its schedules hold (ADR-095): the money its goals share.
+       */
       envelopes: components['schemas']['EnvelopeBalance'][]
     }
     GoalBatch: {
