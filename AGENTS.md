@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets fed from a pool, credit card statements, savings goals, loans, schedules, splitting between friends and groups, a Vim-style transaction editor). Go API + PostgreSQL + TanStack Start (React, SPA mode) monorepo. UI text is Traditional Chinese (zh-TW). Current phase: Phase 2, personal budgeting (M4 Account register and `:w` done; M5 Slash blocks skipped, ADR-077; M6 Envelopes, M7 Deployment, M9 Schedules and M8 Credit card statements done; M10 Savings goals and M11 Loans built, waiting for the owner's use to be done; Phase 3 is then complete); roadmap and milestones in `docs/PROJECT_BRIEF.md`. Do not start splitting (Phase 4) or Phase 5 items yet.
+Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets fed from a pool, credit card statements, savings goals, loans, schedules, splitting between friends and groups, a Vim-style transaction editor). Go API + PostgreSQL + TanStack Start (React, SPA mode) monorepo. UI text is Traditional Chinese (zh-TW). Current phase: Phases 2 (personal budgeting; M5 Slash blocks skipped, ADR-077) and 3 (credit card statements, schedules, savings goals, loans) are done; next is Phase 4, people and splitting, starting with M12 Invites and people; roadmap and milestones in `docs/PROJECT_BRIEF.md`. Do not start Phase 5 items yet.
 
 ## Map
 - `apps/api` Go module `factual/apps/api` (echo, oapi-codegen, sqlc on pgx/v5, goose).
