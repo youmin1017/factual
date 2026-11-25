@@ -253,6 +253,34 @@ paths:
                 $ref: '#/components/schemas/CurrentUser'
         '401':
           $ref: '#/components/responses/Unauthorized'
+    patch:
+      operationId: updateProfile
+      tags: [auth]
+      summary: Rename the logged-in user
+      description: |
+        Changes the username (what the user logs in with) and the display
+        name. Both are trimmed; the username is unique regardless of case
+        and has no spaces. Sessions and linked identities are unaffected.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /me/password:
     put:
       operationId: changePassword
@@ -1689,6 +1717,18 @@ components:
         hasPassword:
           type: boolean
           description: Whether the user can log in with a password.
+    ProfileUpdate:
+      type: object
+      required: [username, displayName]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 64
     Preferences:
       type: object
       required: [editorKeymap]

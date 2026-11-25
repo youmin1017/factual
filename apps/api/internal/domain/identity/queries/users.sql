@@ -44,3 +44,8 @@ select editor_keymap from users where id = $1;
 
 -- name: UpdatePreferences :exec
 update users set editor_keymap = sqlc.arg(editor_keymap) where id = sqlc.arg(id);
+
+-- name: UpdateUserProfile :exec
+update users
+   set username = sqlc.arg(username)::text, display_name = sqlc.arg(display_name)
+ where id = sqlc.arg(id);

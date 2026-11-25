@@ -295,6 +295,41 @@ func TestChangePassword(t *testing.T) {
 	hs.browser().mustLogin(adminName, "new-password-1")
 }
 
+func TestUpdateProfile(t *testing.T) {
+	hs := newHarness(t)
+	hs.addUser("ming", "ming-password")
+	here := hs.browser().mustLogin(adminName, adminPassword)
+	elsewhere := hs.browser().mustLogin(adminName, adminPassword)
+
+	rename := func(username, displayName string) *httptest.ResponseRecorder {
+		return here.do(http.MethodPatch, "/api/me", api.ProfileUpdate{Username: username, DisplayName: displayName})
+	}
+	wantError(t, rename("has space", "管理員"), http.StatusBadRequest, "invalid_username")
+	wantError(t, rename("  ", "管理員"), http.StatusBadRequest, "invalid_username")
+	wantError(t, rename("boss", "   "), http.StatusBadRequest, "invalid_display_name")
+	wantError(t, rename("MING", "管理員"), http.StatusConflict, "username_taken") // case-insensitive
+
+	rec := rename(" boss ", " 大 老 闆 ")
+	wantStatus(t, rec, http.StatusOK)
+	var u api.CurrentUser
+	decode(t, rec, &u)
+	if u.Username != "boss" || u.DisplayName != "大 老 闆" || !u.IsAdmin {
+		t.Fatalf("renamed user = %+v", u)
+	}
+	// Sessions carry on, under the new names.
+	for _, b := range []*browser{here, elsewhere} {
+		if me, status := b.me(); status != http.StatusOK || me.Username != "boss" || me.DisplayName != "大 老 闆" {
+			t.Fatalf("/me after renaming = %d %+v", status, me)
+		}
+	}
+	// The new username logs in; the old one no longer does.
+	wantError(t, hs.browser().login(adminName, adminPassword), http.StatusUnauthorized, "invalid_credentials")
+	hs.browser().mustLogin("BOSS", adminPassword)
+
+	// Keeping the username and changing only its case is allowed.
+	wantStatus(t, rename("Boss", "大老闆"), http.StatusOK)
+}
+
 func TestProviderSettingsAreAdminOnly(t *testing.T) {
 	hs := newHarness(t)
 	hs.addUser("ming", "ming-password")

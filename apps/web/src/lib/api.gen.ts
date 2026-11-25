@@ -199,7 +199,13 @@ export interface paths {
     delete?: never
     options?: never
     head?: never
-    patch?: never
+    /**
+     * Rename the logged-in user
+     * @description Changes the username (what the user logs in with) and the display
+     *     name. Both are trimmed; the username is unique regardless of case
+     *     and has no spaces. Sessions and linked identities are unaffected.
+     */
+    patch: operations['updateProfile']
     trace?: never
   }
   '/me/password': {
@@ -1184,6 +1190,10 @@ export interface components {
       isAdmin: boolean
       /** @description Whether the user can log in with a password. */
       hasPassword: boolean
+    }
+    ProfileUpdate: {
+      username: string
+      displayName: string
     }
     Preferences: {
       /**
@@ -2550,6 +2560,33 @@ export interface operations {
         }
       }
       401: components['responses']['Unauthorized']
+    }
+  }
+  updateProfile: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProfileUpdate']
+      }
+    }
+    responses: {
+      /** @description Renamed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CurrentUser']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      409: components['responses']['Conflict']
     }
   }
   changePassword: {

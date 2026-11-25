@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { PageHeader, Section } from '#/components/section'
@@ -21,6 +21,7 @@ import { apiErrorMessage, errorCodeMessage } from '#/lib/apiError'
 import { meQueryOptions, oidcLinkUrl } from '#/lib/auth'
 import { formatDateTime } from '#/lib/format'
 import type { Schemas } from '#/lib/api'
+import type { CurrentUser } from '#/lib/auth'
 
 type LinkedIdentity = Schemas['LinkedIdentity']
 
@@ -62,20 +63,98 @@ function ProfilePage() {
     <div>
       <PageHeader title="個人資料" />
 
-      <Section title="帳號">
-        <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-sm">
-          <dt className="text-muted-foreground">帳號</dt>
-          <dd className="font-mono">{user.username}</dd>
-          <dt className="text-muted-foreground">顯示名稱</dt>
-          <dd>{user.displayName}</dd>
-          <dt className="text-muted-foreground">角色</dt>
-          <dd>{user.isAdmin ? '站台管理員' : '一般使用者'}</dd>
-        </dl>
-      </Section>
-
+      <ProfileForm user={user} />
       <LinkedIdentities hasPassword={user.hasPassword} />
       <PasswordForm hasPassword={user.hasPassword} />
     </div>
+  )
+}
+
+/** The username (what the user logs in with) and display name, editable. */
+function ProfileForm({ user }: { user: CurrentUser }) {
+  const queryClient = useQueryClient()
+  const router = useRouter()
+  const [username, setUsername] = useState(user.username)
+  const [displayName, setDisplayName] = useState(user.displayName)
+  const [error, setError] = useState('')
+
+  const save = $api.useMutation('patch', '/me', {
+    onSuccess: async (saved) => {
+      toast.success(
+        saved.username === user.username
+          ? '已儲存'
+          : `已儲存，之後用「${saved.username}」登入`,
+      )
+      setUsername(saved.username)
+      setDisplayName(saved.displayName)
+      queryClient.setQueryData(meQueryOptions.queryKey, saved)
+      // The layout reads the user from its route context.
+      await router.invalidate()
+    },
+    onError: (e) => setError(apiErrorMessage(e)),
+  })
+
+  const changed =
+    username.trim() !== user.username || displayName.trim() !== user.displayName
+
+  function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    if (/\s/.test(username.trim())) {
+      setError('帳號不能有空白')
+      return
+    }
+    save.mutate({
+      body: { username: username.trim(), displayName: displayName.trim() },
+    })
+  }
+
+  return (
+    <Section title="帳號">
+      <form className="max-w-sm space-y-4" onSubmit={onSubmit}>
+        <div className="space-y-2">
+          <Label htmlFor="username">帳號</Label>
+          <Input
+            id="username"
+            className="font-mono"
+            autoComplete="username"
+            required
+            maxLength={64}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            用帳號密碼登入時輸入的名稱，不分大小寫。
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="display-name">顯示名稱</Label>
+          <Input
+            id="display-name"
+            autoComplete="nickname"
+            required
+            maxLength={64}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            顯示在畫面上、讓其他成員看到的名字。
+          </p>
+        </div>
+        <p className="text-sm">
+          <span className="text-muted-foreground">角色　</span>
+          {user.isAdmin ? '站台管理員' : '一般使用者'}
+        </p>
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        <Button type="submit" disabled={!changed || save.isPending}>
+          {save.isPending ? '儲存中…' : '儲存'}
+        </Button>
+      </form>
+    </Section>
   )
 }
 

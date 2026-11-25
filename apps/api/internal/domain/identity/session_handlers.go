@@ -63,6 +63,25 @@ func (h *Handlers) GetCurrentUser(ctx context.Context, _ api.GetCurrentUserReque
 	return api.GetCurrentUser200JSONResponse(currentUser(u)), nil
 }
 
+func (h *Handlers) UpdateProfile(ctx context.Context, req api.UpdateProfileRequestObject) (api.UpdateProfileResponseObject, error) {
+	p := reqctx.Caller(ctx)
+	u, err := h.s.UpdateProfile(ctx, p.UserID, req.Body.Username, req.Body.DisplayName)
+	switch {
+	case errors.Is(err, ErrInvalidUsername):
+		return nil, apperr.BadRequest("invalid_username", "the username is 1 to 64 characters without spaces")
+	case errors.Is(err, ErrInvalidDisplayName):
+		return nil, apperr.BadRequest("invalid_display_name", "the display name is 1 to 64 characters")
+	case errors.Is(err, ErrUsernameTaken):
+		return nil, apperr.New(http.StatusConflict, "username_taken", "another user has this username")
+	case err != nil:
+		return nil, err
+	}
+	if u.Username != p.Username {
+		slog.Info("username changed", "user", u.ID, "from", p.Username, "to", u.Username)
+	}
+	return api.UpdateProfile200JSONResponse(currentUser(u)), nil
+}
+
 func (h *Handlers) ChangePassword(ctx context.Context, req api.ChangePasswordRequestObject) (api.ChangePasswordResponseObject, error) {
 	err := h.s.ChangePassword(ctx, reqctx.Caller(ctx), reqctx.TokenFrom(ctx), req.Body.CurrentPassword, req.Body.NewPassword)
 	if errors.Is(err, ErrWrongPassword) {
