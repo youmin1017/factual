@@ -1,12 +1,15 @@
+import { cardFromValues } from './card-lines.ts'
 import { parseLoanFields } from './loan.ts'
 import { amountInputValue, formatAmount, parseAmount } from './money.ts'
 import type { Schemas } from './api'
+import type { CardValues } from './card-lines.ts'
 import type { Field, Option } from './form.ts'
 import type { LoanFieldValues } from './loan.ts'
 
 // The accounts page (ADR-108): its lines, edited as the goals page's are
 // and saved with :w; what an account is set up with is edited in a form
-// under the cell (ADR-107). Pure, tested with node.
+// under the cell (ADR-107), a loan's terms and a card's settings in lines
+// under the account's (ADR-110, ADR-117). Pure, tested with node.
 
 export type Account = Schemas['Account']
 export type AccountInput = Schemas['AccountInput']
@@ -77,6 +80,11 @@ export interface AccountRow {
   closed: boolean
   card: CardSettings | null
   /**
+   * A card's settings as edited in the lines under it (ADR-117); null while
+   * they are as saved (`card`).
+   */
+  cardEdit: CardValues | null
+  /**
    * A loan's terms as edited in its details under the line (ADR-110); null
    * while they are as saved.
    */
@@ -102,6 +110,7 @@ export function rowFromAccount(a: Account): AccountRow {
     openingDate: '',
     closed: a.closed,
     card: a.card ?? null,
+    cardEdit: null,
     loan: null,
   }
 }
@@ -118,8 +127,17 @@ export function newAccountRow(id: string, today: string): AccountRow {
     openingDate: today,
     closed: false,
     card: null,
+    cardEdit: null,
     loan: null,
   }
+}
+
+/** The card's settings the line comes to: edited or saved; a string while they are not complete. */
+export function cardOf(
+  row: AccountRow,
+  minorUnits = 0,
+): CardSettings | null | string {
+  return row.cardEdit ? cardFromValues(row.cardEdit, minorUnits) : row.card
 }
 
 export function toAccountInput(
@@ -137,7 +155,8 @@ export function toAccountInput(
     closed: row.closed,
     sortOrder,
   }
-  if (row.kind === 'credit_card' && row.card) input.card = { ...row.card }
+  const card = row.kind === 'credit_card' ? cardOf(row, minorUnits) : null
+  if (card && typeof card === 'object') input.card = { ...card }
   if (row.kind === 'loan' && row.loan) {
     const terms = parseLoanFields(row.loan, minorUnits)
     if (!('field' in terms)) input.loan = terms
@@ -146,7 +165,10 @@ export function toAccountInput(
 }
 
 /** Whether the line differs from its saved account (its place aside). */
-export function accountStatus(row: AccountRow): AccountRowStatus {
+export function accountStatus(
+  row: AccountRow,
+  minorUnits = 0,
+): AccountRowStatus {
   if (row.deleted) return 'deleted'
   if (!row.base) return 'new'
   const saved = rowFromAccount(row.base)
@@ -154,8 +176,9 @@ export function accountStatus(row: AccountRow): AccountRowStatus {
     row.loan === null &&
     row.name.trim() === saved.name &&
     row.closed === saved.closed &&
-    JSON.stringify(row.kind === 'credit_card' ? row.card : null) ===
-      JSON.stringify(saved.kind === 'credit_card' ? saved.card : null)
+    JSON.stringify(
+      row.kind === 'credit_card' ? cardOf(row, minorUnits) : null,
+    ) === JSON.stringify(saved.kind === 'credit_card' ? saved.card : null)
   return same ? 'clean' : 'changed'
 }
 
@@ -186,6 +209,15 @@ export function validateAccount(
     if ('field' in terms)
       return { field: null, message: `貸款條件：${terms.message}` }
   }
+  if (row.kind === 'credit_card') {
+    const card = cardOf(row, minorUnits)
+    if (typeof card === 'string') return { field: 'card', message: card }
+    if (card === null && row.base?.card)
+      return {
+        field: 'card',
+        message: '已經有的帳單設定不能清空：結帳日和繳款截止日都要填',
+      }
+  }
   return null
 }
 
@@ -203,18 +235,15 @@ export function kindLabel(kind: NewAccountKind): string {
 }
 
 /** A card's statement and due days in a few characters: 5 結 / 20 繳. */
-export function cardText(card: CardSettings | null): string {
+export function cardText(card: CardSettings | null | string): string {
+  if (typeof card === 'string') return '未填完'
   return card ? `${card.statementDay} 結 · ${card.dueDay} 繳` : ''
 }
 
 // ---------- the forms (ADR-107)
 
-/** The columns edited in a form: what a new account is, and a card's settings. */
-export function formOf(
-  row: AccountRow,
-  column: AccountColumn,
-): 'setup' | 'card' | null {
-  if (column === 'card') return row.kind === 'credit_card' ? 'card' : null
+/** The columns edited in a form: what a new account is. */
+export function formOf(row: AccountRow, column: AccountColumn): 'setup' | null {
   if (column === 'kind' || column === 'onBudget' || column === 'balance')
     return row.base ? null : 'setup'
   return null
@@ -303,71 +332,6 @@ export function applySetup(
     // Debts are typed as the amount owed and kept as a negative balance.
     openingBalance: isDebt(kind) ? -amount : amount,
     openingDate: values.date,
-  }
-}
-
-export function cardValues(
-  card: CardSettings | null,
-  minorUnits: number,
-): Record<string, string> {
-  return {
-    statementDay: card ? String(card.statementDay) : '',
-    dueDay: card ? String(card.dueDay) : '',
-    limit:
-      card?.creditLimit != null
-        ? amountInputValue(card.creditLimit, minorUnits)
-        : '',
-    autopay: card?.autopayAccountId ?? '',
-  }
-}
-
-/** The card form's fields; `payers` are the accounts a card can be paid from. */
-export function cardFields(payers: Array<Option>): Array<Field> {
-  return [
-    { key: 'statementDay', label: '結帳日', type: 'number', suffix: '日' },
-    { key: 'dueDay', label: '繳款截止', type: 'number', suffix: '日' },
-    {
-      key: 'limit',
-      label: '信用額度',
-      type: 'amount',
-      placeholder: '不填',
-    },
-    {
-      key: 'autopay',
-      label: '自動扣繳',
-      type: 'choice',
-      options: [{ value: '', label: '不扣繳' }, ...payers],
-    },
-  ]
-}
-
-export function applyCard(
-  values: Record<string, string>,
-  minorUnits: number,
-): Partial<AccountRow> | string {
-  const blank = (s: string) => s.trim() === ''
-  if (blank(values.statementDay) && blank(values.dueDay) && blank(values.limit))
-    return { card: null }
-  const day = (text: string) => {
-    const n = Number(text.trim())
-    return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null
-  }
-  const statementDay = day(values.statementDay)
-  const dueDay = day(values.dueDay)
-  if (statementDay === null || dueDay === null)
-    return '結帳日和繳款截止日請輸入 1 到 31'
-  let creditLimit: number | null = null
-  if (!blank(values.limit)) {
-    creditLimit = parseAmount(values.limit, minorUnits)
-    if (creditLimit === null || creditLimit < 0) return '信用額度的金額不對'
-  }
-  return {
-    card: {
-      statementDay,
-      dueDay,
-      creditLimit,
-      autopayAccountId: values.autopay || null,
-    },
   }
 }
 

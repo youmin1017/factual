@@ -2,9 +2,7 @@
 import assert from 'node:assert/strict'
 import {
   accountStatus,
-  applyCard,
   applySetup,
-  cardValues,
   formOf,
   lockedReason,
   newAccountRow,
@@ -29,6 +27,7 @@ const saved: Account = {
   hasActivity: true,
   card: null,
   friendId: null,
+  groupId: null,
 }
 const bank = rowFromAccount(saved)
 assert.equal(accountStatus(bank), 'clean')
@@ -70,26 +69,58 @@ assert.equal(
 const visa: AccountRow = { ...fresh, ...(card as Partial<AccountRow>) }
 assert.equal(setupValues(visa, 0).balance, '3000')
 
-// Card settings.
-assert.deepEqual(
-  applyCard({ statementDay: '5', dueDay: '20', limit: '', autopay: 'bank' }, 0),
-  {
+// Card settings edited in the lines under the card (ADR-117).
+assert.equal(accountStatus({ ...visa, base: null }), 'new')
+const savedVisa: AccountRow = {
+  ...visa,
+  base: {
+    id: 'n',
+    name: visa.name,
+    kind: 'credit_card',
+    onBudget: true,
+    closed: false,
+    sortOrder: 0,
+    balance: -3000,
+    clearedBalance: 0,
+    hasActivity: true,
     card: {
       statementDay: 5,
       dueDay: 20,
       creditLimit: null,
-      autopayAccountId: 'bank',
+      autopayAccountId: null,
     },
+    friendId: null,
+    groupId: null,
   },
-)
-assert.deepEqual(applyCard(cardValues(null, 0), 0), { card: null })
-assert.equal(
-  typeof applyCard(
-    { statementDay: '32', dueDay: '1', limit: '', autopay: '' },
-    0,
-  ),
-  'string',
-)
+  card: {
+    statementDay: 5,
+    dueDay: 20,
+    creditLimit: null,
+    autopayAccountId: null,
+  },
+}
+assert.equal(accountStatus(savedVisa), 'clean')
+const edited = {
+  ...savedVisa,
+  cardEdit: { statementDay: '5', dueDay: '20', limit: '', autopay: '' },
+}
+// Lines taken unchanged leave it clean; a new due day changes it.
+assert.equal(accountStatus(edited), 'clean')
+const later = { ...edited, cardEdit: { ...edited.cardEdit, dueDay: '25' } }
+assert.equal(accountStatus(later), 'changed')
+assert.deepEqual(toAccountInput(later, 0).card, {
+  statementDay: 5,
+  dueDay: 25,
+  creditLimit: null,
+  autopayAccountId: null,
+})
+const half = {
+  ...edited,
+  name: '國泰卡',
+  cardEdit: { ...edited.cardEdit, dueDay: '' },
+}
+assert.equal(validateAccount(half, [half])?.field, 'card')
+assert.equal(toAccountInput(half, 0).card, undefined)
 
 // What is sent: an existing account only says what can change.
 assert.deepEqual(toAccountInput({ ...visa, name: '國泰卡' }, 2), {

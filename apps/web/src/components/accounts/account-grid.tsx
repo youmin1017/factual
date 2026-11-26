@@ -7,11 +7,9 @@ import {
   accountColumns,
   accountLabels,
   accountStatus,
-  applyCard,
   applySetup,
-  cardFields,
+  cardOf,
   cardText,
-  cardValues,
   formOf,
   kindLabel,
   lockedReason,
@@ -26,6 +24,15 @@ import {
 import { api } from '#/lib/api'
 import { errorCodeMessage } from '#/lib/apiError'
 import { loanQuery } from '#/lib/budget'
+import {
+  cardCellNumeric,
+  cardCellOptions,
+  cardCellPatch,
+  cardCellPlaceholder,
+  cardCellText,
+  cardLines,
+  cardValuesOf,
+} from '#/lib/card-lines'
 import { setEditorStatus } from '#/lib/editorStatus'
 import {
   focusField,
@@ -62,16 +69,37 @@ import type {
   AccountRowStatus,
 } from '#/lib/accounts'
 import type { Category } from '#/lib/budget'
-import type { Field, FormState } from '#/lib/form'
+import type { CardCell, CardRefs } from '#/lib/card-lines'
+import type { FormState, Option } from '#/lib/form'
 import type { Key, Keymap } from '#/lib/keymap'
 import type { LoanFieldValues } from '#/lib/loan'
-import type { LoanCell, LoanLine, LoanRefs } from '#/lib/loan-lines'
+import type { LoanCell, LoanRefs } from '#/lib/loan-lines'
 import type { Suggestion } from '../register/cell-editor'
 
 // The accounts page (ADR-108): a grid edited as the goals page is, whose
 // line order is the accounts' order; saved with :w through the batch
-// endpoint, drafts kept locally (ADR-043). What a new account is and a
-// card's settings are edited in forms under the cell (ADR-107).
+// endpoint, drafts kept locally (ADR-043). What a new account is, is edited
+// in a form under the cell (ADR-107); a loan's terms and a card's settings
+// are lines under the account's line (ADR-110, ADR-117).
+
+/** A cell of the lines under an account: a loan's term or a card's setting. */
+type DetailCell = LoanCell | CardCell
+
+/**
+ * What the grid needs of the lines under an account, whichever they are:
+ * the lines, how a cell shows and is edited, and the change a value makes.
+ */
+interface Details {
+  lines: Array<{ cells: Array<DetailCell> }>
+  text: (cell: DetailCell) => string
+  /** What an empty cell says, muted. */
+  placeholder: (cell: DetailCell) => string
+  numeric: (cell: DetailCell) => boolean
+  options: (cell: DetailCell) => Array<Option> | null
+  locked: (cell: DetailCell) => string | null
+  /** The change to the account for a value ({} when it is as it was), or why not. */
+  patch: (cell: DetailCell, text: string) => Partial<AccountRow> | string
+}
 
 const ROW_HEIGHT = 32
 const GUTTER = 28
@@ -172,7 +200,11 @@ function readDraft(key: string): Draft | null {
   }
 }
 
-function writeDraft(key: string, rows: Array<AccountRow> | null): void {
+function writeDraft(
+  key: string,
+  rows: Array<AccountRow> | null,
+  minorUnits: number,
+): void {
   try {
     if (!rows) localStorage.removeItem(key)
     else
@@ -180,7 +212,7 @@ function writeDraft(key: string, rows: Array<AccountRow> | null): void {
         key,
         JSON.stringify({
           version: DRAFT_VERSION,
-          rows: rows.filter((r) => accountStatus(r) !== 'clean'),
+          rows: rows.filter((r) => accountStatus(r, minorUnits) !== 'clean'),
           order: rows.map((r) => r.id),
         } satisfies Draft),
       )
@@ -264,7 +296,7 @@ export function AccountGrid({
   const [pick, setPick] = useState(0)
   const [navigated, setNavigated] = useState(false)
   const [form, setForm] = useState<{
-    kind: 'setup' | 'card'
+    kind: 'setup'
     state: FormState
   } | null>(null)
 
@@ -287,7 +319,7 @@ export function AccountGrid({
   const order = places(rows)
   const was = savedPlaces(loaded)
   const states: Array<LineState> = rows.map((r) => {
-    const s = accountStatus(r)
+    const s = accountStatus(r, minorUnits)
     return s === 'clean' && r.base && order.get(r.id) !== was.get(r.id)
       ? 'moved'
       : s
@@ -302,15 +334,6 @@ export function AccountGrid({
           to: clamp(Math.max(anchor, cursor.row)),
         }
       : null
-  const payers = rows
-    .filter(
-      (r) =>
-        r.base &&
-        !r.deleted &&
-        r.onBudget &&
-        (r.kind === 'bank' || r.kind === 'cash'),
-    )
-    .map((r) => ({ value: r.id, label: r.name }))
 
   // The saved terms of the loans whose lines are open.
   const shownLoans = rows
@@ -351,11 +374,57 @@ export function AccountGrid({
     return loanFieldValues(q.data?.terms ?? null, minorUnits, today)
   }
 
-  /** The lines of a loan's terms shown under its line. */
-  function linesOf(row: AccountRow | undefined): Array<LoanLine> {
-    if (!row || row.kind !== 'loan' || !expanded.has(row.id)) return []
-    const v = loanOf(row)
-    return v ? loanLines(v) : []
+  const cardRefs: CardRefs = { payers: refs.payers, minorUnits }
+
+  /** The lines under an account and how they are edited; null for accounts without any (or terms not read yet). */
+  function detailsFor(row: AccountRow): Details | null {
+    if (row.kind === 'loan') {
+      const v = loanOf(row)
+      if (!v) return null
+      const cell = (c: DetailCell) => c as LoanCell
+      return {
+        lines: loanLines(v),
+        text: (c) => loanCellText(v, cell(c), refs),
+        placeholder: () => '',
+        numeric: (c) => loanCellNumeric(cell(c)),
+        options: (c) => loanCellOptions(cell(c), refs),
+        locked: (c) => loanCellLocked(cell(c)),
+        patch: (c, text) => {
+          const next = loanCellPatch(v, cell(c), text, refs, now)
+          if (typeof next === 'string') return next
+          // Taking a value unchanged leaves the terms as they were (saved).
+          return JSON.stringify(next) === JSON.stringify(v)
+            ? {}
+            : { loan: next }
+        },
+      }
+    }
+    if (row.kind === 'credit_card') {
+      const v = row.cardEdit ?? cardValuesOf(row.card, minorUnits)
+      const cell = (c: DetailCell) => c as CardCell
+      return {
+        lines: cardLines,
+        text: (c) => cardCellText(v, cell(c), cardRefs),
+        placeholder: (c) => cardCellPlaceholder(cell(c)),
+        numeric: (c) => cardCellNumeric(cell(c)),
+        options: (c) => cardCellOptions(cell(c), cardRefs),
+        locked: () => null,
+        patch: (c, text) => {
+          const next = cardCellPatch(v, cell(c), text, cardRefs)
+          if (typeof next === 'string') return next
+          return JSON.stringify(next) === JSON.stringify(v)
+            ? {}
+            : { cardEdit: next }
+        },
+      }
+    }
+    return null
+  }
+
+  /** The lines shown under an account: its details when they are open. */
+  function linesOf(row: AccountRow | undefined): Details['lines'] {
+    if (!row || !expanded.has(row.id)) return []
+    return detailsFor(row)?.lines ?? []
   }
 
   useEffect(() => {
@@ -366,8 +435,8 @@ export function AccountGrid({
   }, [mode, dirty])
   useEffect(() => () => setEditorStatus(null), [])
   useEffect(() => {
-    writeDraft(key, dirty > 0 ? rows : null)
-  }, [key, rows, dirty])
+    writeDraft(key, dirty > 0 ? rows : null, minorUnits)
+  }, [key, rows, dirty, minorUnits])
   useEffect(() => {
     if (mode === 'normal' && !help)
       gridRef.current?.focus({ preventScroll: true })
@@ -588,21 +657,25 @@ export function AccountGrid({
   }
 
   /**
-   * `za` (and the arrow by a loan's name): shows or hides a loan's terms as
-   * lines under its line (ADR-110); `zo` opens them with the cursor on the
-   * first, `zc` closes them. j/k move through them like any line.
+   * `za` (and the arrow by the name): shows or hides a loan's terms or a
+   * card's settings as lines under its line (ADR-110, ADR-117); `zo` opens
+   * them with the cursor on the first, `zc` closes them. j/k move through
+   * them like any line.
    */
   function toggleDetails(id: string, enter: boolean, open?: boolean) {
     const row = rows.find((r) => r.id === id)
-    if (row?.kind !== 'loan')
-      return say('只有貸款帳戶有展開的設定（貸款條件）', 'error')
+    if (row?.kind !== 'loan' && row?.kind !== 'credit_card')
+      return say('只有貸款和信用卡有展開的設定', 'error')
     const next = new Set(expanded)
     const show = open ?? !next.has(id)
     if (show) next.add(id)
     else next.delete(id)
     setExpanded(next)
     setSub(show && enter ? { line: 0, cell: 0 } : null)
-    if (show) say('貸款條件在這一列底下：j k 移動、i 修改，:w 和帳戶一起儲存')
+    if (show)
+      say(
+        `${row.kind === 'loan' ? '貸款條件' : '帳單設定'}在這一列底下：j k 移動、i 修改，:w 和帳戶一起儲存`,
+      )
   }
 
   /** Moves down `n` lines, through the terms of open loans. */
@@ -650,15 +723,15 @@ export function AccountGrid({
 
   /** The cell of the terms the cursor is on, with the terms and its line. */
   function subLine(): {
-    v: LoanFieldValues
-    line: LoanLine
-    cell: LoanCell
+    d: Details
+    line: Details['lines'][number]
+    cell: DetailCell
   } | null {
     if (!current || !sub) return null
-    const v = loanOf(current)
+    const d = detailsFor(current)
     const line = linesOf(current).at(sub.line)
     const cell = line?.cells.at(sub.cell) ?? line?.cells.at(0)
-    return v && line && cell ? { v, line, cell } : null
+    return d && line && cell ? { d, line, cell } : null
   }
 
   /**
@@ -672,19 +745,19 @@ export function AccountGrid({
     let at = subLine()
     if (target) {
       const row = rows.at(target.row)
-      const v = row ? loanOf(row) : null
+      const d = row ? detailsFor(row) : null
       const line = linesOf(row).at(target.line)
       const cell = line?.cells.at(target.cell)
-      at = v && line && cell ? { v, line, cell } : null
+      at = d && line && cell ? { d, line, cell } : null
     }
     if (!at) return
-    const locked = loanCellLocked(at.cell)
+    const locked = at.d.locked(at.cell)
     if (locked) return say(locked, 'error')
     if (target) {
       setCursor((c) => ({ ...c, row: target.row }))
       setSub({ line: target.line, cell: target.cell })
     }
-    setEdit(clear ? '' : loanCellText(at.v, at.cell, refs))
+    setEdit(clear ? '' : at.d.text(at.cell))
     setPick(0)
     setNavigated(false)
     setSubEdit(true)
@@ -694,12 +767,12 @@ export function AccountGrid({
   function subOptions(): Array<Suggestion> {
     const at = subLine()
     if (!at || !subEdit || mode !== 'insert') return []
-    const options = loanCellOptions(at.cell, refs)
+    const options = at.d.options(at.cell)
     if (!options) return []
     return rankCell(
       options.map((o) => ({ value: o.label, label: o.label })),
       edit,
-      loanCellText(at.v, at.cell, refs),
+      at.d.text(at.cell),
       (o) => o.value,
     )
   }
@@ -713,20 +786,18 @@ export function AccountGrid({
     return highlighted
   }
 
-  /** Writes a value into the terms; the new terms, or null when refused. */
-  function commitSub(text: string): LoanFieldValues | null {
+  /** Writes a value into the lines; the account as it then is, or null when refused. */
+  function commitSub(text: string): AccountRow | null {
     const at = subLine()
     if (!at || !sub || !current) return null
-    const next = loanCellPatch(at.v, at.cell, text, refs, now)
-    if (typeof next === 'string') {
-      say(next, 'error')
+    const patch = at.d.patch(at.cell, text)
+    if (typeof patch === 'string') {
+      say(patch, 'error')
       return null
     }
-    // Taking a value unchanged leaves the terms as they were (saved).
-    if (JSON.stringify(next) !== JSON.stringify(at.v))
-      patchRows([current.id], () => ({ loan: next }))
+    if (Object.keys(patch).length > 0) patchRows([current.id], () => patch)
     setMessage(null)
-    return next
+    return { ...current, ...patch }
   }
 
   /**
@@ -773,9 +844,10 @@ export function AccountGrid({
         return true
       case '<Tab>': {
         const next = commitSub(subChosen())
-        if (!next || !sub) return true
-        // On to the next cell: across the line, then down the terms.
-        const lines = loanLines(next)
+        const d = next ? detailsFor(next) : null
+        if (!d || !sub) return true
+        // On to the next cell: across the line, then down the lines.
+        const lines = d.lines
         const cells = (line: number) => lines[line]?.cells ?? []
         let to = { line: sub.line, cell: sub.cell + 1 }
         for (;;) {
@@ -785,11 +857,11 @@ export function AccountGrid({
             endSubEdit()
             return true
           }
-          if (!loanCellLocked(cells(to.line)[to.cell])) break
+          if (!d.locked(cells(to.line)[to.cell])) break
           to = { ...to, cell: to.cell + 1 }
         }
         setSub(to)
-        setEdit(loanCellText(next, cells(to.line)[to.cell], refs))
+        setEdit(d.text(cells(to.line)[to.cell]))
         setPick(0)
         setNavigated(false)
         return true
@@ -832,10 +904,12 @@ export function AccountGrid({
   /** `o` and `dd` on the terms: rate changes come and go. */
   function addRateLine() {
     const at = subLine()
-    if (!at || !current || !sub) return
-    const rate = at.line.cells.find((c) => c.rate !== undefined)?.rate
-    const after = rate ?? at.v.rates.length - 1
-    const next = addRate(at.v, after, today)
+    const v = current?.kind === 'loan' ? loanOf(current) : null
+    if (!at || !current || !sub || !v)
+      return say('帳單設定沒有可以新增的列：i 修改它的值', 'error')
+    const rate = (at.cell as LoanCell).rate ?? rateOf(at.line)
+    const after = rate ?? v.rates.length - 1
+    const next = addRate(v, after, today)
     patchRows([current.id], () => ({ loan: next }))
     const line = loanLines(next).findIndex((l) => l.cells[0].rate === after + 1)
     setSub({ line, cell: 0 })
@@ -844,14 +918,27 @@ export function AccountGrid({
 
   function removeRateLine() {
     const at = subLine()
+    const v = current?.kind === 'loan' ? loanOf(current) : null
     if (!at || !current) return
-    const rate = at.line.cells.find((c) => c.rate !== undefined)?.rate
-    if (rate === undefined)
-      return say('貸款條件不能刪：zc 收起，或改它的值', 'error')
-    const next = removeRate(at.v, rate)
+    const rate = v ? rateOf(at.line) : undefined
+    if (!v || rate === undefined)
+      return say(
+        `${v ? '貸款條件' : '帳單設定'}不能刪：zc 收起，或改它的值`,
+        'error',
+      )
+    const next = removeRate(v, rate)
     if (typeof next === 'string') return say(next, 'error')
     patchRows([current.id], () => ({ loan: next }))
     setSub((s) => (s ? { line: s.line - 1, cell: 0 } : s))
+  }
+
+  /** Which rate period a line of a loan's terms is, if it is one. */
+  function rateOf(line: Details['lines'][number]): number | undefined {
+    for (const c of line.cells) {
+      const rate = (c as LoanCell).rate
+      if (rate !== undefined) return rate
+    }
+    return undefined
   }
 
   // ---------- visual mode
@@ -871,8 +958,8 @@ export function AccountGrid({
 
   // ---------- cells and forms
 
-  function formFields(kind: 'setup' | 'card', values: Record<string, string>) {
-    return kind === 'setup' ? setupFields(values) : cardFields(payers)
+  function formFields(values: Record<string, string>) {
+    return setupFields(values)
   }
 
   function startEdit(index: number, colIndex: number, clear = false) {
@@ -885,12 +972,14 @@ export function AccountGrid({
       setCursor({ row: index, col: colIndex })
       return setClosed({ from: index, to: index }, !row.closed)
     }
+    // A card's settings are the lines under it (ADR-117).
+    if (col === 'card') {
+      setCursor({ row: index, col: colIndex })
+      return toggleDetails(row.id, true, true)
+    }
     const which = formOf(row, col)
     if (which) {
-      const values =
-        which === 'setup'
-          ? setupValues(row, minorUnits)
-          : cardValues(row.card, minorUnits)
+      const values = setupValues(row, minorUnits)
       const at =
         col === 'balance'
           ? 'balance'
@@ -899,7 +988,7 @@ export function AccountGrid({
             : undefined
       setForm({
         kind: which,
-        state: openForm(values, formFields(which, values), at),
+        state: openForm(values, formFields(values), at),
       })
       setMode('form')
       setMessage(null)
@@ -929,15 +1018,12 @@ export function AccountGrid({
 
   function runForm(k: Key): boolean {
     if (!form || !current) return false
-    const fields = formFields(form.kind, form.state.values)
+    const fields = formFields(form.state.values)
     const result = formKey(form.state, fields, k, now)
     if (!('done' in result)) {
       setForm({
         ...form,
-        state: settleForm(
-          result.state,
-          formFields(form.kind, result.state.values),
-        ),
+        state: settleForm(result.state, formFields(result.state.values)),
       })
       return true
     }
@@ -947,10 +1033,7 @@ export function AccountGrid({
       say('已取消編輯')
       return true
     }
-    const patch =
-      form.kind === 'setup'
-        ? applySetup(result.state.values, minorUnits)
-        : applyCard(result.state.values, minorUnits)
+    const patch = applySetup(result.state.values, minorUnits)
     if (typeof patch === 'string') {
       setForm({ ...form, state: { ...result.state, error: patch } })
       return true
@@ -960,7 +1043,7 @@ export function AccountGrid({
     setForm(null)
     setMode('normal')
     // A new loan goes on to its terms, under its line.
-    if (form.kind === 'setup' && patch.kind === 'loan' && !current.base) {
+    if (patch.kind === 'loan' && !current.base) {
       setRows((list) =>
         list.map((r) =>
           r.id === current.id
@@ -977,13 +1060,7 @@ export function AccountGrid({
 
   function formPreview(): string | undefined {
     if (!form) return undefined
-    if (form.kind === 'setup')
-      return setupPreview(form.state.values, minorUnits)
-    const patch = applyCard(form.state.values, minorUnits)
-    if (typeof patch === 'string') return patch
-    return patch.card
-      ? `每月 ${patch.card.statementDay} 日結帳，${patch.card.dueDay} 日前繳款`
-      : '不記帳單（只看餘額）'
+    return setupPreview(form.state.values, minorUnits)
   }
 
   // ---------- saving
@@ -1039,7 +1116,7 @@ export function AccountGrid({
       const next = fresh.map(rowFromAccount)
       const loans = upserts.filter((u) => u.loan).map((u) => u.id)
       if (loans.length > 0) onLoansSaved(loans)
-      writeDraft(key, null)
+      writeDraft(key, null, minorUnits)
       history.current = { undo: [], redo: [] }
       setLoaded(fresh)
       setRows(next)
@@ -1069,7 +1146,7 @@ export function AccountGrid({
 
   function discard() {
     const fresh = loaded.map(rowFromAccount)
-    writeDraft(key, null)
+    writeDraft(key, null, minorUnits)
     change(fresh)
     setProblems(new Map())
     setCursor((c) => ({ ...c, row: clamp(c.row, fresh.length) }))
@@ -1412,9 +1489,7 @@ export function AccountGrid({
       ? null
       : (message ??
         (problem ? { text: problem.message, tone: 'error' as const } : null))
-  const formList: Array<Field> = form
-    ? formFields(form.kind, form.state.values)
-    : []
+  const formList = form ? formFields(form.state.values) : []
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -1532,9 +1607,7 @@ export function AccountGrid({
                         style={{ top: ROW_HEIGHT, left: layout.lefts[column] }}
                       >
                         <FormPopover
-                          title={
-                            form.kind === 'setup' ? '帳戶設定' : '帳單設定'
-                          }
+                          title="帳戶設定"
                           fields={formList}
                           state={form.state}
                           preview={formPreview()}
@@ -1562,7 +1635,7 @@ export function AccountGrid({
                               ...form,
                               state: settleForm(
                                 state,
-                                formFields(form.kind, state.values),
+                                formFields(state.values),
                               ),
                             })
                           }}
@@ -1607,8 +1680,8 @@ export function AccountGrid({
                         />
                       )}
                     {linesOf(row).map((term, li) => {
-                      const v = loanOf(row)
-                      if (!v) return null
+                      const d = detailsFor(row)
+                      if (!d) return null
                       const on = at && sub?.line === li
                       const typing = on && mode === 'insert' && subEdit
                       // Two columns across the grid, each a label and its value.
@@ -1624,7 +1697,7 @@ export function AccountGrid({
                       return (
                         <div
                           key={term.cells
-                            .map((c) => `${c.key}${c.rate ?? ''}`)
+                            .map((c) => `${c.key}${(c as LoanCell).rate ?? ''}`)
                             .join('-')}
                           className="relative border-b border-rule/40 bg-card/40 text-sm"
                           style={{ height: ROW_HEIGHT }}
@@ -1676,13 +1749,16 @@ export function AccountGrid({
                               <span
                                 className={cn(
                                   'flex min-w-0 items-center gap-1 px-2 whitespace-nowrap',
-                                  loanCellNumeric(cell) && 'font-mono',
-                                  loanCellLocked(cell) &&
-                                    'text-muted-foreground',
+                                  d.numeric(cell) && 'font-mono',
+                                  d.locked(cell) && 'text-muted-foreground',
                                 )}
                               >
                                 <span className="truncate">
-                                  {loanCellText(v, cell, refs)}
+                                  {d.text(cell) || (
+                                    <span className="text-muted-foreground/60">
+                                      {d.placeholder(cell)}
+                                    </span>
+                                  )}
                                 </span>
                               </span>
                             </span>
@@ -1712,7 +1788,7 @@ export function AccountGrid({
                                   value={edit}
                                   label={active.label}
                                   numeric={
-                                    loanCellNumeric(active) ? 'date' : undefined
+                                    d.numeric(active) ? 'date' : undefined
                                   }
                                   width={valueWidth}
                                   options={subOptions()}
@@ -1759,13 +1835,15 @@ export function AccountGrid({
                         </div>
                       )
                     })}
-                    {linesOf(row).length > 0 && loanOf(row) && (
-                      <LoanPreviewLine
-                        budgetId={budgetId}
-                        minorUnits={minorUnits}
-                        values={loanOf(row) as LoanFieldValues}
-                      />
-                    )}
+                    {row.kind === 'loan' &&
+                      linesOf(row).length > 0 &&
+                      loanOf(row) && (
+                        <LoanPreviewLine
+                          budgetId={budgetId}
+                          minorUnits={minorUnits}
+                          values={loanOf(row) as LoanFieldValues}
+                        />
+                      )}
                   </div>
                 )
               })}
@@ -1856,11 +1934,19 @@ function AccountLine({
       case 'name':
         return (
           <span key={c} data-col={col} className={cn(cell, 'gap-1', bad)}>
-            {row.kind === 'loan' && (
+            {(row.kind === 'loan' || row.kind === 'credit_card') && (
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label={open ? '收起貸款條件' : '展開貸款條件'}
+                aria-label={
+                  row.kind === 'loan'
+                    ? open
+                      ? '收起貸款條件'
+                      : '展開貸款條件'
+                    : open
+                      ? '收起帳單設定'
+                      : '展開帳單設定'
+                }
                 aria-expanded={open}
                 onMouseDown={(e) => {
                   e.preventDefault()
@@ -1879,6 +1965,9 @@ function AccountLine({
             <span className="truncate">{row.name}</span>
             {row.loan && (
               <span className="shrink-0 text-xs text-kraft">條件已改</span>
+            )}
+            {row.cardEdit && (
+              <span className="shrink-0 text-xs text-kraft">設定已改</span>
             )}
           </span>
         )
@@ -1927,7 +2016,9 @@ function AccountLine({
             data-col={col}
             className={cn(cell, 'text-xs', muted, bad)}
           >
-            {row.kind === 'credit_card' ? cardText(row.card) || '未設定' : '—'}
+            {row.kind === 'credit_card'
+              ? cardText(cardOf(row, minorUnits)) || '未設定'
+              : '—'}
           </span>
         )
       case 'status':
