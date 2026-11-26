@@ -1773,6 +1773,224 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BatchErrors'
+  /splitting/batch:
+    post:
+      operationId: saveSplitting
+      tags:
+        - splitting
+      summary: Apply the 分帳 page's buffer of friends and groups in one database transaction (:w)
+      description: |
+        Friends and groups are keyed by ids the client chose for new ones.
+        New friends are placeholders (ADR-104) with a friend account in the
+        caller's default budget; a group's members are friends, new ones of
+        the same batch included, and replace its members (the caller stays
+        its admin). Applied in that order: friends, groups, deleted groups,
+        deleted friends. All or nothing, with problems reported per friend or
+        group (ADR-044); `name_taken` (409) when two accounts of the budget
+        would have one name.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SplittingBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SplittingBatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: Nothing was saved; the friends and groups listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
+  /groups:
+    get:
+      operationId: listGroups
+      tags:
+        - splitting
+      summary: The groups the caller is a member of, with each member's balance
+      description: |
+        Archived groups included (`archived`). Each has one group account in
+        the caller's default budget (ADR-037), whose balance is the caller's
+        net position in the group.
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Groups, active first, then by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: createGroup
+      tags:
+        - splitting
+      summary: Create a group of the caller and some of their friends
+      description: |
+        The caller is its admin. Members are friends of the caller (placeholders
+        for now; registered friends join with M15, `registered_member`) or new
+        names, which become placeholder friends (ADR-104). The group's currency
+        is the caller's default budget's (ADR-041), and its group account is
+        created in that budget. Fails with `no_default_budget` while the caller
+        has no budget and `name_taken` when the budget already has an account
+        of that name.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /groups/{groupId}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    put:
+      operationId: updateGroup
+      tags:
+        - splitting
+      summary: Rename a group, change its members, or archive it
+      description: |
+        Only its admin changes a group. `members` is the whole list besides the
+        caller: missing members are removed, which is refused for a member any
+        shared expense names (`member_in_use`). Archiving needs every balance
+        settled (`group_not_settled`) and closes the group account; an archived
+        group takes no expenses (`group_archived`) until it is unarchived.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupInput'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteGroup
+      tags:
+        - splitting
+      summary: Delete a group without shared expenses
+      description: |
+        Removes the group, its members and its group account. Fails with
+        `group_in_use` while shared expenses remain (archive it instead).
+      x-auth: authenticated
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /groups/{groupId}/expenses:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      operationId: listGroupExpenses
+      tags:
+        - splitting
+      summary: The group's shared expenses and settlements
+      description: |
+        Oldest first, deleted ones left out, each with the caller's side in
+        their own ledger (`mine`), as a friend's expenses are.
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Shared expenses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupExpenses'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /groups/{groupId}/expenses/batch:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      operationId: saveGroupExpenses
+      tags:
+        - splitting
+      summary: Apply the group page's buffer in one database transaction (:w)
+      description: |
+        As for a friend (ADR-106), among the group's members: any of them may
+        pay and share, and a settlement is between any two. The caller's
+        transaction, on the group account, is written when they pay, are paid
+        or have a share. All or nothing, with problems reported per expense.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharedExpenseBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedExpenseBatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: Nothing was saved; the expenses listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
   /holidays:
     get:
       operationId: getHolidays
@@ -2604,6 +2822,7 @@ components:
         - hasActivity
         - card
         - friendId
+        - groupId
       properties:
         id:
           type: string
@@ -2638,6 +2857,11 @@ components:
           format: uuid
           nullable: true
           description: The friend a friend account is with; null for other accounts.
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The group a group account is for (a friend account kept for a group, ADR-037); null for other accounts.
     NewAccountKind:
       type: string
       enum:
@@ -4234,12 +4458,17 @@ components:
           $ref: '#/components/schemas/SplitMethod'
         payers:
           type: array
-          maxItems: 2
+          maxItems: 100
+          description: Who paid and how much (with a friend, at most the two of you).
           items:
             $ref: '#/components/schemas/SharedPayer'
         shares:
           type: array
-          maxItems: 2
+          maxItems: 100
+          description: |
+            Who shares the expense, in the order the total is divided in (ties
+            of the largest remainder go to the earlier share). A settlement
+            names only its receiver (with a friend it may be left out).
           items:
             $ref: '#/components/schemas/SharedShareInput'
         accountId:
@@ -4267,6 +4496,212 @@ components:
           items:
             type: string
             format: uuid
+    FriendUpsert:
+      type: object
+      required:
+        - id
+        - displayName
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          maxLength: 64
+    GroupUpsert:
+      type: object
+      required:
+        - id
+        - name
+        - members
+        - archived
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 64
+        members:
+          type: array
+          maxItems: 50
+          description: Everyone besides the caller, as friend ids (new friends of the batch included).
+          items:
+            type: string
+            format: uuid
+        archived:
+          type: boolean
+    SplittingBatch:
+      type: object
+      required:
+        - friends
+        - deleteFriends
+        - groups
+        - deleteGroups
+      properties:
+        friends:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/FriendUpsert'
+        deleteFriends:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+        groups:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/GroupUpsert'
+        deleteGroups:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+    SplittingBatchSaved:
+      type: object
+      required:
+        - upserted
+        - deleted
+      properties:
+        upserted:
+          type: integer
+          format: int32
+        deleted:
+          type: integer
+          format: int32
+    GroupRole:
+      type: string
+      enum:
+        - admin
+        - member
+    GroupMember:
+      type: object
+      required:
+        - userId
+        - displayName
+        - placeholder
+        - role
+        - paid
+        - share
+        - balance
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        placeholder:
+          type: boolean
+          description: Has no account yet (ADR-016).
+        role:
+          $ref: '#/components/schemas/GroupRole'
+        paid:
+          type: integer
+          format: int64
+          description: What they have paid in the group's expenses and settlements.
+        share:
+          type: integer
+          format: int64
+          description: What their shares come to (a settlement's receiver shares all of it).
+        balance:
+          type: integer
+          format: int64
+          description: 'paid - share: what the group owes them (negative: what they owe).'
+    Group:
+      type: object
+      required:
+        - id
+        - name
+        - currency
+        - archived
+        - createdBy
+        - members
+        - budgetId
+        - accountId
+        - balance
+        - expenseCount
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        currency:
+          type: string
+          description: What its expenses are settled in, the creator's budget currency (ADR-041).
+        archived:
+          type: boolean
+        createdBy:
+          type: string
+          format: uuid
+        members:
+          type: array
+          description: The admin first, then in the order they joined.
+          items:
+            $ref: '#/components/schemas/GroupMember'
+        budgetId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The caller's default budget, which holds the group account.
+        accountId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The group account in that budget.
+        balance:
+          type: integer
+          format: int64
+          description: 'The group account''s balance: what the group owes the caller (negative: what they owe).'
+        expenseCount:
+          type: integer
+          format: int32
+    GroupMemberInput:
+      type: object
+      description: An existing friend by id, or a new placeholder friend by name.
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 64
+    GroupInput:
+      type: object
+      required:
+        - name
+        - members
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        members:
+          type: array
+          maxItems: 50
+          description: Everyone besides the caller.
+          items:
+            $ref: '#/components/schemas/GroupMemberInput'
+        archived:
+          type: boolean
+          description: Archive or unarchive (ignored when creating).
+    GroupExpenses:
+      type: object
+      required:
+        - group
+        - expenses
+      properties:
+        group:
+          $ref: '#/components/schemas/Group'
+        expenses:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharedExpense'
     Holiday:
       type: object
       required:
@@ -4445,6 +4880,13 @@ components:
       in: path
       required: true
       description: The friend's user id.
+      schema:
+        type: string
+        format: uuid
+    GroupId:
+      name: groupId
+      in: path
+      required: true
       schema:
         type: string
         format: uuid

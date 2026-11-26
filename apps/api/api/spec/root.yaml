@@ -150,6 +150,17 @@ paths:
   /friends/{friendId}/expenses/batch:
     $ref: './friends.yaml#/paths/expensesBatch'
 
+  /splitting/batch:
+    $ref: './groups.yaml#/paths/splittingBatch'
+  /groups:
+    $ref: './groups.yaml#/paths/groups'
+  /groups/{groupId}:
+    $ref: './groups.yaml#/paths/group'
+  /groups/{groupId}/expenses:
+    $ref: './groups.yaml#/paths/expenses'
+  /groups/{groupId}/expenses/batch:
+    $ref: './groups.yaml#/paths/expensesBatch'
+
   /holidays:
     $ref: './calendar.yaml#/paths/holidays'
   /holidays/years:

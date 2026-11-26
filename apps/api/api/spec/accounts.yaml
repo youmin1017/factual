@@ -171,7 +171,7 @@ schemas:
 
   Account:
     type: object
-    required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity, card, friendId]
+    required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity, card, friendId, groupId]
     properties:
       id:
         type: string
@@ -206,6 +206,11 @@ schemas:
         format: uuid
         nullable: true
         description: The friend a friend account is with; null for other accounts.
+      groupId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The group a group account is for (a friend account kept for a group, ADR-037); null for other accounts.
 
   AccountInput:
     type: object

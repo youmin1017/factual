@@ -378,12 +378,17 @@ schemas:
         $ref: '#/schemas/SplitMethod'
       payers:
         type: array
-        maxItems: 2
+        maxItems: 100
+        description: Who paid and how much (with a friend, at most the two of you).
         items:
           $ref: '#/schemas/SharedPayer'
       shares:
         type: array
-        maxItems: 2
+        maxItems: 100
+        description: |
+          Who shares the expense, in the order the total is divided in (ties
+          of the largest remainder go to the earlier share). A settlement
+          names only its receiver (with a friend it may be left out).
         items:
           $ref: '#/schemas/SharedShareInput'
       accountId:

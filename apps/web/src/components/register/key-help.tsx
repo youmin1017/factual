@@ -371,7 +371,50 @@ export const goalKeys: Array<KeyGroup> = [
   },
 ]
 
-/** A friend's shared expenses (M12). */
+/** The 分帳 page: groups and friends (ADR-116). */
+export const splittingKeys: Array<KeyGroup> = [
+  {
+    title: '移動',
+    entries: [
+      ['j k', '下一列、上一列（群組在上，朋友在下）'],
+      ['h l', '左右一欄'],
+      ['gg G', '第一列、最後一列'],
+      ['gx', '打開這位朋友或這個群組的分帳'],
+    ],
+  },
+  {
+    title: '修改',
+    entries: [
+      ['i a Enter', '名稱直接改；成員打開表單；新的一列可以把類型改成群組'],
+      ['c s', '清空再輸入'],
+      ['o O', '在下面、上面新增（跟游標這一列同類型）'],
+      ['x', '封存或取消封存群組（封存前要先結清）'],
+      ['dd', '刪除沒有分帳的朋友或群組（:w 才刪；再 dd 取消）'],
+      ['V d', '選取幾列一起刪除'],
+      ['u Ctrl-r', '復原、重做'],
+    ],
+  },
+  {
+    title: '成員表單',
+    entries: [
+      ['j k  Tab', '上一位、下一位朋友'],
+      ['h l', '在群組、不在'],
+      ['Enter Esc', '套用'],
+      ['Ctrl-c', '放棄'],
+    ],
+  },
+  {
+    title: '指令',
+    entries: [
+      [':w', '儲存'],
+      [':open', '打開分帳（同 gx）'],
+      [':archive :unarchive', '封存、取消封存群組'],
+      [':e!', '放棄所有未儲存的變更'],
+    ],
+  },
+]
+
+/** The shared expenses with a friend or in a group (M12, M13). */
 export const friendKeys: Array<KeyGroup> = [
   {
     title: '移動',
@@ -431,9 +474,12 @@ export const friendKeys: Array<KeyGroup> = [
     title: '指令',
     entries: [
       [':w', '儲存'],
-      [':settle', '新增一筆還款，金額是目前的往來餘額（結清）'],
+      [
+        ':settle',
+        '新增還款把帳結清：和朋友是一筆目前的往來餘額；群組是建議的誰還誰',
+      ],
       [':e!', '放棄所有未儲存的變更'],
-      [':q', '回到朋友列表'],
+      [':q', '回到分帳列表'],
     ],
   },
 ]

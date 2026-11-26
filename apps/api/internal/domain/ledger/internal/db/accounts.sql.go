@@ -147,7 +147,7 @@ func (q *Queries) DeleteOpeningTransactions(ctx context.Context, arg DeleteOpeni
 
 const getAccount = `-- name: GetAccount :one
 select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null)::boolean as closed,
-       b.balance, b.cleared_balance, a.friend_user_id,
+       b.balance, b.cleared_balance, a.friend_user_id, a.group_id,
        exists (select 1 from entries e join transactions t on t.id = e.transaction_id
                 where e.account_id = a.id and not t.is_opening)::boolean as has_activity
   from accounts a
@@ -170,6 +170,7 @@ type GetAccountRow struct {
 	Balance        int64
 	ClearedBalance int64
 	FriendUserID   uuid.NullUUID
+	GroupID        uuid.NullUUID
 	HasActivity    bool
 }
 
@@ -186,6 +187,7 @@ func (q *Queries) GetAccount(ctx context.Context, arg GetAccountParams) (GetAcco
 		&i.Balance,
 		&i.ClearedBalance,
 		&i.FriendUserID,
+		&i.GroupID,
 		&i.HasActivity,
 	)
 	return i, err
@@ -268,7 +270,7 @@ func (q *Queries) ListAccountHeads(ctx context.Context, budgetID uuid.UUID) ([]L
 
 const listAccounts = `-- name: ListAccounts :many
 select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null)::boolean as closed,
-       b.balance, b.cleared_balance, a.friend_user_id,
+       b.balance, b.cleared_balance, a.friend_user_id, a.group_id,
        exists (select 1 from entries e join transactions t on t.id = e.transaction_id
                 where e.account_id = a.id and not t.is_opening)::boolean as has_activity
   from accounts a
@@ -287,6 +289,7 @@ type ListAccountsRow struct {
 	Balance        int64
 	ClearedBalance int64
 	FriendUserID   uuid.NullUUID
+	GroupID        uuid.NullUUID
 	HasActivity    bool
 }
 
@@ -311,6 +314,7 @@ func (q *Queries) ListAccounts(ctx context.Context, budgetID uuid.UUID) ([]ListA
 			&i.Balance,
 			&i.ClearedBalance,
 			&i.FriendUserID,
+			&i.GroupID,
 			&i.HasActivity,
 		); err != nil {
 			return nil, err

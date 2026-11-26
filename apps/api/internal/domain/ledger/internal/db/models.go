@@ -339,6 +339,57 @@ func (e GoalKind) Valid() bool {
 	return false
 }
 
+type GroupRole string
+
+const (
+	GroupRoleAdmin  GroupRole = "admin"
+	GroupRoleMember GroupRole = "member"
+)
+
+func (e *GroupRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GroupRole(s)
+	case string:
+		*e = GroupRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GroupRole: %T", src)
+	}
+	return nil
+}
+
+type NullGroupRole struct {
+	GroupRole GroupRole
+	Valid     bool // Valid is true if GroupRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGroupRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.GroupRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GroupRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGroupRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GroupRole), nil
+}
+
+func (e GroupRole) Valid() bool {
+	switch e {
+	case GroupRoleAdmin,
+		GroupRoleMember:
+		return true
+	}
+	return false
+}
+
 type HolidayShift string
 
 const (

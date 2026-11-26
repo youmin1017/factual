@@ -1236,6 +1236,144 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/splitting/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the 分帳 page's buffer of friends and groups in one database transaction (:w)
+     * @description Friends and groups are keyed by ids the client chose for new ones.
+     *     New friends are placeholders (ADR-104) with a friend account in the
+     *     caller's default budget; a group's members are friends, new ones of
+     *     the same batch included, and replace its members (the caller stays
+     *     its admin). Applied in that order: friends, groups, deleted groups,
+     *     deleted friends. All or nothing, with problems reported per friend or
+     *     group (ADR-044); `name_taken` (409) when two accounts of the budget
+     *     would have one name.
+     */
+    post: operations['saveSplitting']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/groups': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * The groups the caller is a member of, with each member's balance
+     * @description Archived groups included (`archived`). Each has one group account in
+     *     the caller's default budget (ADR-037), whose balance is the caller's
+     *     net position in the group.
+     */
+    get: operations['listGroups']
+    put?: never
+    /**
+     * Create a group of the caller and some of their friends
+     * @description The caller is its admin. Members are friends of the caller (placeholders
+     *     for now; registered friends join with M15, `registered_member`) or new
+     *     names, which become placeholder friends (ADR-104). The group's currency
+     *     is the caller's default budget's (ADR-041), and its group account is
+     *     created in that budget. Fails with `no_default_budget` while the caller
+     *     has no budget and `name_taken` when the budget already has an account
+     *     of that name.
+     */
+    post: operations['createGroup']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/groups/{groupId}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        groupId: components['parameters']['GroupId']
+      }
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Rename a group, change its members, or archive it
+     * @description Only its admin changes a group. `members` is the whole list besides the
+     *     caller: missing members are removed, which is refused for a member any
+     *     shared expense names (`member_in_use`). Archiving needs every balance
+     *     settled (`group_not_settled`) and closes the group account; an archived
+     *     group takes no expenses (`group_archived`) until it is unarchived.
+     */
+    put: operations['updateGroup']
+    post?: never
+    /**
+     * Delete a group without shared expenses
+     * @description Removes the group, its members and its group account. Fails with
+     *     `group_in_use` while shared expenses remain (archive it instead).
+     */
+    delete: operations['deleteGroup']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/groups/{groupId}/expenses': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        groupId: components['parameters']['GroupId']
+      }
+      cookie?: never
+    }
+    /**
+     * The group's shared expenses and settlements
+     * @description Oldest first, deleted ones left out, each with the caller's side in
+     *     their own ledger (`mine`), as a friend's expenses are.
+     */
+    get: operations['listGroupExpenses']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/groups/{groupId}/expenses/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        groupId: components['parameters']['GroupId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the group page's buffer in one database transaction (:w)
+     * @description As for a friend (ADR-106), among the group's members: any of them may
+     *     pay and share, and a settlement is between any two. The caller's
+     *     transaction, on the group account, is written when they pay, are paid
+     *     or have a share. All or nothing, with problems reported per expense.
+     */
+    post: operations['saveGroupExpenses']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/holidays': {
     parameters: {
       query?: never
@@ -1705,6 +1843,11 @@ export interface components {
        * @description The friend a friend account is with; null for other accounts.
        */
       friendId: string | null
+      /**
+       * Format: uuid
+       * @description The group a group account is for (a friend account kept for a group, ADR-037); null for other accounts.
+       */
+      groupId: string | null
     }
     /** @enum {string} */
     NewAccountKind: 'cash' | 'bank' | 'credit_card' | 'loan' | 'investment'
@@ -2580,7 +2723,13 @@ export interface components {
       total: number
       foreign?: components['schemas']['ForeignAmount']
       splitMethod: components['schemas']['SplitMethod']
+      /** @description Who paid and how much (with a friend, at most the two of you). */
       payers: components['schemas']['SharedPayer'][]
+      /**
+       * @description Who shares the expense, in the order the total is divided in (ties
+       *     of the largest remainder go to the earlier share). A settlement
+       *     names only its receiver (with a friend it may be left out).
+       */
       shares: components['schemas']['SharedShareInput'][]
       /**
        * Format: uuid
@@ -2596,6 +2745,102 @@ export interface components {
     SharedExpenseBatch: {
       upserts: components['schemas']['SharedExpenseInput'][]
       deletes: string[]
+    }
+    FriendUpsert: {
+      /** Format: uuid */
+      id: string
+      displayName: string
+    }
+    GroupUpsert: {
+      /** Format: uuid */
+      id: string
+      name: string
+      /** @description Everyone besides the caller, as friend ids (new friends of the batch included). */
+      members: string[]
+      archived: boolean
+    }
+    SplittingBatch: {
+      friends: components['schemas']['FriendUpsert'][]
+      deleteFriends: string[]
+      groups: components['schemas']['GroupUpsert'][]
+      deleteGroups: string[]
+    }
+    SplittingBatchSaved: {
+      /** Format: int32 */
+      upserted: number
+      /** Format: int32 */
+      deleted: number
+    }
+    /** @enum {string} */
+    GroupRole: 'admin' | 'member'
+    GroupMember: {
+      /** Format: uuid */
+      userId: string
+      displayName: string
+      /** @description Has no account yet (ADR-016). */
+      placeholder: boolean
+      role: components['schemas']['GroupRole']
+      /**
+       * Format: int64
+       * @description What they have paid in the group's expenses and settlements.
+       */
+      paid: number
+      /**
+       * Format: int64
+       * @description What their shares come to (a settlement's receiver shares all of it).
+       */
+      share: number
+      /**
+       * Format: int64
+       * @description paid - share: what the group owes them (negative: what they owe).
+       */
+      balance: number
+    }
+    Group: {
+      /** Format: uuid */
+      id: string
+      name: string
+      /** @description What its expenses are settled in, the creator's budget currency (ADR-041). */
+      currency: string
+      archived: boolean
+      /** Format: uuid */
+      createdBy: string
+      /** @description The admin first, then in the order they joined. */
+      members: components['schemas']['GroupMember'][]
+      /**
+       * Format: uuid
+       * @description The caller's default budget, which holds the group account.
+       */
+      budgetId: string | null
+      /**
+       * Format: uuid
+       * @description The group account in that budget.
+       */
+      accountId: string | null
+      /**
+       * Format: int64
+       * @description The group account's balance: what the group owes the caller (negative: what they owe).
+       */
+      balance: number
+      /** Format: int32 */
+      expenseCount: number
+    }
+    /** @description An existing friend by id, or a new placeholder friend by name. */
+    GroupMemberInput: {
+      /** Format: uuid */
+      userId?: string
+      displayName?: string
+    }
+    GroupInput: {
+      name: string
+      /** @description Everyone besides the caller. */
+      members: components['schemas']['GroupMemberInput'][]
+      /** @description Archive or unarchive (ignored when creating). */
+      archived?: boolean
+    }
+    GroupExpenses: {
+      group: components['schemas']['Group']
+      expenses: components['schemas']['SharedExpense'][]
     }
     Holiday: {
       /** Format: date */
@@ -2704,6 +2949,7 @@ export interface components {
     ScheduleId: string
     /** @description The friend's user id. */
     FriendId: string
+    GroupId: string
   }
   requestBodies: never
   headers: never
@@ -4507,6 +4753,208 @@ export interface operations {
       400: components['responses']['BadRequest']
       401: components['responses']['Unauthorized']
       404: components['responses']['NotFound']
+      /** @description Nothing was saved; the expenses listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
+    }
+  }
+  saveSplitting: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SplittingBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SplittingBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      409: components['responses']['Conflict']
+      /** @description Nothing was saved; the friends and groups listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
+    }
+  }
+  listGroups: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Groups, active first, then by name */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Group'][]
+        }
+      }
+      401: components['responses']['Unauthorized']
+    }
+  }
+  createGroup: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GroupInput']
+      }
+    }
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Group']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      409: components['responses']['Conflict']
+    }
+  }
+  updateGroup: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        groupId: components['parameters']['GroupId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GroupInput']
+      }
+    }
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Group']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  deleteGroup: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        groupId: components['parameters']['GroupId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  listGroupExpenses: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        groupId: components['parameters']['GroupId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Shared expenses */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['GroupExpenses']
+        }
+      }
+      401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
+    }
+  }
+  saveGroupExpenses: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        groupId: components['parameters']['GroupId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SharedExpenseBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SharedExpenseBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
       /** @description Nothing was saved; the expenses listed have problems */
       422: {
         headers: {

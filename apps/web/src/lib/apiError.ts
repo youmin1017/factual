@@ -96,6 +96,15 @@ const messages: Record<string, string> = {
   shared_transaction:
     '這筆是分帳產生的交易：只能核對或改類別，其他的請到分帳頁修改',
   not_recorder: '只有記這筆分帳的人能修改',
+  friend_in_group: '這位朋友還在群組裡',
+  not_friend: '群組成員要是你的朋友',
+  registered_member: '有帳號的朋友之後才能加入群組（和註冊使用者分帳完成後）',
+  duplicate_member: '成員重複了，或把自己也加進去了',
+  invalid_member: '成員要選朋友或輸入名字',
+  member_in_use: '這位成員還有群組裡的分帳，刪掉那些分帳後才能移除',
+  group_not_settled: '群組還沒結清，結清後才能封存',
+  group_archived: '群組已封存，取消封存後才能修改',
+  group_in_use: '群組還有分帳，不能刪除；可以改成封存',
   too_many_requests: '嘗試次數過多，請稍後再試',
   internal: '系統發生錯誤，請稍後再試',
 }

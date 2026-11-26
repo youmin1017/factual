@@ -17,15 +17,17 @@ import (
 )
 
 // Shared expenses between the caller and one friend (M12, ADR-034..036,
-// ADR-106). The expense lives outside any budget; the caller's side is one
-// transaction in their default budget, written again from the expense
-// whenever it is saved:
+// ADR-106) or among a group's members (M13, ADR-037, ADR-115). The expense
+// lives outside any budget; the caller's side is one transaction in their
+// default budget, on the friend or group account, written again from the
+// expense whenever it is saved:
 //
 //	their share      (friend account, category, -share)
 //	what they paid   (paying account, -paid) + (friend account, +paid)
 //	a settlement     (friend account, paid - share) + (account, share - paid)
 //
-// so the friend account's balance is what the friend owes them.
+// so the account's balance is what the friend (or the group) owes them. An
+// expense that does not involve the caller leaves them nothing.
 
 const (
 	maxDescriptionLen = 200
@@ -42,21 +44,32 @@ func (h *Handlers) ListFriendExpenses(ctx context.Context, req api.ListFriendExp
 	if err != nil {
 		return nil, err
 	}
+	out, err := h.s.expensesResponse(ctx, f.BudgetId, rows)
+	if err != nil {
+		return nil, err
+	}
+	return api.ListFriendExpenses200JSONResponse{Friend: f, Expenses: out}, nil
+}
+
+// expensesResponse is the expenses with their payers and shares, and the
+// caller's side in their budget. Shares come by user id, not in the order
+// they were divided in: the browser always sends them in member order.
+func (s *Service) expensesResponse(ctx context.Context, budgetID *uuid.UUID, rows []db.ListFriendExpensesRow) ([]api.SharedExpense, error) {
 	ids := make([]uuid.UUID, len(rows))
 	for i, r := range rows {
 		ids[i] = r.ID
 	}
-	payers, err := h.s.q.ListExpensePayers(ctx, ids)
+	payers, err := s.q.ListExpensePayers(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	shares, err := h.s.q.ListExpenseShares(ctx, ids)
+	shares, err := s.q.ListExpenseShares(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
 	mine := map[uuid.UUID]*api.MySide{}
-	if f.BudgetId != nil {
-		entries, err := h.s.q.ListMySharedEntries(ctx, db.ListMySharedEntriesParams{BudgetID: *f.BudgetId, Ids: ids})
+	if budgetID != nil {
+		entries, err := s.q.ListMySharedEntries(ctx, db.ListMySharedEntriesParams{BudgetID: *budgetID, Ids: ids})
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +123,7 @@ func (h *Handlers) ListFriendExpenses(ctx context.Context, req api.ListFriendExp
 		}
 		x.Shares = append(x.Shares, share)
 	}
-	return api.ListFriendExpenses200JSONResponse{Friend: f, Expenses: out}, nil
+	return out, nil
 }
 
 // expensePlan is a valid upsert worked out: what to store and the caller's
@@ -127,7 +140,6 @@ type expensePlan struct {
 
 func (h *Handlers) SaveFriendExpenses(ctx context.Context, req api.SaveFriendExpensesRequestObject) (api.SaveFriendExpensesResponseObject, error) {
 	caller := reqctx.Caller(ctx).UserID
-	b := req.Body
 	f, err := h.s.friend(ctx, caller, req.FriendId)
 	if err != nil {
 		return nil, err
@@ -136,9 +148,56 @@ func (h *Handlers) SaveFriendExpenses(ctx context.Context, req api.SaveFriendExp
 	if err != nil {
 		return nil, err
 	}
-	accounts, err := h.s.q.ListAccountRefs(ctx, budget.ID)
+	place := expensePlace{
+		scope: splitScope{members: map[uuid.UUID]bool{caller: true, f.Id: true}, friend: f.Id},
+		heads: func(ids []uuid.UUID) (map[uuid.UUID]expenseHead, error) {
+			rows, err := h.s.q.GetExpenseHeads(ctx, db.GetExpenseHeadsParams{UserID: caller, FriendID: f.Id, Ids: ids})
+			if err != nil {
+				return nil, err
+			}
+			out := make(map[uuid.UUID]expenseHead, len(rows))
+			for _, x := range rows {
+				out[x.ID] = expenseHead{createdBy: x.CreatedBy, deleted: x.Deleted, here: !x.GroupID.Valid && x.WithUser && x.WithFriend}
+			}
+			return out, nil
+		},
+		account: func(q *db.Queries) (uuid.UUID, error) { return h.s.ensureFriendAccount(ctx, q, budget.ID, f) },
+	}
+	saved, probs, err := h.s.saveExpenses(ctx, caller, budget, place, *req.Body)
 	if err != nil {
 		return nil, err
+	}
+	if len(probs) > 0 {
+		return api.SaveFriendExpenses422JSONResponse{Errors: probs}, nil
+	}
+	return api.SaveFriendExpenses200JSONResponse(saved), nil
+}
+
+// expensePlace is where a batch of shared expenses is saved: with a friend
+// or in a group.
+type expensePlace struct {
+	scope splitScope
+	group uuid.NullUUID
+	// heads reports the expenses of the ids that already exist.
+	heads func(ids []uuid.UUID) (map[uuid.UUID]expenseHead, error)
+	// account is the friend or group account, created when missing.
+	account func(q *db.Queries) (uuid.UUID, error)
+}
+
+// expenseHead is what the batch needs to know about an existing expense.
+type expenseHead struct {
+	createdBy uuid.UUID
+	// here: it belongs to this friend or group.
+	here, deleted bool
+}
+
+// saveExpenses applies a batch of upserts and deletes in one database
+// transaction, or reports the problems of each expense and saves nothing.
+func (s *Service) saveExpenses(ctx context.Context, caller uuid.UUID, budget db.GetSplittingBudgetRow, place expensePlace, b api.SharedExpenseBatch) (api.SharedExpenseBatchSaved, problems, error) {
+	var saved api.SharedExpenseBatchSaved
+	accounts, err := s.q.ListAccountRefs(ctx, budget.ID)
+	if err != nil {
+		return saved, nil, err
 	}
 	paysFrom := map[uuid.UUID]bool{}
 	known := map[uuid.UUID]bool{}
@@ -148,9 +207,9 @@ func (h *Handlers) SaveFriendExpenses(ctx context.Context, req api.SaveFriendExp
 			paysFrom[a.ID] = a.OnBudget && !a.Closed
 		}
 	}
-	cats, err := h.s.q.ListCategoryRefs(ctx, budget.ID)
+	cats, err := s.q.ListCategoryRefs(ctx, budget.ID)
 	if err != nil {
-		return nil, err
+		return saved, nil, err
 	}
 	isCategory := map[uuid.UUID]bool{}
 	for _, c := range cats {
@@ -162,26 +221,22 @@ func (h *Handlers) SaveFriendExpenses(ctx context.Context, req api.SaveFriendExp
 		ids = append(ids, u.Id)
 	}
 	ids = append(ids, b.Deletes...)
-	heads, err := h.s.q.GetExpenseHeads(ctx, db.GetExpenseHeadsParams{UserID: caller, FriendID: f.Id, Ids: ids})
+	head, err := place.heads(ids)
 	if err != nil {
-		return nil, err
+		return saved, nil, err
 	}
-	head := make(map[uuid.UUID]db.GetExpenseHeadsRow, len(heads))
-	for _, x := range heads {
-		head[x.ID] = x
-	}
-	// An existing expense must be one of the two's, not deleted, and the
-	// caller's to change (ADR-017: only the recorder edits).
+	// An existing expense must be this friend's or group's, not deleted, and
+	// the caller's to change (ADR-106: only the recorder edits).
 	checkHead := func(p *problems, id uuid.UUID) bool {
 		x, ok := head[id]
 		if !ok {
 			return true
 		}
-		if x.GroupID.Valid || !x.WithUser || !x.WithFriend || x.Deleted {
+		if !x.here || x.deleted {
 			p.add(id, "", "not_found", "shared expense not found")
 			return false
 		}
-		if x.CreatedBy != caller {
+		if x.createdBy != caller {
 			p.add(id, "", "not_recorder", "only who recorded a shared expense changes it")
 			return false
 		}
@@ -200,11 +255,12 @@ func (h *Handlers) SaveFriendExpenses(ctx context.Context, req api.SaveFriendExp
 		if !checkHead(&probs, u.Id) {
 			continue
 		}
-		plan, ok := planExpense(&probs, u, caller, f.Id, budget.Currency)
+		plan, ok := planExpense(&probs, u, caller, place.scope, budget.Currency)
 		if !ok {
 			continue
 		}
-		owes := plan.paid != 0 || plan.in.Kind == api.SharedKindSettlement
+		// The caller says which account when money moves on their side.
+		owes := plan.paid != 0 || (plan.in.Kind == api.SharedKindSettlement && plan.share != 0)
 		switch {
 		case owes && u.AccountId == nil:
 			probs.add(u.Id, "account", "account_required", "say which account paid or was paid")
@@ -239,32 +295,34 @@ func (h *Handlers) SaveFriendExpenses(ctx context.Context, req api.SaveFriendExp
 		}
 	}
 	if len(probs) > 0 {
-		return api.SaveFriendExpenses422JSONResponse{Errors: probs}, nil
+		return saved, probs, nil
 	}
 
 	units := MinorUnits(budget.Currency)
-	var deleted int32
-	err = h.s.inTx(ctx, func(q *db.Queries) error {
+	err = s.inTx(ctx, func(q *db.Queries) error {
 		for _, id := range b.Deletes {
 			n, err := q.SoftDeleteSharedExpense(ctx, db.SoftDeleteSharedExpenseParams{ID: id, CreatedBy: caller})
 			if err != nil {
 				return err
 			}
-			deleted += int32(n)
+			saved.Deleted += int32(n)
 			if err := q.DeleteSharedTransaction(ctx, db.DeleteSharedTransactionParams{BudgetID: budget.ID, SharedExpenseID: uuid.NullUUID{UUID: id, Valid: true}}); err != nil {
 				return err
 			}
 		}
-		friendAccount, err := h.s.ensureFriendAccount(ctx, q, budget.ID, f)
+		if len(plans) == 0 {
+			return nil
+		}
+		account, err := place.account(q)
 		if err != nil {
 			return err
 		}
 		for _, p := range plans {
 			u := p.in
 			row := db.UpsertSharedExpenseParams{
-				ID: u.Id, Kind: db.SharedKind(u.Kind), Date: u.Date.Time, Description: strings.TrimSpace(u.Description),
-				Note: strings.TrimSpace(u.Note), Currency: budget.Currency, TotalAmount: u.Total,
-				SplitMethod: p.method, CreatedBy: caller,
+				ID: u.Id, Kind: db.SharedKind(u.Kind), GroupID: place.group, Date: u.Date.Time,
+				Description: strings.TrimSpace(u.Description), Note: strings.TrimSpace(u.Note),
+				Currency: budget.Currency, TotalAmount: u.Total, SplitMethod: p.method, CreatedBy: caller,
 			}
 			if p.foreign != nil {
 				row.OrigCurrency = pgtype.Text{String: p.foreign.Currency, Valid: true}
@@ -292,24 +350,32 @@ func (h *Handlers) SaveFriendExpenses(ctx context.Context, req api.SaveFriendExp
 					return err
 				}
 			}
-			if err := writeMyTransaction(ctx, q, budget.ID, caller, friendAccount, p); err != nil {
+			if err := writeMyTransaction(ctx, q, budget.ID, caller, account, p); err != nil {
 				return err
 			}
+			saved.Upserted++
 		}
 		return nil
 	})
 	if isUniqueViolation(err) {
-		return nil, nameTaken()
+		return saved, nil, nameTaken()
 	}
-	if err != nil {
-		return nil, err
-	}
-	return api.SaveFriendExpenses200JSONResponse{Upserted: int32(len(plans)), Deleted: deleted}, nil
+	return saved, nil, err
 }
 
-// planExpense checks an upsert and works out its payers and shares; the
-// two participants are the caller and the friend.
-func planExpense(p *problems, u api.SharedExpenseInput, caller, friend uuid.UUID, currency string) (expensePlan, bool) {
+// splitScope is who may take part in an expense.
+type splitScope struct {
+	members map[uuid.UUID]bool
+	// friend is set for an expense with a friend: the two always have a
+	// share each, and a settlement's receiver may be left to be the other.
+	friend uuid.UUID
+}
+
+func (sc splitScope) withFriend() bool { return sc.friend != uuid.Nil }
+
+// planExpense checks an upsert and works out its payers and shares among
+// the scope's members, dividing in the order the shares are given.
+func planExpense(p *problems, u api.SharedExpenseInput, caller uuid.UUID, scope splitScope, currency string) (expensePlan, bool) {
 	plan := expensePlan{in: u, method: db.SplitMethod(u.SplitMethod)}
 	n := len(*p)
 	desc := strings.TrimSpace(u.Description)
@@ -338,12 +404,11 @@ func planExpense(p *problems, u api.SharedExpenseInput, caller, friend uuid.UUID
 		return plan, false
 	}
 
-	isParticipant := func(id uuid.UUID) bool { return id == caller || id == friend }
 	var paid int64
 	payers := map[uuid.UUID]bool{}
 	for _, x := range u.Payers {
-		if !isParticipant(x.UserId) || payers[x.UserId] || x.Amount <= 0 {
-			p.add(u.Id, "payers", "invalid_payers", "the payers are you or your friend, each once, paying more than zero")
+		if !scope.members[x.UserId] || payers[x.UserId] || x.Amount <= 0 {
+			p.add(u.Id, "payers", "invalid_payers", "the payers are members, each once, paying more than zero")
 			return plan, false
 		}
 		payers[x.UserId] = true
@@ -365,17 +430,27 @@ func planExpense(p *problems, u api.SharedExpenseInput, caller, friend uuid.UUID
 		}
 	}
 
-	// A settlement: the payer pays the whole amount and the other one
-	// receives it (ADR-034).
+	// A settlement: the payer pays the whole amount and the receiver
+	// receives it (ADR-034). With a friend the receiver is the other one.
 	if u.Kind == api.SharedKindSettlement {
 		if len(plan.payers) != 1 {
 			p.add(u.Id, "payers", "invalid_payers", "a settlement has one payer")
 			return plan, false
 		}
 		payer := plan.payers[0].UserID
-		receiver := friend
-		if payer == friend {
-			receiver = caller
+		var receiver uuid.UUID
+		switch {
+		case len(u.Shares) == 1:
+			receiver = u.Shares[0].UserId
+		case len(u.Shares) == 0 && scope.withFriend():
+			receiver = scope.friend
+			if payer == scope.friend {
+				receiver = caller
+			}
+		}
+		if receiver == uuid.Nil || receiver == payer || !scope.members[receiver] {
+			p.add(u.Id, "shares", "invalid_shares", "a settlement is paid to one other member")
+			return plan, false
 		}
 		plan.method = db.SplitMethodExact
 		share(payer, 0, pgtype.Numeric{})
@@ -383,8 +458,19 @@ func planExpense(p *problems, u api.SharedExpenseInput, caller, friend uuid.UUID
 		return plan, true
 	}
 
-	if len(u.Shares) != 2 || !isParticipant(u.Shares[0].UserId) || !isParticipant(u.Shares[1].UserId) ||
-		u.Shares[0].UserId == u.Shares[1].UserId {
+	sharing := make(map[uuid.UUID]bool, len(u.Shares))
+	for _, x := range u.Shares {
+		if !scope.members[x.UserId] || sharing[x.UserId] {
+			p.add(u.Id, "shares", "invalid_shares", "the shares are members, each once")
+			return plan, false
+		}
+		sharing[x.UserId] = true
+	}
+	switch {
+	case len(u.Shares) == 0:
+		p.add(u.Id, "shares", "invalid_shares", "somebody needs a share")
+		return plan, false
+	case scope.withFriend() && len(u.Shares) != 2:
 		p.add(u.Id, "shares", "invalid_shares", "both of you have a share")
 		return plan, false
 	}
@@ -406,7 +492,11 @@ func planExpense(p *problems, u api.SharedExpenseInput, caller, friend uuid.UUID
 			share(x.UserId, *x.Amount, pgtype.Numeric{})
 		}
 	case db.SplitMethodEqual:
-		parts := divide(u.Total, []int64{1, 1})
+		ones := make([]int64, len(u.Shares))
+		for i := range ones {
+			ones[i] = 1
+		}
+		parts := divide(u.Total, ones)
 		for i, x := range u.Shares {
 			share(x.UserId, parts[i], pgtype.Numeric{})
 		}
@@ -442,7 +532,8 @@ func planExpense(p *problems, u api.SharedExpenseInput, caller, friend uuid.UUID
 }
 
 // ensureFriendAccount is the friend account in the budget, created when it
-// is missing (the budget became the default after the friend was added).
+// is missing (the budget became the default after the friend was added, or
+// the friend was added through a group).
 func (s *Service) ensureFriendAccount(ctx context.Context, q *db.Queries, budgetID uuid.UUID, f api.Friend) (uuid.UUID, error) {
 	if f.AccountId != nil && f.BudgetId != nil && *f.BudgetId == budgetID {
 		return *f.AccountId, nil
@@ -455,8 +546,9 @@ func (s *Service) ensureFriendAccount(ctx context.Context, q *db.Queries, budget
 // writeMyTransaction writes the caller's side of an expense into their
 // budget, keeping what they cleared and the card statements its entries
 // are billed in (ADR-088). An expense that leaves them nothing to record
-// (a friend's purchase they have no share of) has no transaction.
-func writeMyTransaction(ctx context.Context, q *db.Queries, budgetID, caller, friendAccount uuid.UUID, p expensePlan) error {
+// (a purchase they have no share of, a settlement between two others) has
+// no transaction.
+func writeMyTransaction(ctx context.Context, q *db.Queries, budgetID, caller, account uuid.UUID, p expensePlan) error {
 	u := p.in
 	type line struct {
 		account  uuid.UUID
@@ -465,14 +557,15 @@ func writeMyTransaction(ctx context.Context, q *db.Queries, budgetID, caller, fr
 	}
 	var lines []line
 	if u.Kind == api.SharedKindSettlement {
-		net := p.paid - p.share
-		lines = []line{{friendAccount, nil, net}, {*u.AccountId, nil, -net}}
+		if net := p.paid - p.share; p.paid != 0 || p.share != 0 {
+			lines = []line{{account, nil, net}, {*u.AccountId, nil, -net}}
+		}
 	} else {
 		if p.share > 0 {
-			lines = append(lines, line{friendAccount, u.CategoryId, -p.share})
+			lines = append(lines, line{account, u.CategoryId, -p.share})
 		}
 		if p.paid > 0 {
-			lines = append(lines, line{*u.AccountId, nil, -p.paid}, line{friendAccount, nil, p.paid})
+			lines = append(lines, line{*u.AccountId, nil, -p.paid}, line{account, nil, p.paid})
 		}
 	}
 	expense := uuid.NullUUID{UUID: u.Id, Valid: true}

@@ -137,8 +137,8 @@ func (h *Handlers) DeleteFriend(ctx context.Context, req api.DeleteFriendRequest
 		return q.DeletePlaceholder(ctx, db.DeletePlaceholderParams{ID: f.Id, CreatedBy: uuid.NullUUID{UUID: caller, Valid: true}})
 	})
 	if isForeignKeyViolation(err) {
-		// Something else still refers to them, such as a group (M13).
-		return nil, apperr.New(http.StatusConflict, "friend_in_use", "this friend is still in use")
+		// A group still has them as a member (M13).
+		return nil, apperr.New(http.StatusConflict, "friend_in_group", "this friend is still a member of a group")
 	}
 	if err != nil {
 		return nil, err

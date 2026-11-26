@@ -112,12 +112,16 @@ select se.id, se.created_by, se.group_id, (se.deleted_at is not null)::boolean a
  where se.id = any(sqlc.arg(ids)::uuid[]);
 
 -- name: UpsertSharedExpense :exec
--- The caller has checked that an existing id is theirs.
-insert into shared_expenses (id, kind, date, description, note, currency, total_amount,
-                             orig_currency, orig_amount, fx_rate, split_method, created_by)
-values (sqlc.arg(id), sqlc.arg(kind), sqlc.arg(date), sqlc.arg(description), sqlc.arg(note), sqlc.arg(currency),
-        sqlc.arg(total_amount), sqlc.narg(orig_currency), sqlc.narg(orig_amount), sqlc.narg(fx_rate),
-        sqlc.arg(split_method), sqlc.arg(created_by))
+-- The caller has checked that an existing id is theirs and in the same
+-- group (or direct); the group is set only when the expense is created.
+-- created_at is the clock's, not the transaction's start, so that the
+-- expenses of one batch keep the order they were sent in (lines on the same
+-- date are listed by it).
+insert into shared_expenses (id, kind, group_id, date, description, note, currency, total_amount,
+                             orig_currency, orig_amount, fx_rate, split_method, created_by, created_at)
+values (sqlc.arg(id), sqlc.arg(kind), sqlc.narg(group_id), sqlc.arg(date), sqlc.arg(description), sqlc.arg(note),
+        sqlc.arg(currency), sqlc.arg(total_amount), sqlc.narg(orig_currency), sqlc.narg(orig_amount),
+        sqlc.narg(fx_rate), sqlc.arg(split_method), sqlc.arg(created_by), clock_timestamp())
 on conflict (id) do update
    set kind = excluded.kind, date = excluded.date, description = excluded.description, note = excluded.note,
        total_amount = excluded.total_amount, orig_currency = excluded.orig_currency,
@@ -160,3 +164,7 @@ select account_id, (category_id is null)::boolean as uncategorized, cleared
 
 -- name: DeleteSharedTransaction :exec
 delete from transactions where budget_id = $1 and shared_expense_id = $2;
+
+-- name: CreatePlaceholderWithID :exec
+-- A new friend of the 分帳 page, keyed by the id the client chose.
+insert into users (id, display_name, created_by) values ($1, $2, $3);

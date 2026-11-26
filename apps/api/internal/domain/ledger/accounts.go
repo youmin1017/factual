@@ -267,7 +267,7 @@ func accountResponse(r db.GetAccountRow) api.Account {
 	return api.Account{
 		Id: r.ID, Name: r.Name, Kind: api.AccountKind(r.Kind), OnBudget: r.OnBudget, Closed: r.Closed,
 		SortOrder: r.SortOrder, Balance: r.Balance, ClearedBalance: r.ClearedBalance, HasActivity: r.HasActivity,
-		FriendId: idPtr(r.FriendUserID),
+		FriendId: idPtr(r.FriendUserID), GroupId: idPtr(r.GroupID),
 	}
 }
 

@@ -27,11 +27,16 @@ import {
   describeLine,
   effectOf,
   formColumns,
+  memberBalanceText,
+  memberBalances,
+  myShareOf,
+  nameOf,
   needs,
   newSplitRow,
+  payerText,
   rowFromExpense,
   runningBalances,
-  sharesOf,
+  settleUp,
   splitCellText,
   splitColumns,
   splitFormFields,
@@ -63,9 +68,10 @@ import type {
 } from '#/lib/split'
 import type { Suggestion } from '../register/cell-editor'
 
-// A friend's shared expenses (M12, ADR-106): a grid edited as the goals
-// page is, saved with :w through the batch endpoint, which also writes the
-// caller's side into their budget; drafts kept locally (ADR-043).
+// The shared expenses with a friend (M12, ADR-106) or in a group (M13,
+// ADR-115): a grid edited as the goals page is, saved with :w through the
+// batch endpoint, which also writes the caller's side into their budget;
+// drafts kept locally (ADR-043).
 
 const ROW_HEIGHT = 32
 const GUTTER = 28
@@ -130,8 +136,13 @@ interface Range {
   to: number
 }
 
+/** Whose expenses the grid edits. */
+export type SplitScope =
+  | { kind: 'friend'; friendId: string }
+  | { kind: 'group'; groupId: string; archived: boolean }
+
 interface Props {
-  friendId: string
+  scope: SplitScope
   people: People
   /** The budget's currency, which shared expenses are recorded in (ADR-041). */
   currency: string
@@ -144,7 +155,8 @@ interface Props {
   onQuit: () => void
 }
 
-const DRAFT_VERSION = 1
+// 2: lines name members (M13).
+const DRAFT_VERSION = 2
 
 interface Draft {
   version: number
@@ -152,8 +164,10 @@ interface Draft {
   order: Array<string>
 }
 
-function draftKey(friendId: string): string {
-  return `factual:friend:${friendId}`
+function draftKey(scope: SplitScope): string {
+  return scope.kind === 'friend'
+    ? `factual:friend:${scope.friendId}`
+    : `factual:group:${scope.groupId}`
 }
 
 function readDraft(key: string): Draft | null {
@@ -219,7 +233,7 @@ function initialRows(
 }
 
 export function ExpenseGrid({
-  friendId,
+  scope,
   people,
   currency,
   ctx,
@@ -228,7 +242,13 @@ export function ExpenseGrid({
   reload,
   onQuit,
 }: Props) {
-  const key = draftKey(friendId)
+  const key = draftKey(scope)
+  const friendName = people.friend ? nameOf(people, people.friend) : null
+  /** Why nothing can be changed (an archived group), or null. */
+  const readOnly =
+    scope.kind === 'group' && scope.archived
+      ? '群組已封存，取消封存後才能修改'
+      : null
   const [room, setRoom] = useState(0)
   const layout = layoutOf(room)
   const columns = splitColumns
@@ -272,8 +292,8 @@ export function ExpenseGrid({
   const today = isoDate(now)
   const states: Array<SplitRowStatus> = rows.map((r) => splitStatus(r, people))
   const dirty = states.filter((s) => s !== 'clean').length
-  const balances = runningBalances(rows)
-  const balance = rows.reduce((sum, r) => sum + (effectOf(r) ?? 0), 0)
+  const balances = runningBalances(rows, people)
+  const balance = rows.reduce((sum, r) => sum + (effectOf(r, people) ?? 0), 0)
   const current = rows.at(cursor.row)
   const column = columns[cursor.col]
   const selection: Range | null =
@@ -371,6 +391,12 @@ export function ExpenseGrid({
     setMessage({ text, tone })
   }
 
+  /** Says why the lines cannot change, when they cannot. */
+  function locked(): boolean {
+    if (readOnly) say(readOnly, 'error')
+    return readOnly !== null
+  }
+
   function clamp(row: number, length = rows.length) {
     return Math.max(0, Math.min(row, length - 1))
   }
@@ -416,11 +442,13 @@ export function ExpenseGrid({
   }
 
   function openRow(at: number) {
+    if (locked()) return
     const row = newSplitRow(
       crypto.randomUUID(),
       today,
       defaultAccount(),
       current?.categoryId ?? null,
+      people,
     )
     insertRow(
       at,
@@ -430,25 +458,44 @@ export function ExpenseGrid({
     )
   }
 
-  /** `:settle`: a settlement for what the balance is now. */
+  /**
+   * `:settle`: settlements for what is owed now: with a friend one for the
+   * balance, in a group the transfers settleUp suggests.
+   */
   function settle() {
-    if (balance === 0) return say('目前兩清，不用還款')
-    const row: SplitRow = {
-      ...newSplitRow(crypto.randomUUID(), today, defaultAccount(), null),
+    if (locked()) return
+    const transfers = settleUp(memberBalances(rows, people), people)
+    if (transfers.length === 0) return say('目前已結清，不用還款')
+    const money = (n: number) => formatAmount(n, ctx.minorUnits)
+    const lines = transfers.map((t): SplitRow => ({
+      ...newSplitRow(
+        crypto.randomUUID(),
+        today,
+        defaultAccount(),
+        null,
+        people,
+      ),
       description: '還款',
-      total: Math.abs(balance),
+      total: t.amount,
       settlement: true,
       method: 'exact',
-      payer: balance > 0 ? 'friend' : 'me',
-    }
+      payer: t.from,
+      receiver: people.friend ? null : t.to,
+    }))
     const index = rows.length
-    change([...rows, row])
-    setCursor({ row: index, col: columns.indexOf('account') })
+    change([...rows, ...lines])
+    const mine = lines.findIndex((l) => needs(l, people).account)
+    setCursor({
+      row: index + Math.max(0, mine),
+      col: columns.indexOf(mine >= 0 ? 'account' : 'date'),
+    })
     say(
-      `${balance > 0 ? `${people.friendName} 還我` : `我還 ${people.friendName}`} ${formatAmount(
-        Math.abs(balance),
-        ctx.minorUnits,
-      )}：確認帳戶和日期後 :w 儲存`,
+      `${transfers
+        .map(
+          (t) =>
+            `${nameOf(people, t.from)}還${nameOf(people, t.to)} ${money(t.amount)}`,
+        )
+        .join('、')}：確認帳戶和日期後 :w 儲存`,
     )
   }
 
@@ -472,6 +519,7 @@ export function ExpenseGrid({
    * lines are removed. `dd` on lines already marked takes the mark off.
    */
   function deleteRange({ from, to }: Range) {
+    if (locked()) return
     const targets = rows.slice(from, to + 1)
     if (targets.length === 0) return
     const restore = targets.every((t) => t.deleted)
@@ -504,6 +552,7 @@ export function ExpenseGrid({
   }
 
   function paste(after: boolean) {
+    if (locked()) return
     if (yanked.current.length === 0) {
       return say('還沒有複製任何分帳（yy，或 V 選取後按 y）')
     }
@@ -547,6 +596,7 @@ export function ExpenseGrid({
   }
 
   function changeSelection(range: Range) {
+    if (locked()) return
     if (derivedSplitColumns.has(column))
       return say('這一欄是算出來的，不能修改', 'error')
     const usable = rows
@@ -612,16 +662,21 @@ export function ExpenseGrid({
     if (row.deleted) return '這筆分帳已標記刪除，按 u 復原或 dd 取消'
     if (col === 'mine') return '我的份是從金額和分法算出來的'
     if (col === 'balance')
-      return `往來是到這一筆為止 ${people.friendName} 欠我（負的是我欠）多少`
-    const need = needs(row)
+      return friendName
+        ? `往來是到這一筆為止 ${friendName} 欠我（負的是我欠）多少`
+        : '往來是到這一筆為止群組欠我（負的是我欠群組）多少'
+    const need = needs(row, people)
     if (col === 'account' && !need.account)
-      return `${people.friendName} 付的，我這邊不用填帳戶`
+      return row.settlement
+        ? '這筆還款沒有經過我，不用填帳戶'
+        : '我沒有付錢，不用填帳戶'
     if (col === 'category' && !need.category)
       return row.settlement ? '還款不用類別' : '我的份是 0，不用類別'
     return null
   }
 
   function startInsertAt(index: number, colIndex: number, clear = false) {
+    if (locked()) return
     const row = rows.at(index)
     const col = columns[colIndex]
     if (!row) return say('還沒有分帳，按 o 新增一筆')
@@ -650,7 +705,7 @@ export function ExpenseGrid({
 
   /** Opens the split form on a line, at the field of the column. */
   function openForm_(row: SplitRow, col: SplitColumn) {
-    const values = splitFormValues(row, ctx.minorUnits)
+    const values = splitFormValues(row, people, ctx.minorUnits)
     const at = col === 'paidBy' ? 'payer' : row.settlement ? 'kind' : 'method'
     setForm(openForm(values, formFieldsOf(values), at))
     setMode('form')
@@ -670,7 +725,7 @@ export function ExpenseGrid({
     const failed = { error: '', count: 0 }
     const changed = patchRows(ids, (row) => {
       if (row.deleted) return null
-      const patch = applySplitForm(row, values, ctx.minorUnits)
+      const patch = applySplitForm(row, values, people, ctx.minorUnits)
       if (typeof patch === 'string') {
         failed.error ||= patch
         failed.count++
@@ -718,7 +773,7 @@ export function ExpenseGrid({
   /** What the form's values come to on the cursor's line. */
   function formPreview(): string | undefined {
     if (!form || !current) return undefined
-    const patch = applySplitForm(current, form.values, ctx.minorUnits)
+    const patch = applySplitForm(current, form.values, people, ctx.minorUnits)
     if (typeof patch === 'string') return patch
     return (
       describeLine({ ...current, ...patch }, people, ctx.minorUnits) ??
@@ -836,7 +891,7 @@ export function ExpenseGrid({
     const found = new Map<string, SplitProblem>()
     for (const [i, row] of rows.entries()) {
       if (states[i] === 'clean') continue
-      const p = validateSplit(row, ctx)
+      const p = validateSplit(row, ctx, people)
       if (p) found.set(row.id, p)
     }
     if (found.size > 0) return reportProblems(found)
@@ -850,10 +905,17 @@ export function ExpenseGrid({
     }
     setSaving(true)
     try {
-      const { data, error, response } = await api.POST(
-        '/friends/{friendId}/expenses/batch',
-        { params: { path: { friendId } }, body: { upserts, deletes } },
-      )
+      const body = { upserts, deletes }
+      const { data, error, response } =
+        scope.kind === 'friend'
+          ? await api.POST('/friends/{friendId}/expenses/batch', {
+              params: { path: { friendId: scope.friendId } },
+              body,
+            })
+          : await api.POST('/groups/{groupId}/expenses/batch', {
+              params: { path: { groupId: scope.groupId } },
+              body,
+            })
       if (response.status === 422 && error && 'errors' in error) {
         const fromServer = new Map<string, SplitProblem>()
         for (const p of error.errors) {
@@ -902,6 +964,7 @@ export function ExpenseGrid({
   }
 
   function discard() {
+    if (locked()) return
     const fresh = expenses.map((x) => rowFromExpense(x, people))
     writeDraft(key, null, people)
     change(fresh)
@@ -1208,21 +1271,30 @@ export function ExpenseGrid({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <p className="text-sm text-muted-foreground">
-        {dirty > 0 ? '儲存後：' : '目前：'}
-        <span
-          className={cn(
-            'amount',
-            balance > 0
-              ? 'text-positive'
-              : balance < 0
-                ? 'text-destructive'
-                : 'text-foreground',
-          )}
-        >
-          {balanceText(balance, people.friendName, ctx.minorUnits)}
-        </span>
-      </p>
+      {friendName ? (
+        <p className="text-sm text-muted-foreground">
+          {dirty > 0 ? '儲存後：' : '目前：'}
+          <span
+            className={cn(
+              'amount',
+              balance > 0
+                ? 'text-positive'
+                : balance < 0
+                  ? 'text-destructive'
+                  : 'text-foreground',
+            )}
+          >
+            {balanceText(balance, friendName, ctx.minorUnits)}
+          </span>
+        </p>
+      ) : (
+        <GroupSummary
+          rows={rows}
+          people={people}
+          minorUnits={ctx.minorUnits}
+          unsaved={dirty > 0}
+        />
+      )}
       <div
         ref={gridRef}
         tabIndex={0}
@@ -1267,8 +1339,10 @@ export function ExpenseGrid({
 
             {rows.length === 0 && (
               <p className="px-4 py-6 text-sm text-muted-foreground">
-                還沒有和 {people.friendName} 的分帳。按{' '}
-                <kbd className="font-mono text-foreground">o</kbd>{' '}
+                {friendName
+                  ? `還沒有和 ${friendName} 的分帳。`
+                  : '這個群組還沒有分帳。'}
+                按 <kbd className="font-mono text-foreground">o</kbd>{' '}
                 新增一筆，例如：晚餐 2400，我付的，平分。
               </p>
             )}
@@ -1509,7 +1583,7 @@ function ExpenseLine({
   problem: SplitProblem | undefined
   ctx: Context
   people: People
-  /** The friend account's balance after this line. */
+  /** The friend or group account's balance after this line. */
   balance: number
   now: Date
   onPick: (col: number, enter: boolean, extend: boolean) => void
@@ -1521,8 +1595,8 @@ function ExpenseLine({
   const muted = 'text-muted-foreground'
   const money = (n: number | null) =>
     n === null ? '' : formatAmount(n, ctx.minorUnits)
-  const shares = sharesOf(row)
-  const need = needs(row)
+  const mine = myShareOf(row, people)
+  const need = needs(row, people)
 
   function content(c: SplitColumn, col: number): React.ReactNode {
     const bad = problem?.field === c && 'text-destructive'
@@ -1563,11 +1637,7 @@ function ExpenseLine({
         return (
           <span key={c} data-col={col} className={cn(cell, bad)}>
             <span className="truncate">
-              {row.payer === 'me'
-                ? '我'
-                : row.payer === 'friend'
-                  ? people.friendName
-                  : `我 ${money(row.myPaid)}`}
+              {payerText(row, people, ctx.minorUnits)}
             </span>
           </span>
         )
@@ -1578,7 +1648,9 @@ function ExpenseLine({
             data-col={col}
             className={cn(cell, 'text-xs', row.settlement && 'text-kraft', bad)}
           >
-            {splitText(row, ctx.minorUnits)}
+            <span className="truncate">
+              {splitText(row, people, ctx.minorUnits)}
+            </span>
           </span>
         )
       case 'mine':
@@ -1588,7 +1660,7 @@ function ExpenseLine({
             data-col={col}
             className={cn(cell, 'amount justify-end', muted)}
           >
-            {row.settlement || !shares ? '' : money(shares[0])}
+            {row.settlement || mine === null ? '' : money(mine)}
           </span>
         )
       case 'balance':
@@ -1676,6 +1748,73 @@ function ExpenseLine({
         {marker}
       </span>
       {splitColumns.map((c, col) => content(c, col))}
+    </div>
+  )
+}
+
+/**
+ * A group's members with what each is owed or owes over the lines (saved or
+ * not), and the transfers that would settle them (:settle adds them).
+ */
+function GroupSummary({
+  rows,
+  people,
+  minorUnits,
+  unsaved,
+}: {
+  rows: Array<SplitRow>
+  people: People
+  minorUnits: number
+  unsaved: boolean
+}) {
+  const balances = memberBalances(rows, people)
+  const transfers = settleUp(balances, people)
+  const money = (n: number) => formatAmount(n, minorUnits)
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <p className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+        <span>{unsaved ? '儲存後：' : '目前：'}</span>
+        {people.members.map((m) => {
+          const b = balances.get(m.id) ?? 0
+          return (
+            <span key={m.id}>
+              {m.name}{' '}
+              <span
+                className={cn(
+                  'amount',
+                  b > 0
+                    ? 'text-positive'
+                    : b < 0
+                      ? 'text-destructive'
+                      : 'text-foreground',
+                )}
+              >
+                {memberBalanceText(b, minorUnits)}
+              </span>
+            </span>
+          )
+        })}
+      </p>
+      <p className="text-muted-foreground">
+        {transfers.length === 0 ? (
+          '大家都已結清'
+        ) : (
+          <>
+            建議這樣還：
+            {transfers.map((t, i) => (
+              <span key={`${t.from}-${t.to}`}>
+                {i > 0 && '、'}
+                {nameOf(people, t.from)} → {nameOf(people, t.to)}{' '}
+                <span className="amount text-foreground">
+                  {money(t.amount)}
+                </span>
+              </span>
+            ))}
+            （<kbd className="font-mono text-foreground">:settle</kbd>{' '}
+            加入這些還款）
+          </>
+        )}
+      </p>
     </div>
   )
 }

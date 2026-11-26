@@ -189,3 +189,13 @@ export function friendExpensesQuery(friendId: string) {
     params: { path: { friendId } },
   })
 }
+
+/** The user's groups, with each member's balance (M13, ADR-115). */
+export const groupsQuery = $api.queryOptions('get', '/groups')
+
+/** A group's shared expenses; the group's page owns them once loaded. */
+export function groupExpensesQuery(groupId: string) {
+  return $api.queryOptions('get', '/groups/{groupId}/expenses', {
+    params: { path: { groupId } },
+  })
+}

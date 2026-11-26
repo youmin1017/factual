@@ -2,7 +2,7 @@
 -- The budget's accounts; friend accounts are listed with the friend they are
 -- with (ADR-106), suspense accounts belong to splitting with registered users.
 select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null)::boolean as closed,
-       b.balance, b.cleared_balance, a.friend_user_id,
+       b.balance, b.cleared_balance, a.friend_user_id, a.group_id,
        exists (select 1 from entries e join transactions t on t.id = e.transaction_id
                 where e.account_id = a.id and not t.is_opening)::boolean as has_activity
   from accounts a
@@ -12,7 +12,7 @@ select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null
 
 -- name: GetAccount :one
 select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null)::boolean as closed,
-       b.balance, b.cleared_balance, a.friend_user_id,
+       b.balance, b.cleared_balance, a.friend_user_id, a.group_id,
        exists (select 1 from entries e join transactions t on t.id = e.transaction_id
                 where e.account_id = a.id and not t.is_opening)::boolean as has_activity
   from accounts a

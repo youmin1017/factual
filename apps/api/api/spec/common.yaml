@@ -59,6 +59,13 @@ parameters:
     schema:
       type: string
       format: uuid
+  GroupId:
+    name: groupId
+    in: path
+    required: true
+    schema:
+      type: string
+      format: uuid
 
   Id:
     name: id

@@ -11,8 +11,8 @@ import {
 } from '#/lib/budget'
 import { useKeymap } from '#/lib/preferences'
 import { categoryRefs } from '#/lib/register'
+import { friendPeople } from '#/lib/split'
 import type { AccountRef, Context } from '#/lib/register'
-import type { People } from '#/lib/split'
 
 export const Route = createFileRoute('/_app/friends/$friendId')({
   staticData: { crumb: '分帳', wide: true },
@@ -67,11 +67,7 @@ function FriendPage() {
   }
 
   const { friend } = expenses.data
-  const people: People = {
-    me: user.id,
-    friend: friend.id,
-    friendName: friend.displayName,
-  }
+  const people = friendPeople(user.id, friend)
   // The accounts the user pays from or into: the budget's, not friend
   // accounts (those move only through shared expenses).
   const refs = new Map<string, AccountRef>(
@@ -131,7 +127,7 @@ function FriendPage() {
       </div>
       <ExpenseGrid
         key={friendId}
-        friendId={friendId}
+        scope={{ kind: 'friend', friendId }}
         people={people}
         currency={budget.currency}
         ctx={ctx}
