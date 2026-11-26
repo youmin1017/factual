@@ -1,6 +1,8 @@
+import { parseLoanFields } from './loan.ts'
 import { amountInputValue, formatAmount, parseAmount } from './money.ts'
 import type { Schemas } from './api'
 import type { Field, Option } from './form.ts'
+import type { LoanFieldValues } from './loan.ts'
 
 // The accounts page (ADR-108): its lines, edited as the goals page's are
 // and saved with :w; what an account is set up with is edited in a form
@@ -74,6 +76,11 @@ export interface AccountRow {
   openingDate: string
   closed: boolean
   card: CardSettings | null
+  /**
+   * A loan's terms as edited in its details under the line (ADR-110); null
+   * while they are as saved.
+   */
+  loan: LoanFieldValues | null
 }
 
 export type AccountRowStatus = 'clean' | 'new' | 'changed' | 'deleted'
@@ -95,6 +102,7 @@ export function rowFromAccount(a: Account): AccountRow {
     openingDate: '',
     closed: a.closed,
     card: a.card ?? null,
+    loan: null,
   }
 }
 
@@ -110,12 +118,14 @@ export function newAccountRow(id: string, today: string): AccountRow {
     openingDate: today,
     closed: false,
     card: null,
+    loan: null,
   }
 }
 
 export function toAccountInput(
   row: AccountRow,
   sortOrder: number,
+  minorUnits = 0,
 ): AccountInput {
   const input: AccountInput = {
     id: row.id,
@@ -128,6 +138,10 @@ export function toAccountInput(
     sortOrder,
   }
   if (row.kind === 'credit_card' && row.card) input.card = { ...row.card }
+  if (row.kind === 'loan' && row.loan) {
+    const terms = parseLoanFields(row.loan, minorUnits)
+    if (!('field' in terms)) input.loan = terms
+  }
   return input
 }
 
@@ -137,6 +151,7 @@ export function accountStatus(row: AccountRow): AccountRowStatus {
   if (!row.base) return 'new'
   const saved = rowFromAccount(row.base)
   const same =
+    row.loan === null &&
     row.name.trim() === saved.name &&
     row.closed === saved.closed &&
     JSON.stringify(row.kind === 'credit_card' ? row.card : null) ===
@@ -147,6 +162,7 @@ export function accountStatus(row: AccountRow): AccountRowStatus {
 export function validateAccount(
   row: AccountRow,
   rows: Array<AccountRow>,
+  minorUnits = 0,
 ): AccountProblem | null {
   if (row.deleted) {
     return row.base?.hasActivity
@@ -165,6 +181,11 @@ export function validateAccount(
   const balance = row.base ? row.base.balance : row.openingBalance
   if (row.closed && (!row.base || !row.base.closed) && balance !== 0)
     return { field: 'status', message: '餘額不是 0 的帳戶不能關閉' }
+  if (row.kind === 'loan' && row.loan) {
+    const terms = parseLoanFields(row.loan, minorUnits)
+    if ('field' in terms)
+      return { field: null, message: `貸款條件：${terms.message}` }
+  }
   return null
 }
 
@@ -362,6 +383,6 @@ export function setupPreview(
   const amount = formatAmount(Math.abs(patch.openingBalance ?? 0), minorUnits)
   const what = isDebt(kind) ? `欠 ${amount}` : `有 ${amount}`
   return kind === 'loan'
-    ? `${where}；${what}。還款條件在儲存後用 :loan 設定`
+    ? `${where}；${what}（填了貸款條件就照條件算）。條件在這一列底下（za 展開）`
     : `${where}；${(patch.openingDate ?? '').replaceAll('-', '/')} ${what}`
 }

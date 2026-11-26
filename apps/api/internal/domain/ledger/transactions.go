@@ -104,6 +104,16 @@ func (p *problems) add(id uuid.UUID, field, code, message string) {
 	*p = append(*p, api.BatchProblem{Id: id, Field: field, Code: code, Message: message})
 }
 
+// has reports whether a problem was already found for id.
+func (p problems) has(id uuid.UUID) bool {
+	for _, x := range p {
+		if x.Id == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransactionsRequestObject) (api.SaveTransactionsResponseObject, error) {
 	budgetID := req.BudgetId
 	b := req.Body

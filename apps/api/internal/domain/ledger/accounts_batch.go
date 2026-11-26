@@ -67,6 +67,7 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 		}
 	}
 	var off func(time.Time) bool
+	terms := map[uuid.UUID]loanTerms{}
 	for _, u := range b.Upserts {
 		if seen[u.Id] {
 			probs.add(u.Id, "", "duplicate_id", "the account appears twice in the batch")
@@ -123,6 +124,30 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 			}
 		}
 	}
+	for _, u := range b.Upserts {
+		if u.Loan == nil || probs.has(u.Id) {
+			continue
+		}
+		cur, exists := head[u.Id]
+		isLoan := (exists && cur.Kind == db.AccountKindLoan) || (!exists && u.Kind == api.NewAccountKindLoan)
+		if !isLoan {
+			probs.add(u.Id, "loan", "not_a_loan", "only a loan account has loan terms")
+			continue
+		}
+		account := u.Id
+		if !exists {
+			account = uuid.Nil
+		}
+		t, err := h.s.checkLoan(ctx, budgetID, account, *u.Loan)
+		if err != nil {
+			if code, msg, ok := problemOf(err); ok {
+				probs.add(u.Id, "loan", code, msg)
+				continue
+			}
+			return nil, err
+		}
+		terms[u.Id] = t
+	}
 	for _, id := range b.Deletes {
 		if seen[id] {
 			probs.add(id, "", "duplicate_id", "the account is both saved and deleted")
@@ -145,6 +170,7 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 
 	caller := uuid.NullUUID{UUID: reqctx.Caller(ctx).UserID, Valid: true}
 	var removed int32
+	var schedules []uuid.UUID
 	err = h.s.inTx(ctx, func(q *db.Queries) error {
 		for _, id := range b.Deletes {
 			if err := q.DeleteOpeningTransactions(ctx, db.DeleteOpeningTransactionsParams{BudgetID: budgetID, AccountID: id}); err != nil {
@@ -184,8 +210,11 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 				if err != nil {
 					return err
 				}
-				if err := createOpening(ctx, q, budgetID, u.Id, onBudget, u.OpeningBalance, u.OpeningDate.Time, caller); err != nil {
-					return err
+				// A loan with terms starts owing what they leave owed (ADR-098).
+				if _, withTerms := terms[u.Id]; !withTerms {
+					if err := createOpening(ctx, q, budgetID, u.Id, onBudget, u.OpeningBalance, u.OpeningDate.Time, caller); err != nil {
+						return err
+					}
 				}
 				if u.Closed {
 					if err := q.UpdateAccount(ctx, db.UpdateAccountParams{BudgetID: budgetID, ID: u.Id, Name: name, Closed: true}); err != nil {
@@ -198,11 +227,26 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 					return err
 				}
 			}
+			if t, ok := terms[u.Id]; ok {
+				schedule, err := h.s.saveLoan(ctx, q, budgetID, u.Id, t, *u.Loan)
+				if err != nil {
+					return err
+				}
+				if schedule != uuid.Nil {
+					schedules = append(schedules, schedule)
+				}
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, apperr.FromDB(err)
+	}
+	// Loan periods already due post now, as saving the terms does (ADR-097).
+	for _, schedule := range schedules {
+		if _, err := h.s.postDue(ctx, schedule, h.s.today()); err != nil {
+			return nil, err
+		}
 	}
 	return api.SaveAccounts200JSONResponse{Upserted: int32(len(b.Upserts)), Deleted: removed}, nil
 }

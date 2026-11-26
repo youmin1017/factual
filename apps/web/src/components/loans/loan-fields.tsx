@@ -180,7 +180,7 @@ export function LoanFields({
         {text('principal', '撥款金額', '1,000,000')}
         {date('start', '撥款日')}
         {date('firstPayment', '首期繳款日')}
-        {text('months', '期數（月）', '240 或 20年')}
+        {text('months', '期數（月）', '240')}
         {text('grace', '寬限期（月）', '0')}
         {choice<LoanMethod>(
           'loan-method',

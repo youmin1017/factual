@@ -1649,6 +1649,12 @@ export interface components {
       sortOrder: number
       /** @description A credit card's statement settings; absent or null leaves them as they are. */
       card?: components['schemas']['CardSettings'] | null
+      /**
+       * @description A loan account's terms (ADR-096, ADR-110); absent or null leaves
+       *     them as they are. A new loan account with terms starts owing
+       *     what they leave owed, and its opening balance is ignored.
+       */
+      loan?: components['schemas']['LoanTerms'] | null
     }
     AccountBatch: {
       upserts: components['schemas']['AccountInput'][]

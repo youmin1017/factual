@@ -3,11 +3,18 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { AccountGrid } from '#/components/accounts/account-grid'
 import { Amount } from '#/components/amount'
-import { LoanDialog } from '#/components/loans/loan-dialog'
+import { AlignStep } from '#/components/loans/loan-dialog'
 import { apiErrorMessage } from '#/lib/apiError'
-import { accountsQuery, summaryQuery } from '#/lib/budget'
+import {
+  accountsQuery,
+  categoriesQuery,
+  loanQuery,
+  summaryQuery,
+} from '#/lib/budget'
+import { checkGap } from '#/lib/loan'
 import { useKeymap } from '#/lib/preferences'
 import type { Account, Budget } from '#/lib/budget'
+import type { LoanDetails } from '#/lib/loan'
 
 export const Route = createFileRoute('/_app/b/$budgetId/accounts/')({
   staticData: { crumb: '帳戶', wide: true },
@@ -21,9 +28,14 @@ function AccountsPage() {
   const { budget } = Route.useRouteContext()
   const accounts = useQuery(accountsQuery(budget.id))
   const summary = useQuery(summaryQuery(budget.id))
+  const categories = useQuery(categoriesQuery(budget.id))
   const queryClient = useQueryClient()
   const keymap = useKeymap()
-  const [loan, setLoan] = useState<Account | null>(null)
+  /** A loan whose saved terms disagree with what its account owes. */
+  const [align, setAlign] = useState<{
+    account: Account
+    loan: LoanDetails
+  } | null>(null)
 
   if (accounts.isError) {
     return (
@@ -52,13 +64,30 @@ function AccountsPage() {
     return fresh.filter((a) => a.kind !== 'friend')
   }
 
+  // Saved terms the account disagrees with are offered to align (ADR-098).
+  async function checkLoans(ids: Array<string>) {
+    for (const id of ids) {
+      const loan = await queryClient.fetchQuery({
+        ...loanQuery(budget.id, id),
+        staleTime: 0,
+      })
+      const list = await queryClient.fetchQuery(accountsQuery(budget.id))
+      const account = list.find((a) => a.id === id)
+      if (loan && account && checkGap(loan.check) !== 0) {
+        setAlign({ account, loan })
+        return
+      }
+    }
+  }
+
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-2 border-b pb-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">帳戶</h1>
           <p className="text-sm text-muted-foreground">
-            o 新增、i 改名或設定、ddp 調整順序、x 關閉，:w 儲存。
+            o 新增、i 改名或設定、za 展開貸款條件、ddp 調整順序、x 關閉，:w
+            儲存。
             {budget.role !== 'owner' && '只有帳本的擁有者能修改帳戶。'}
             {friends > 0 && (
               <>
@@ -94,13 +123,18 @@ function AccountsPage() {
         accounts={mine}
         keymap={keymap}
         reload={reload}
-        onLoan={setLoan}
+        categories={categories.data ?? []}
+        onLoansSaved={(ids) => void checkLoans(ids)}
       />
-      {loan && (
-        <LoanDialog
+      {align && (
+        <AlignStep
           budget={budget}
-          account={loan}
-          onClose={() => setLoan(null)}
+          account={align.account}
+          loan={align.loan}
+          onDone={() => {
+            setAlign(null)
+            void reload()
+          }}
         />
       )}
     </div>

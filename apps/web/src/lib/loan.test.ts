@@ -17,8 +17,7 @@ assert.equal(monthAfter('2026-01-31'), '2026-02-28')
 assert.equal(monthAfter('2026-12-15'), '2027-01-15')
 assert.equal(monthAfter(''), '')
 assert.equal(parseMonths('240'), 240)
-assert.equal(parseMonths('20年'), 240)
-assert.equal(parseMonths('7y'), 84)
+assert.equal(parseMonths('20年'), null)
 assert.equal(parseMonths('二十年'), null)
 assert.equal(parseRate('2.35'), 2.35)
 assert.equal(parseRate('2.35%'), 2.35)
@@ -36,7 +35,7 @@ assert.deepEqual(blank.rates, [{ from: '2026-11-24', rate: '' }])
 const typed: LoanFieldValues = {
   ...blank,
   principal: '1,000,000',
-  months: '20年',
+  months: '240',
   start: '2025-01-10',
   firstPayment: '2025-02-10',
   rates: [

@@ -122,6 +122,36 @@ func TestSaveAccounts(t *testing.T) {
 		}
 	}
 
+	// A new loan account takes its terms in the same save, and starts owing
+	// what they leave owed; a bank account takes none.
+	terms := api.LoanTerms{
+		Principal: 1_000_000, TermMonths: 240, StartDate: ymd(2025, 1, 10), FirstPaymentDate: ymd(2025, 2, 10),
+		Method: api.Annuity, PrepayMode: api.ShortenTerm, HolidayShift: api.NextWorkday,
+		Rates: []api.LoanRate{{EffectiveFrom: ymd(2025, 1, 10), AnnualRate: 2}},
+	}
+	house := api.AccountInput{
+		Id: uuid.New(), Name: "房貸", Kind: api.NewAccountKindLoan, OpeningBalance: -1, OpeningDate: day(1),
+		SortOrder: 9, Loan: &terms,
+	}
+	notLoan := input(byID[f.card.Id], 3)
+	notLoan.Loan = &terms
+	code, probs = saveAccounts(t, admin, f.budget, []api.AccountInput{house, notLoan})
+	if code != http.StatusUnprocessableEntity || probs[notLoan.Id].Code != "not_a_loan" {
+		t.Fatalf("terms on a card = %d %+v", code, probs)
+	}
+	if code, probs := saveAccounts(t, admin, f.budget, []api.AccountInput{house}); code != http.StatusOK {
+		t.Fatalf("loan = %d %+v", code, probs)
+	}
+	details := getLoan(t, admin, f.budget, api.Account{Id: house.Id})
+	if details.Terms.Principal != 1_000_000 {
+		t.Fatalf("terms = %+v", details.Terms)
+	}
+	for _, a := range listAccounts(t, admin, f.budget) {
+		if a.Id == house.Id && (a.Balance >= 0 || a.Balance == -1) {
+			t.Fatalf("the loan owes what the terms leave owed, not the opening balance: %d", a.Balance)
+		}
+	}
+
 	// Viewers and editors cannot change accounts.
 	hs.addUser("ming", "ming-password-1")
 	ming := hs.browser().mustLogin("ming", "ming-password-1")

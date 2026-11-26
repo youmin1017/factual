@@ -1,4 +1,6 @@
+import { useQueries } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import {
   accountCellText,
@@ -23,6 +25,7 @@ import {
 } from '#/lib/accounts'
 import { api } from '#/lib/api'
 import { errorCodeMessage } from '#/lib/apiError'
+import { loanQuery } from '#/lib/budget'
 import { setEditorStatus } from '#/lib/editorStatus'
 import {
   focusField,
@@ -31,14 +34,26 @@ import {
   settleForm,
   takeTyped,
 } from '#/lib/form'
+import { loanFieldValues } from '#/lib/loan'
+import {
+  addRate,
+  loanCellLocked,
+  loanCellNumeric,
+  loanCellOptions,
+  loanCellPatch,
+  loanCellText,
+  loanLines,
+  removeRate,
+} from '#/lib/loan-lines'
 import { formatAmount } from '#/lib/money'
 import { movePane, windowDirection } from '#/lib/panes'
-import { isoDate } from '#/lib/register'
+import { categoryRefs, isoDate, rankCell } from '#/lib/register'
 import { cn } from '#/lib/utils'
 import { FormPopover } from '../form-popover'
-import { CellEditor, eraseBeforeCaret } from '../register/cell-editor'
+import { CellEditor, eraseBeforeCaret, nextPick } from '../register/cell-editor'
 import { KeyHelp, accountKeys } from '../register/key-help'
 import { useKeyFeed } from '../register/use-key-feed'
+import { LoanPreviewLine, LoanTermsPlaceholder } from './loan-preview-line'
 import type {
   Account,
   AccountColumn,
@@ -46,8 +61,12 @@ import type {
   AccountRow,
   AccountRowStatus,
 } from '#/lib/accounts'
+import type { Category } from '#/lib/budget'
 import type { Field, FormState } from '#/lib/form'
 import type { Key, Keymap } from '#/lib/keymap'
+import type { LoanFieldValues } from '#/lib/loan'
+import type { LoanCell, LoanLine, LoanRefs } from '#/lib/loan-lines'
+import type { Suggestion } from '../register/cell-editor'
 
 // The accounts page (ADR-108): a grid edited as the goals page is, whose
 // line order is the accounts' order; saved with :w through the batch
@@ -120,8 +139,10 @@ interface Props {
   keymap: Keymap
   /** Fetches the accounts again. */
   reload: () => Promise<Array<Account>>
-  /** Opens a saved loan's terms (ADR-096). */
-  onLoan: (account: Account) => void
+  /** The budget's categories, for where a loan's payments are recorded. */
+  categories: Array<Category>
+  /** After :w saved loans' terms: the page checks them against the accounts. */
+  onLoansSaved: (ids: Array<string>) => void
 }
 
 const DRAFT_VERSION = 1
@@ -209,7 +230,8 @@ export function AccountGrid({
   accounts,
   keymap,
   reload,
-  onLoan,
+  categories,
+  onLoansSaved,
 }: Props) {
   const navigate = useNavigate()
   const key = draftKey(budgetId)
@@ -233,6 +255,14 @@ export function AccountGrid({
   const [saving, setSaving] = useState(false)
   const [anchor, setAnchor] = useState(0)
   const [help, setHelp] = useState(false)
+  /** Lines whose details are shown under them (ADR-110). */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  /** The cursor on a line of a loan's terms, under the cursor's account. */
+  const [sub, setSub] = useState<{ line: number; cell: number } | null>(null)
+  /** Whether insert mode edits a line of the terms (not the name). */
+  const [subEdit, setSubEdit] = useState(false)
+  const [pick, setPick] = useState(0)
+  const [navigated, setNavigated] = useState(false)
   const [form, setForm] = useState<{
     kind: 'setup' | 'card'
     state: FormState
@@ -281,6 +311,52 @@ export function AccountGrid({
         (r.kind === 'bank' || r.kind === 'cash'),
     )
     .map((r) => ({ value: r.id, label: r.name }))
+
+  // The saved terms of the loans whose lines are open.
+  const shownLoans = rows
+    .filter((r) => r.base && r.kind === 'loan' && expanded.has(r.id))
+    .map((r) => r.id)
+  const savedLoans = useQueries({
+    queries: shownLoans.map((id) => loanQuery(budgetId, id)),
+  })
+  const savedTerms = new Map(shownLoans.map((id, i) => [id, savedLoans[i]]))
+  const refs: LoanRefs = {
+    payers: new Map(
+      rows
+        .filter(
+          (r) =>
+            r.base &&
+            !r.deleted &&
+            !r.closed &&
+            r.onBudget &&
+            (r.kind === 'bank' || r.kind === 'cash'),
+        )
+        .map((r) => [r.id, r.name]),
+    ),
+    categories: new Map(
+      [...categoryRefs(categories).values()]
+        .filter((c) => c.kind === 'expense' && !c.isSystem && !c.archived)
+        .toSorted((a, b) => a.path.localeCompare(b.path))
+        .map((c) => [c.id, c.path]),
+    ),
+    minorUnits,
+  }
+
+  /** A loan's terms as the page has them: edited, saved, or none yet. */
+  function loanOf(row: AccountRow): LoanFieldValues | null {
+    if (row.loan) return row.loan
+    if (!row.base) return loanFieldValues(null, minorUnits, today)
+    const q = savedTerms.get(row.id)
+    if (!q?.isSuccess) return null
+    return loanFieldValues(q.data?.terms ?? null, minorUnits, today)
+  }
+
+  /** The lines of a loan's terms shown under its line. */
+  function linesOf(row: AccountRow | undefined): Array<LoanLine> {
+    if (!row || row.kind !== 'loan' || !expanded.has(row.id)) return []
+    const v = loanOf(row)
+    return v ? loanLines(v) : []
+  }
 
   useEffect(() => {
     setEditorStatus({
@@ -367,6 +443,7 @@ export function AccountGrid({
   }
 
   function moveTo(row: number, col: number) {
+    setSub(null)
     setCursor({
       row: clamp(row),
       col: Math.max(0, Math.min(col, columns.length - 1)),
@@ -510,11 +587,271 @@ export function AccountGrid({
     })
   }
 
-  function openLoan() {
-    if (current?.kind !== 'loan')
-      return say('游標要在貸款帳戶上（:loan 設定還款條件）', 'error')
-    if (!current.base) return say('先 :w 儲存這個帳戶，再設定還款條件', 'error')
-    onLoan(current.base)
+  /**
+   * `za` (and the arrow by a loan's name): shows or hides a loan's terms as
+   * lines under its line (ADR-110); `zo` opens them with the cursor on the
+   * first, `zc` closes them. j/k move through them like any line.
+   */
+  function toggleDetails(id: string, enter: boolean, open?: boolean) {
+    const row = rows.find((r) => r.id === id)
+    if (row?.kind !== 'loan')
+      return say('只有貸款帳戶有展開的設定（貸款條件）', 'error')
+    const next = new Set(expanded)
+    const show = open ?? !next.has(id)
+    if (show) next.add(id)
+    else next.delete(id)
+    setExpanded(next)
+    setSub(show && enter ? { line: 0, cell: 0 } : null)
+    if (show) say('貸款條件在這一列底下：j k 移動、i 修改，:w 和帳戶一起儲存')
+  }
+
+  /** Moves down `n` lines, through the terms of open loans. */
+  function down(n: number) {
+    let r = cursor.row
+    let at = sub
+    for (let i = 0; i < n; i++) {
+      const lines = linesOf(rows[r])
+      if (at === null) {
+        if (lines.length > 0) at = { line: 0, cell: 0 }
+        else if (r < rows.length - 1) r++
+      } else if (at.line < lines.length - 1) {
+        at = {
+          line: at.line + 1,
+          cell: Math.min(at.cell, lines[at.line + 1].cells.length - 1),
+        }
+      } else if (r < rows.length - 1) {
+        r++
+        at = null
+      }
+    }
+    setCursor((c) => ({ ...c, row: r }))
+    setSub(at)
+  }
+
+  /** Moves up `n` lines, through the terms of open loans. */
+  function up(n: number) {
+    let r = cursor.row
+    let at = sub
+    for (let i = 0; i < n; i++) {
+      if (at === null) {
+        if (r === 0) break
+        r--
+        const lines = linesOf(rows[r])
+        at = lines.length > 0 ? { line: lines.length - 1, cell: 0 } : null
+      } else if (at.line > 0) {
+        at = { line: at.line - 1, cell: 0 }
+      } else {
+        at = null
+      }
+    }
+    setCursor((c) => ({ ...c, row: r }))
+    setSub(at)
+  }
+
+  /** The cell of the terms the cursor is on, with the terms and its line. */
+  function subLine(): {
+    v: LoanFieldValues
+    line: LoanLine
+    cell: LoanCell
+  } | null {
+    if (!current || !sub) return null
+    const v = loanOf(current)
+    const line = linesOf(current).at(sub.line)
+    const cell = line?.cells.at(sub.cell) ?? line?.cells.at(0)
+    return v && line && cell ? { v, line, cell } : null
+  }
+
+  /**
+   * Edits the cell of the terms the cursor is on, or `target` (a double
+   * click), which the cursor then moves to.
+   */
+  function startSubEdit(
+    clear: boolean,
+    target?: { row: number; line: number; cell: number },
+  ) {
+    let at = subLine()
+    if (target) {
+      const row = rows.at(target.row)
+      const v = row ? loanOf(row) : null
+      const line = linesOf(row).at(target.line)
+      const cell = line?.cells.at(target.cell)
+      at = v && line && cell ? { v, line, cell } : null
+    }
+    if (!at) return
+    const locked = loanCellLocked(at.cell)
+    if (locked) return say(locked, 'error')
+    if (target) {
+      setCursor((c) => ({ ...c, row: target.row }))
+      setSub({ line: target.line, cell: target.cell })
+    }
+    setEdit(clear ? '' : loanCellText(at.v, at.cell, refs))
+    setPick(0)
+    setNavigated(false)
+    setSubEdit(true)
+    setMode('insert')
+  }
+
+  function subOptions(): Array<Suggestion> {
+    const at = subLine()
+    if (!at || !subEdit || mode !== 'insert') return []
+    const options = loanCellOptions(at.cell, refs)
+    if (!options) return []
+    return rankCell(
+      options.map((o) => ({ value: o.label, label: o.label })),
+      edit,
+      loanCellText(at.v, at.cell, refs),
+      (o) => o.value,
+    )
+  }
+
+  function subChosen(): string {
+    const options = subOptions()
+    if (options.length === 0) return edit
+    const highlighted = options[Math.min(pick, options.length - 1)].value
+    if (navigated) return highlighted
+    if (edit === '' || options.some((o) => o.value === edit)) return edit
+    return highlighted
+  }
+
+  /** Writes a value into the terms; the new terms, or null when refused. */
+  function commitSub(text: string): LoanFieldValues | null {
+    const at = subLine()
+    if (!at || !sub || !current) return null
+    const next = loanCellPatch(at.v, at.cell, text, refs, now)
+    if (typeof next === 'string') {
+      say(next, 'error')
+      return null
+    }
+    // Taking a value unchanged leaves the terms as they were (saved).
+    if (JSON.stringify(next) !== JSON.stringify(at.v))
+      patchRows([current.id], () => ({ loan: next }))
+    setMessage(null)
+    return next
+  }
+
+  /**
+   * A click elsewhere while a cell is edited takes what was typed, as Enter
+   * would (a form under a cell is left as it was); false when it cannot.
+   */
+  function finishEditing(): boolean {
+    if (mode === 'form') {
+      setForm(null)
+      setMode('normal')
+      return true
+    }
+    if (mode !== 'insert') return true
+    if (subEdit) {
+      if (
+        !commitSub(navigated ? subChosen() : edit === '' ? edit : subChosen())
+      )
+        return false
+      endSubEdit()
+      return true
+    }
+    if (!commitName(edit)) return false
+    setMode('normal')
+    return true
+  }
+
+  function endSubEdit() {
+    setSubEdit(false)
+    setMode('normal')
+  }
+
+  function runSubInsert(k: Key): boolean {
+    const options = subOptions()
+    switch (k) {
+      case '<C-n>':
+      case '<Down>':
+        setPick(nextPick(options.length, subTaken(options), 1))
+        setNavigated(true)
+        return true
+      case '<C-p>':
+      case '<Up>':
+        setPick(nextPick(options.length, subTaken(options), -1))
+        setNavigated(true)
+        return true
+      case '<Tab>': {
+        const next = commitSub(subChosen())
+        if (!next || !sub) return true
+        // On to the next cell: across the line, then down the terms.
+        const lines = loanLines(next)
+        const cells = (line: number) => lines[line]?.cells ?? []
+        let to = { line: sub.line, cell: sub.cell + 1 }
+        for (;;) {
+          if (to.cell >= cells(to.line).length)
+            to = { line: to.line + 1, cell: 0 }
+          if (to.line >= lines.length) {
+            endSubEdit()
+            return true
+          }
+          if (!loanCellLocked(cells(to.line)[to.cell])) break
+          to = { ...to, cell: to.cell + 1 }
+        }
+        setSub(to)
+        setEdit(loanCellText(next, cells(to.line)[to.cell], refs))
+        setPick(0)
+        setNavigated(false)
+        return true
+      }
+      case '<CR>':
+      case '<Esc>':
+        if (
+          commitSub(navigated ? subChosen() : edit === '' ? edit : subChosen())
+        )
+          endSubEdit()
+        return true
+      case '<C-c>':
+        endSubEdit()
+        say('已取消編輯')
+        return true
+      case '<C-s>':
+      case '<D-s>':
+        if (commitSub(subChosen())) {
+          endSubEdit()
+          void save()
+        }
+        return true
+      default:
+        if ([...k].length === 1) {
+          setEdit((e) => e + k)
+          setPick(0)
+          setNavigated(false)
+          return true
+        }
+        return false
+    }
+  }
+
+  function subTaken(options: Array<Suggestion>): number {
+    if (options.length === 0) return -1
+    if (!navigated && edit === '') return -1
+    return options.findIndex((o) => o.value === subChosen())
+  }
+
+  /** `o` and `dd` on the terms: rate changes come and go. */
+  function addRateLine() {
+    const at = subLine()
+    if (!at || !current || !sub) return
+    const rate = at.line.cells.find((c) => c.rate !== undefined)?.rate
+    const after = rate ?? at.v.rates.length - 1
+    const next = addRate(at.v, after, today)
+    patchRows([current.id], () => ({ loan: next }))
+    const line = loanLines(next).findIndex((l) => l.cells[0].rate === after + 1)
+    setSub({ line, cell: 0 })
+    say('已加一段利率調整：輸入生效日和利率（:w 儲存）')
+  }
+
+  function removeRateLine() {
+    const at = subLine()
+    if (!at || !current) return
+    const rate = at.line.cells.find((c) => c.rate !== undefined)?.rate
+    if (rate === undefined)
+      return say('貸款條件不能刪：zc 收起，或改它的值', 'error')
+    const next = removeRate(at.v, rate)
+    if (typeof next === 'string') return say(next, 'error')
+    patchRows([current.id], () => ({ loan: next }))
+    setSub((s) => (s ? { line: s.line - 1, cell: 0 } : s))
   }
 
   // ---------- visual mode
@@ -622,6 +959,19 @@ export function AccountGrid({
     patchRows([current.id], () => patch)
     setForm(null)
     setMode('normal')
+    // A new loan goes on to its terms, under its line.
+    if (form.kind === 'setup' && patch.kind === 'loan' && !current.base) {
+      setRows((list) =>
+        list.map((r) =>
+          r.id === current.id
+            ? { ...r, loan: r.loan ?? loanFieldValues(null, minorUnits, today) }
+            : r,
+        ),
+      )
+      setExpanded(new Set(expanded).add(current.id))
+      setSub({ line: 0, cell: 0 })
+      say('填貸款條件：j k 移動、i 修改；不填就只記目前欠款')
+    }
     return true
   }
 
@@ -647,13 +997,13 @@ export function AccountGrid({
     const found = new Map<string, AccountProblem>()
     for (const [i, row] of rows.entries()) {
       if (states[i] === 'clean' || states[i] === 'moved') continue
-      const p = validateAccount(row, rows)
+      const p = validateAccount(row, rows, minorUnits)
       if (p) found.set(row.id, p)
     }
     if (found.size > 0) return reportProblems(found)
     const upserts = rows
       .filter((_, i) => states[i] !== 'clean' && states[i] !== 'deleted')
-      .map((r) => toAccountInput(r, order.get(r.id) ?? 0))
+      .map((r) => toAccountInput(r, order.get(r.id) ?? 0, minorUnits))
     const deletes = rows.filter((r) => r.deleted && r.base).map((r) => r.id)
     if (upserts.length === 0 && deletes.length === 0) {
       say('沒有需要儲存的變更')
@@ -687,6 +1037,8 @@ export function AccountGrid({
       }
       const fresh = await reload()
       const next = fresh.map(rowFromAccount)
+      const loans = upserts.filter((u) => u.loan).map((u) => u.id)
+      if (loans.length > 0) onLoansSaved(loans)
       writeDraft(key, null)
       history.current = { undo: [], redo: [] }
       setLoaded(fresh)
@@ -746,7 +1098,7 @@ export function AccountGrid({
     } else if (cmd === 'close' || cmd === 'reopen') {
       setClosed(range, cmd === 'close')
     } else if (cmd === 'loan') {
-      openLoan()
+      if (current) toggleDetails(current.id, true, true)
     } else if (cmd === 'open') {
       openRegister()
     } else if (/^winc(md)? [hjkl]$/.test(cmd)) {
@@ -784,11 +1136,20 @@ export function AccountGrid({
 
     if (p.op) {
       const op = p.op + k
-      if (op === 'dd') return done(() => deleteRange(counted))
+      if (op === 'dd')
+        return done(() => (sub ? removeRateLine() : deleteRange(counted)))
       if (op === 'yy') return done(() => yank(counted))
       if (op === 'gg')
         return done(() => moveTo(p.count ? count - 1 : 0, cursor.col))
       if (op === 'gx') return done(openRegister)
+      if (current && (op === 'za' || op === 'zo' || op === 'zc'))
+        return done(() =>
+          toggleDetails(
+            current.id,
+            op === 'zo',
+            op === 'za' ? undefined : op === 'zo',
+          ),
+        )
       if (op === 'gv') {
         return done(() => {
           const last = lastVisual.current
@@ -805,20 +1166,32 @@ export function AccountGrid({
     switch (k) {
       case 'j':
       case '<Down>':
-        return done(() => moveTo(cursor.row + count, cursor.col))
+        return done(() =>
+          visual ? moveTo(cursor.row + count, cursor.col) : down(count),
+        )
       case 'k':
       case '<Up>':
-        return done(() => moveTo(cursor.row - count, cursor.col))
+        return done(() =>
+          visual ? moveTo(cursor.row - count, cursor.col) : up(count),
+        )
       case 'l':
       case '<Right>':
       case 'w':
       case '<Tab>':
-        return done(() => moveTo(cursor.row, cursor.col + count))
+        return done(() => {
+          if (!sub) return moveTo(cursor.row, cursor.col + count)
+          const cells = linesOf(current).at(sub.line)?.cells.length ?? 1
+          setSub({ ...sub, cell: Math.min(cells - 1, sub.cell + count) })
+        })
       case 'h':
       case '<Left>':
       case 'b':
       case '<S-Tab>':
-        return done(() => moveTo(cursor.row, cursor.col - count))
+        return done(() =>
+          sub
+            ? setSub({ ...sub, cell: Math.max(0, sub.cell - count) })
+            : moveTo(cursor.row, cursor.col - count),
+        )
       case '0':
       case '^':
       case '<Home>':
@@ -835,6 +1208,7 @@ export function AccountGrid({
       case '<C-u>':
         return done(() => moveTo(cursor.row - half, cursor.col))
       case 'g':
+      case 'z':
       case '<C-w>':
         pending.current = { count: p.count, op: k }
         return true
@@ -899,7 +1273,10 @@ export function AccountGrid({
     switch (k) {
       case 'v':
       case 'V':
-        return done(() => startVisual(cursor.row, cursor.row + count - 1))
+        return done(() => {
+          setSub(null)
+          startVisual(cursor.row, cursor.row + count - 1)
+        })
       case 'd':
       case 'y':
         pending.current = { count: p.count, op: k }
@@ -908,18 +1285,24 @@ export function AccountGrid({
       case 'a':
       case '<CR>':
       case '<F2>':
-        return done(() => startEdit(cursor.row, cursor.col))
+        return done(() =>
+          sub ? startSubEdit(false) : startEdit(cursor.row, cursor.col),
+        )
       case 'c':
       case 's':
-        return done(() => startEdit(cursor.row, cursor.col, true))
+        return done(() =>
+          sub ? startSubEdit(true) : startEdit(cursor.row, cursor.col, true),
+        )
       case 'x':
         return done(() => {
           if (current) setClosed(counted, !current.closed)
         })
       case 'o':
-        return done(() => openRow(rows.length === 0 ? 0 : cursor.row + 1))
+        return done(() =>
+          sub ? addRateLine() : openRow(rows.length === 0 ? 0 : cursor.row + 1),
+        )
       case 'O':
-        return done(() => openRow(cursor.row))
+        return done(() => (sub ? addRateLine() : openRow(cursor.row)))
       case 'p':
         return done(() => paste(true))
       case 'P':
@@ -939,6 +1322,7 @@ export function AccountGrid({
   }
 
   function runInsert(k: Key): boolean {
+    if (subEdit) return runSubInsert(k)
     switch (k) {
       case '<Tab>': {
         const row = commitName(edit)
@@ -1084,140 +1468,293 @@ export function AccountGrid({
               </p>
             )}
 
-            <div
-              style={{ height: rows.length * ROW_HEIGHT }}
-              className="relative"
-            >
-              {selection && (
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-0 border-l-2 border-kraft bg-kraft/15"
-                  style={{
-                    top: selection.from * ROW_HEIGHT,
-                    height: (selection.to - selection.from + 1) * ROW_HEIGHT,
-                  }}
-                />
-              )}
-              {current && (
-                <>
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-x-0 bg-accent/50"
-                    style={{ top: cursor.row * ROW_HEIGHT, height: ROW_HEIGHT }}
-                  />
-                  {mode !== 'insert' && (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute z-10 border-2 border-kraft/40 group-focus:border-kraft"
-                      style={{
-                        top: cursor.row * ROW_HEIGHT,
-                        left: layout.lefts[column],
-                        width: layout.widths[column],
-                        height: ROW_HEIGHT,
+            <div>
+              {rows.map((row, index) => {
+                const at = index === cursor.row
+                const selected =
+                  selection !== null &&
+                  index >= selection.from &&
+                  index <= selection.to
+                return (
+                  <div key={row.id} className="relative" data-line={index}>
+                    {((at && !sub) || selected) && (
+                      <div
+                        aria-hidden
+                        className={cn(
+                          'pointer-events-none absolute inset-x-0 top-0',
+                          selected
+                            ? 'border-l-2 border-kraft bg-kraft/15'
+                            : 'bg-accent/50',
+                        )}
+                        style={{ height: ROW_HEIGHT }}
+                      />
+                    )}
+                    {at && !sub && mode !== 'insert' && (
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute top-0 z-10 border-2 border-kraft/40 group-focus:border-kraft"
+                        style={{
+                          left: layout.lefts[column],
+                          width: layout.widths[column],
+                          height: ROW_HEIGHT,
+                        }}
+                      />
+                    )}
+                    <AccountLine
+                      row={row}
+                      index={index}
+                      layout={layout}
+                      state={states[index]}
+                      problem={problems.get(row.id)}
+                      minorUnits={minorUnits}
+                      open={expanded.has(row.id)}
+                      onToggle={() => toggleDetails(row.id, false)}
+                      onPick={(col, enter, extend) => {
+                        if (!finishEditing()) return
+                        if (extend) {
+                          if (mode !== 'visual') setAnchor(cursor.row)
+                          setMode('visual')
+                          setCursor({ row: index, col })
+                          gridRef.current?.focus({ preventScroll: true })
+                          return
+                        }
+                        if (mode === 'visual') endVisual()
+                        setMode('normal')
+                        setSub(null)
+                        setCursor({ row: index, col })
+                        if (enter) startEdit(index, col)
                       }}
                     />
-                  )}
-                </>
-              )}
 
-              {rows.map((row, index) => (
-                <AccountLine
-                  key={row.id}
-                  row={row}
-                  index={index}
-                  layout={layout}
-                  state={states[index]}
-                  problem={problems.get(row.id)}
-                  minorUnits={minorUnits}
-                  onPick={(col, enter, extend) => {
-                    if (mode === 'insert' && !commitName(edit)) return
-                    if (mode === 'form') return
-                    if (extend) {
-                      if (mode !== 'visual') setAnchor(cursor.row)
-                      setMode('visual')
-                      setCursor({ row: index, col })
-                      gridRef.current?.focus({ preventScroll: true })
-                      return
-                    }
-                    if (mode === 'visual') endVisual()
-                    setMode('normal')
-                    setCursor({ row: index, col })
-                    if (enter) startEdit(index, col)
-                  }}
-                />
-              ))}
+                    {at && mode === 'form' && form && (
+                      <div
+                        className="absolute z-30"
+                        style={{ top: ROW_HEIGHT, left: layout.lefts[column] }}
+                      >
+                        <FormPopover
+                          title={
+                            form.kind === 'setup' ? '帳戶設定' : '帳單設定'
+                          }
+                          fields={formList}
+                          state={form.state}
+                          preview={formPreview()}
+                          width={layout.widths[column] * 2}
+                          onKeyDown={feed.onNormalKeyDown}
+                          onField={(field) =>
+                            setForm({
+                              ...form,
+                              state: focusField(
+                                takeTyped(form.state, formList, now),
+                                formList,
+                                field,
+                              ),
+                            })
+                          }
+                          onChoose={(field, value) => {
+                            const state = {
+                              ...form.state,
+                              values: { ...form.state.values, [field]: value },
+                              field,
+                              typed: null,
+                              error: null,
+                            }
+                            setForm({
+                              ...form,
+                              state: settleForm(
+                                state,
+                                formFields(form.kind, state.values),
+                              ),
+                            })
+                          }}
+                        />
+                      </div>
+                    )}
 
-              {mode === 'form' && form && current && (
-                <div
-                  className="absolute z-30"
-                  style={{
-                    top: (cursor.row + 1) * ROW_HEIGHT,
-                    left: layout.lefts[column],
-                  }}
-                >
-                  <FormPopover
-                    title={form.kind === 'setup' ? '帳戶設定' : '帳單設定'}
-                    fields={formList}
-                    state={form.state}
-                    preview={formPreview()}
-                    width={layout.widths[column] * 2}
-                    onKeyDown={feed.onNormalKeyDown}
-                    onField={(field) =>
-                      setForm({
-                        ...form,
-                        state: focusField(
-                          takeTyped(form.state, formList, now),
-                          formList,
-                          field,
-                        ),
-                      })
-                    }
-                    onChoose={(field, value) => {
-                      const state = {
-                        ...form.state,
-                        values: { ...form.state.values, [field]: value },
-                        field,
-                        typed: null,
-                        error: null,
-                      }
-                      setForm({
-                        ...form,
-                        state: settleForm(
-                          state,
-                          formFields(form.kind, state.values),
-                        ),
-                      })
-                    }}
-                  />
-                </div>
-              )}
+                    {at && mode === 'insert' && !subEdit && (
+                      <div
+                        className="absolute top-0 z-30"
+                        style={{
+                          left: layout.lefts.name,
+                          width: layout.widths.name,
+                        }}
+                      >
+                        <CellEditor
+                          inputRef={inputRef}
+                          value={edit}
+                          label={accountLabels.name}
+                          width={layout.widths.name}
+                          options={[]}
+                          pick={-1}
+                          onChange={setEdit}
+                          onKeyDown={(e) =>
+                            feed.onInsertKeyDown(e, (n) =>
+                              setEdit(
+                                eraseBeforeCaret(inputRef.current, edit, n),
+                              ),
+                            )
+                          }
+                          onChoose={() => {}}
+                        />
+                      </div>
+                    )}
 
-              {mode === 'insert' && current && (
-                <div
-                  className="absolute z-30"
-                  style={{
-                    top: cursor.row * ROW_HEIGHT,
-                    left: layout.lefts.name,
-                    width: layout.widths.name,
-                  }}
-                >
-                  <CellEditor
-                    inputRef={inputRef}
-                    value={edit}
-                    label={accountLabels.name}
-                    width={layout.widths.name}
-                    options={[]}
-                    pick={-1}
-                    onChange={setEdit}
-                    onKeyDown={(e) =>
-                      feed.onInsertKeyDown(e, (n) =>
-                        setEdit(eraseBeforeCaret(inputRef.current, edit, n)),
+                    {row.kind === 'loan' &&
+                      expanded.has(row.id) &&
+                      !loanOf(row) && (
+                        <LoanTermsPlaceholder
+                          failed={savedTerms.get(row.id)?.isError ?? false}
+                          onRetry={() => void savedTerms.get(row.id)?.refetch()}
+                        />
+                      )}
+                    {linesOf(row).map((term, li) => {
+                      const v = loanOf(row)
+                      if (!v) return null
+                      const on = at && sub?.line === li
+                      const typing = on && mode === 'insert' && subEdit
+                      // Two columns across the grid, each a label and its value.
+                      const indent = GUTTER + 24
+                      const half = Math.max(
+                        280,
+                        Math.floor((Math.max(room, layout.width) - indent) / 2),
                       )
-                    }
-                    onChoose={() => {}}
-                  />
-                </div>
-              )}
+                      const label = 104
+                      const valueLeft = (c: number) => indent + c * half + label
+                      const valueWidth = Math.min(320, half - label - 8)
+                      const active = on ? term.cells.at(sub.cell) : undefined
+                      return (
+                        <div
+                          key={term.cells
+                            .map((c) => `${c.key}${c.rate ?? ''}`)
+                            .join('-')}
+                          className="relative border-b border-rule/40 bg-card/40 text-sm"
+                          style={{ height: ROW_HEIGHT }}
+                          onMouseDown={(e) => {
+                            const cell = (
+                              e.target as HTMLElement
+                            ).closest<HTMLElement>('[data-cell]')
+                            e.preventDefault()
+                            if (!finishEditing()) return
+                            const target = {
+                              row: index,
+                              line: li,
+                              cell: Number(cell?.dataset.cell ?? 0),
+                            }
+                            // A double click edits the cell, as on any line.
+                            if (e.detail === 2 && cell) {
+                              startSubEdit(false, target)
+                              return
+                            }
+                            setCursor((c) => ({ ...c, row: index }))
+                            setSub({ line: target.line, cell: target.cell })
+                            gridRef.current?.focus({ preventScroll: true })
+                          }}
+                        >
+                          {on && (
+                            <div
+                              aria-hidden
+                              className="pointer-events-none absolute inset-0 bg-accent/50"
+                            />
+                          )}
+                          <span
+                            aria-hidden
+                            className="absolute inset-y-0 border-l-2 border-kraft/60"
+                            style={{ left: GUTTER }}
+                          />
+                          {term.cells.map((cell, c) => (
+                            <span
+                              key={c}
+                              data-cell={c}
+                              className="absolute inset-y-0 flex items-center"
+                              style={{ left: indent + c * half, width: half }}
+                            >
+                              <span
+                                className="shrink-0 truncate pr-2 text-xs text-muted-foreground"
+                                style={{ width: label }}
+                              >
+                                {cell.label}
+                              </span>
+                              <span
+                                className={cn(
+                                  'flex min-w-0 items-center gap-1 px-2 whitespace-nowrap',
+                                  loanCellNumeric(cell) && 'font-mono',
+                                  loanCellLocked(cell) &&
+                                    'text-muted-foreground',
+                                )}
+                              >
+                                <span className="truncate">
+                                  {loanCellText(v, cell, refs)}
+                                </span>
+                              </span>
+                            </span>
+                          ))}
+                          {on && !typing && (
+                            <div
+                              aria-hidden
+                              className="pointer-events-none absolute top-0 z-10 border-2 border-kraft/40 group-focus:border-kraft"
+                              style={{
+                                left: valueLeft(sub.cell),
+                                width: valueWidth,
+                                height: ROW_HEIGHT,
+                              }}
+                            />
+                          )}
+                          {typing && active && (
+                            <div
+                              className="absolute top-0 z-30"
+                              style={{
+                                left: valueLeft(sub.cell),
+                                width: valueWidth,
+                              }}
+                            >
+                              <div>
+                                <CellEditor
+                                  inputRef={inputRef}
+                                  value={edit}
+                                  label={active.label}
+                                  numeric={
+                                    loanCellNumeric(active) ? 'date' : undefined
+                                  }
+                                  width={valueWidth}
+                                  options={subOptions()}
+                                  pick={subTaken(subOptions())}
+                                  onChange={(value) => {
+                                    setEdit(value)
+                                    setPick(0)
+                                    setNavigated(false)
+                                  }}
+                                  onKeyDown={(e) =>
+                                    feed.onInsertKeyDown(e, (n) =>
+                                      setEdit(
+                                        eraseBeforeCaret(
+                                          inputRef.current,
+                                          edit,
+                                          n,
+                                        ),
+                                      ),
+                                    )
+                                  }
+                                  onChoose={(i) => {
+                                    setEdit(subOptions()[i].value)
+                                    setPick(i)
+                                    setNavigated(true)
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {linesOf(row).length > 0 && loanOf(row) && (
+                      <LoanPreviewLine
+                        budgetId={budgetId}
+                        minorUnits={minorUnits}
+                        values={loanOf(row) as LoanFieldValues}
+                      />
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -1276,6 +1813,8 @@ function AccountLine({
   state,
   problem,
   minorUnits,
+  open,
+  onToggle,
   onPick,
 }: {
   row: AccountRow
@@ -1284,6 +1823,9 @@ function AccountLine({
   state: LineState
   problem: AccountProblem | undefined
   minorUnits: number
+  /** Whether the line's details are shown under it. */
+  open: boolean
+  onToggle: () => void
   onPick: (col: number, enter: boolean, extend: boolean) => void
 }) {
   const marker = problem
@@ -1299,8 +1841,31 @@ function AccountLine({
     switch (c) {
       case 'name':
         return (
-          <span key={c} data-col={col} className={cn(cell, bad)}>
+          <span key={c} data-col={col} className={cn(cell, 'gap-1', bad)}>
+            {row.kind === 'loan' && (
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label={open ? '收起貸款條件' : '展開貸款條件'}
+                aria-expanded={open}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onToggle()
+                }}
+                className="-ml-1 shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                {open ? (
+                  <ChevronDownIcon className="size-3.5" />
+                ) : (
+                  <ChevronRightIcon className="size-3.5" />
+                )}
+              </button>
+            )}
             <span className="truncate">{row.name}</span>
+            {row.loan && (
+              <span className="shrink-0 text-xs text-kraft">條件已改</span>
+            )}
           </span>
         )
       case 'kind':
@@ -1374,15 +1939,11 @@ function AccountLine({
       role="row"
       aria-rowindex={index + 1}
       className={cn(
-        'absolute inset-x-0 grid border-b border-rule/60 text-sm',
+        'relative grid border-b border-rule/60 text-sm',
         row.deleted && 'text-muted-foreground line-through',
         row.closed && !row.deleted && 'text-muted-foreground',
       )}
-      style={{
-        top: index * ROW_HEIGHT,
-        height: ROW_HEIGHT,
-        gridTemplateColumns: layout.template,
-      }}
+      style={{ height: ROW_HEIGHT, gridTemplateColumns: layout.template }}
       onMouseDown={(e) => {
         const target = (e.target as HTMLElement).closest<HTMLElement>(
           '[data-col]',

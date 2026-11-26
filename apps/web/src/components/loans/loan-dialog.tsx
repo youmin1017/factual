@@ -176,7 +176,7 @@ function LoanForm({
  * After saving, when the account says something other than the terms
  * before the first payment the schedule pays: align it, or leave it.
  */
-function AlignStep({
+export function AlignStep({
   budget,
   account,
   loan,

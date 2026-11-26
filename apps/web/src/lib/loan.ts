@@ -124,13 +124,10 @@ export function loanFieldValues(
   }
 }
 
-/** Months typed as a number of months, or years (`20年`, `20y`). */
+/** Months typed as a whole number of months (ADR-107: no little language). */
 export function parseMonths(text: string): number | null {
   const s = text.trim()
-  const years = /^(\d+)\s*(年|y|years?)$/i.exec(s)
-  if (years) return Number(years[1]) * 12
-  if (!/^\d+$/.test(s)) return null
-  return Number(s)
+  return /^\d+$/.test(s) ? Number(s) : null
 }
 
 /** A rate typed as a percent (`2.35` or `2.35%`), at most four decimals. */
@@ -158,7 +155,7 @@ export function parseLoanFields(
     return { field: 'principal', message: '請輸入撥款金額' }
   const months = parseMonths(v.months)
   if (months === null || months < 1 || months > 600)
-    return { field: 'months', message: '期數是 1 到 600 個月（也可以寫 20年）' }
+    return { field: 'months', message: '期數是 1 到 600 的整數（月）' }
   if (!isDate(v.start)) return { field: 'start', message: '請輸入撥款日' }
   if (!isDate(v.firstPayment) || v.firstPayment <= v.start)
     return { field: 'firstPayment', message: '首期繳款日要在撥款日之後' }

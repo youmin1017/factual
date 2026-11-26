@@ -14,6 +14,7 @@ import {
   toAccountInput,
   validateAccount,
 } from './accounts.ts'
+import { loanFieldValues } from './loan.ts'
 import type { Account, AccountRow } from './accounts.ts'
 
 const saved: Account = {
@@ -118,5 +119,31 @@ assert.equal(
   ),
   null,
 )
+
+// A loan's terms edited under its line go with :w.
+const house: AccountRow = {
+  ...newAccountRow('h', '2026-11-20'),
+  name: '房貸',
+  kind: 'loan',
+  onBudget: false,
+}
+const terms = {
+  ...loanFieldValues(null, 0, '2026-11-20'),
+  principal: '1000000',
+  months: '240',
+  rates: [{ from: '2026-11-20', rate: '2' }],
+}
+assert.equal(
+  toAccountInput({ ...house, loan: terms }, 0).loan?.principal,
+  1000000,
+)
+assert.equal(toAccountInput(house, 0).loan, undefined)
+assert.equal(accountStatus({ ...bank, kind: 'loan', loan: terms }), 'changed')
+assert.match(
+  validateAccount({ ...house, loan: { ...terms, principal: '' } }, [])
+    ?.message ?? '',
+  /^貸款條件：/,
+)
+assert.equal(validateAccount({ ...house, loan: terms }, []), null)
 
 console.log('accounts: ok')
