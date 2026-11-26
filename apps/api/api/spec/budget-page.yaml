@@ -1,0 +1,589 @@
+# The budget page: months, allocations, categories and their bases.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  month:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/Month'
+    get:
+      operationId: getBudgetMonth
+      tags: [ledger]
+      summary: The envelopes of one month (ADR-025, ADR-026)
+      description: |
+        One line per expense category that has money budgeted or spent up to
+        the end of the month, as recorded on that category; the client folds
+        the subcategories of a pooled parent into the parent's envelope
+        (ADR-061). The pool is not per month: it is everything not given to
+        an envelope, in any month.
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: The month
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/BudgetMonth'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  allocations:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/Month'
+    put:
+      operationId: setAllocations
+      tags: [ledger]
+      summary: Set how much the pool gives each envelope in a month
+      description: |
+        Each amount replaces the envelope's allocation for the month (0
+        removes it; negative gives money back to the pool). Only envelopes
+        take allocations: expense categories that are pooled or have no
+        subcategories, and are not inside a pooled parent. All or nothing.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/AllocationBatch'
+      responses:
+        '204':
+          description: Set
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  batch:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    post:
+      operationId: saveBudget
+      tags: [ledger]
+      summary: Apply the budget page's buffer in one database transaction (:w)
+      description: |
+        The category tree as the page left it (categories keyed by the
+        client-generated id, deleted ones by id), the allocations changed in
+        any month and the envelopes' base amounts (ADR-109). The tree is
+        checked as a whole (depth, kinds, names, cycles); allocations and
+        bases go only to envelopes of the tree as saved. Changing categories
+        needs `manage`; allocations and bases `write`. All or nothing, with
+        problems reported per category (ADR-044).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/BudgetBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: './friends.yaml#/schemas/SharedExpenseBatchSaved'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '422':
+          description: Nothing was saved; the categories listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/schemas/BatchErrors'
+
+  # --- Categories
+  categories:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: listCategories
+      tags: [ledger]
+      summary: Categories of a budget (flat; build the tree from parentId)
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Category'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+    post:
+      operationId: createCategory
+      tags: [ledger]
+      summary: Add a category (at most three levels; children take their parent's kind)
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/CategoryCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Category'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  categoryOrder:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    put:
+      operationId: reorderCategories
+      tags: [ledger]
+      summary: Set the order of the categories under one parent
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/schemas/Reorder'
+      responses:
+        '204':
+          description: Reordered
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  category:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/CategoryId'
+    put:
+      operationId: updateCategory
+      tags: [ledger]
+      summary: Rename, archive, or share one envelope among the children
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/CategoryUpdate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Category'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+    delete:
+      operationId: deleteCategory
+      tags: [ledger]
+      summary: Delete an unused category (archive it otherwise)
+      x-auth: authenticated
+      x-budget: manage
+      responses:
+        '204':
+          description: Deleted
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  categoryMove:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/CategoryId'
+    post:
+      operationId: moveCategory
+      tags: [ledger]
+      summary: Move a category, with its subcategories, under another parent
+      description: |
+        The new parent has the same kind, and the tree stays at most three
+        levels deep (ADR-027). Transactions and allocations stay with the
+        category; moving it into a parent that shares its budget folds its
+        money into that envelope (ADR-061).
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/CategoryMove'
+      responses:
+        '200':
+          description: Moved
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Category'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  categoryBase:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/CategoryId'
+    put:
+      operationId: setCategoryBase
+      tags: [ledger]
+      summary: Set an envelope's base amount per month (:base, ADR-086)
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/CategoryBase'
+      responses:
+        '204':
+          description: Set
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+schemas:
+  BudgetMonth:
+    type: object
+    required: [month, pool, income, envelopes, incomes, targets, spokenFor]
+    properties:
+      month:
+        type: string
+        description: YYYY-MM
+      pool:
+        type: integer
+        format: int64
+        description: Money not given to any envelope in any month (ADR-025).
+      income:
+        type: integer
+        format: int64
+        description: Income recorded in the month (it went to the pool).
+      envelopes:
+        type: array
+        items:
+          $ref: '#/schemas/EnvelopeMonth'
+      incomes:
+        type: array
+        description: Income recorded in the month per income category (only those with any).
+        items:
+          $ref: '#/schemas/IncomeMonth'
+      targets:
+        type: array
+        description: |
+          The month's target of every envelope that has one: its base plus
+          what the schedules it covers ask for (ADR-086), keyed by the
+          envelope (a pooled parent for its subcategories' schedules).
+        items:
+          $ref: '#/schemas/EnvelopeTarget'
+      spokenFor:
+        type: array
+        description: |
+          Per envelope, the money it holds at the end of the month that is
+          not free to move (ADR-095): what its schedules have set aside for
+          occurrences still to come, and what its goals have saved from the
+          rest. Envelopes with neither are left out.
+        items:
+          $ref: '#/schemas/SpokenFor'
+
+  SpokenFor:
+    type: object
+    required: [categoryId, schedules, goals]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+        description: The envelope.
+      schedules:
+        type: integer
+        format: int64
+        description: Set aside for its schedules' occurrences not posted yet.
+      goals:
+        type: integer
+        format: int64
+        description: What its goals have saved.
+
+  IncomeMonth:
+    type: object
+    required: [categoryId, received]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+      received:
+        type: integer
+        format: int64
+
+  EnvelopeMonth:
+    type: object
+    required: [categoryId, allocated, activity, carried]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+      allocated:
+        type: integer
+        format: int64
+        description: Given from the pool this month.
+      activity:
+        type: integer
+        format: int64
+        description: Recorded in the category this month (negative = spent).
+      carried:
+        type: integer
+        format: int64
+        description: |
+          Balance at the start of the month: every earlier allocation and
+          activity, positive or negative (ADR-026). The balance at the end
+          is carried + allocated + activity.
+
+  AllocationBatch:
+    type: object
+    required: [allocations]
+    properties:
+      allocations:
+        type: array
+        minItems: 1
+        maxItems: 500
+        items:
+          $ref: '#/schemas/AllocationInput'
+
+  AllocationInput:
+    type: object
+    required: [categoryId, amount]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+      amount:
+        type: integer
+        format: int64
+
+  CategoryInput:
+    type: object
+    required: [id, parentId, name, kind, pooled, archived, sortOrder]
+    properties:
+      id:
+        type: string
+        format: uuid
+      parentId:
+        type: string
+        format: uuid
+        nullable: true
+      name:
+        type: string
+        maxLength: 64
+      kind:
+        $ref: '#/schemas/CategoryKind'
+      pooled:
+        type: boolean
+      archived:
+        type: boolean
+      sortOrder:
+        type: integer
+        format: int32
+
+  AllocationChange:
+    type: object
+    required: [categoryId, month, amount]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+      month:
+        type: string
+        pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+      amount:
+        type: integer
+        format: int64
+
+  BaseChange:
+    type: object
+    required: [categoryId, amount]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+      amount:
+        type: integer
+        format: int64
+        minimum: 0
+        description: 0 removes the base.
+
+  BudgetBatch:
+    type: object
+    required: [categories, deleteCategories, allocations, bases]
+    properties:
+      categories:
+        type: array
+        maxItems: 1000
+        items:
+          $ref: '#/schemas/CategoryInput'
+      deleteCategories:
+        type: array
+        maxItems: 1000
+        items:
+          type: string
+          format: uuid
+      allocations:
+        type: array
+        maxItems: 5000
+        items:
+          $ref: '#/schemas/AllocationChange'
+      bases:
+        type: array
+        maxItems: 1000
+        items:
+          $ref: '#/schemas/BaseChange'
+
+  CategoryKind:
+    type: string
+    enum: [expense, income]
+
+  Category:
+    type: object
+    required: [id, parentId, name, kind, pooled, isSystem, sortOrder, archived, budgetBase]
+    properties:
+      id:
+        type: string
+        format: uuid
+      parentId:
+        type: string
+        format: uuid
+        nullable: true
+      name:
+        type: string
+      kind:
+        $ref: '#/schemas/CategoryKind'
+      pooled:
+        type: boolean
+        description: The subcategories share this category's budget (its envelope).
+      isSystem:
+        type: boolean
+        description: Created by the app (e.g. opening balances); cannot be changed.
+      sortOrder:
+        type: integer
+        format: int32
+      archived:
+        type: boolean
+      budgetBase:
+        type: integer
+        format: int64
+        nullable: true
+        description: The envelope's base amount per month (ADR-086).
+
+  CategoryCreate:
+    type: object
+    required: [parentId, name, kind]
+    properties:
+      parentId:
+        type: string
+        format: uuid
+        nullable: true
+      name:
+        type: string
+        minLength: 1
+        maxLength: 32
+      kind:
+        $ref: '#/schemas/CategoryKind'
+      pooled:
+        type: boolean
+        description: Defaults to true for expense categories (ADR-061); income categories never pool.
+
+  CategoryUpdate:
+    type: object
+    required: [name, pooled, archived]
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 32
+      pooled:
+        type: boolean
+      archived:
+        type: boolean
+
+  CategoryMove:
+    type: object
+    required: [parentId, index]
+    properties:
+      parentId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The new parent; null for the top level.
+      index:
+        type: integer
+        format: int32
+        minimum: 0
+        description: Position among the new siblings of the same kind (past the end = last).
+
+  CategoryBase:
+    type: object
+    required: [amount]
+    properties:
+      amount:
+        type: integer
+        format: int64
+        minimum: 0
+        description: Base amount per month; 0 removes it.
+
+  EnvelopeTarget:
+    type: object
+    required: [categoryId, total, base, schedules, goals]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+        description: The envelope.
+      total:
+        type: integer
+        format: int64
+        description: base plus the schedules' and the goals' amounts.
+      base:
+        type: integer
+        format: int64
+        nullable: true
+      schedules:
+        type: array
+        items:
+          $ref: './schedules.yaml#/schemas/ScheduleShare'
+      goals:
+        type: array
+        description: What the envelope's open goals ask this month, in priority order (ADR-093).
+        items:
+          $ref: './goals.yaml#/schemas/GoalShare'

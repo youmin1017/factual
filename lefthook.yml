@@ -22,4 +22,4 @@ pre-commit:
     - name: web-lint
       root: apps/web/
       glob: "*.{ts,tsx,js,mjs}"
-      run: pnpm exec oxlint {staged_files}
+      run: pnpm exec oxlint --no-error-on-unmatched-pattern {staged_files}

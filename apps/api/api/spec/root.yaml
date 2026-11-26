@@ -1,0 +1,160 @@
+# The API spec's entry point (ADR-113). Each domain's paths and schemas live in
+# its own file next to this one; this file lists every path and points at its
+# definition. `mise run gen` bundles them into ../openapi.yaml (generated,
+# never edited by hand), which the code generators and the server read.
+openapi: 3.0.3
+info:
+  title: Factual API
+  version: 0.5.0
+  description: |
+    The API is spec-first: these files are the source of truth for the Go
+    server (oapi-codegen) and the web client types (openapi-typescript).
+
+    Amounts are integers in the budget's minor unit (minorUnits digits after
+    the decimal point; 0 for TWD).
+
+    Access control: every operation declares exactly one `x-auth`:
+    `public`, `authenticated` (any logged-in user) or `admin` (instance
+    admin). The API does not start otherwise. Operations inside a budget
+    also declare `x-budget: read | write | manage`, the permission the
+    caller's role in that budget must grant. Errors use the `Error` envelope.
+servers:
+  - url: /api
+tags:
+  - name: system
+  - name: auth
+  - name: ledger
+  - name: calendar
+  - name: splitting
+paths:
+  /healthz:
+    $ref: './system.yaml#/paths/health'
+
+  /auth/login:
+    $ref: './auth.yaml#/paths/login'
+  /auth/logout:
+    $ref: './auth.yaml#/paths/logout'
+  /auth/oidc/providers:
+    $ref: './auth.yaml#/paths/oidcLoginProviders'
+  /auth/oidc/{code}/login:
+    $ref: './auth.yaml#/paths/oidcLogin'
+  /auth/oidc/{code}/link:
+    $ref: './auth.yaml#/paths/oidcLink'
+  /auth/oidc/callback:
+    $ref: './auth.yaml#/paths/oidcCallback'
+  /oidc-providers:
+    $ref: './auth.yaml#/paths/oidcProviders'
+  /oidc-providers/{id}:
+    $ref: './auth.yaml#/paths/oidcProvider'
+  /me:
+    $ref: './auth.yaml#/paths/me'
+  /me/password:
+    $ref: './auth.yaml#/paths/password'
+  /me/identities:
+    $ref: './auth.yaml#/paths/identities'
+  /me/identities/{id}:
+    $ref: './auth.yaml#/paths/identity'
+  /me/preferences:
+    $ref: './auth.yaml#/paths/preferences'
+
+  /budgets:
+    $ref: './budgets.yaml#/paths/budgets'
+  /budgets/{budgetId}:
+    $ref: './budgets.yaml#/paths/budget'
+  /budgets/{budgetId}/summary:
+    $ref: './budgets.yaml#/paths/summary'
+
+  /budgets/{budgetId}/months/{month}:
+    $ref: './budget-page.yaml#/paths/month'
+  /budgets/{budgetId}/months/{month}/allocations:
+    $ref: './budget-page.yaml#/paths/allocations'
+  /budgets/{budgetId}/budget/batch:
+    $ref: './budget-page.yaml#/paths/batch'
+
+  /budgets/{budgetId}/accounts:
+    $ref: './accounts.yaml#/paths/accounts'
+  /budgets/{budgetId}/accounts/order:
+    $ref: './accounts.yaml#/paths/order'
+  /budgets/{budgetId}/accounts/batch:
+    $ref: './accounts.yaml#/paths/batch'
+  /budgets/{budgetId}/accounts/{accountId}:
+    $ref: './accounts.yaml#/paths/account'
+
+  /budgets/{budgetId}/categories:
+    $ref: './budget-page.yaml#/paths/categories'
+  /budgets/{budgetId}/categories/order:
+    $ref: './budget-page.yaml#/paths/categoryOrder'
+  /budgets/{budgetId}/categories/{categoryId}:
+    $ref: './budget-page.yaml#/paths/category'
+  /budgets/{budgetId}/categories/{categoryId}/move:
+    $ref: './budget-page.yaml#/paths/categoryMove'
+
+  /budgets/{budgetId}/accounts/{accountId}/register:
+    $ref: './transactions.yaml#/paths/accountRegister'
+
+  /budgets/{budgetId}/accounts/{accountId}/statements:
+    $ref: './cards.yaml#/paths/statements'
+  /budgets/{budgetId}/accounts/{accountId}/billing:
+    $ref: './cards.yaml#/paths/billing'
+
+  /budgets/{budgetId}/accounts/{accountId}/loan:
+    $ref: './loans.yaml#/paths/loan'
+  /budgets/{budgetId}/loans/preview:
+    $ref: './loans.yaml#/paths/preview'
+  /budgets/{budgetId}/accounts/{accountId}/loan/align:
+    $ref: './loans.yaml#/paths/align'
+
+  /budgets/{budgetId}/statements/{statementId}/due:
+    $ref: './cards.yaml#/paths/statementDue'
+
+  /budgets/{budgetId}/register:
+    $ref: './transactions.yaml#/paths/register'
+  /budgets/{budgetId}/payees:
+    $ref: './transactions.yaml#/paths/payees'
+  /budgets/{budgetId}/payees/{payeeId}:
+    $ref: './transactions.yaml#/paths/payee'
+  /budgets/{budgetId}/payees/{payeeId}/merge:
+    $ref: './transactions.yaml#/paths/payeeMerge'
+  /budgets/{budgetId}/transactions/batch:
+    $ref: './transactions.yaml#/paths/batch'
+  /budgets/{budgetId}/transactions/reviewed:
+    $ref: './transactions.yaml#/paths/reviewed'
+
+  /budgets/{budgetId}/schedules:
+    $ref: './schedules.yaml#/paths/schedules'
+  /budgets/{budgetId}/schedules/batch:
+    $ref: './schedules.yaml#/paths/batch'
+  /budgets/{budgetId}/schedules/upcoming:
+    $ref: './schedules.yaml#/paths/upcoming'
+  /budgets/{budgetId}/schedules/{scheduleId}/skips:
+    $ref: './schedules.yaml#/paths/skips'
+  /budgets/{budgetId}/schedules/{scheduleId}/skips/{occurrence}:
+    $ref: './schedules.yaml#/paths/skip'
+  /budgets/{budgetId}/schedules/{scheduleId}/post:
+    $ref: './schedules.yaml#/paths/post'
+
+  /budgets/{budgetId}/categories/{categoryId}/base:
+    $ref: './budget-page.yaml#/paths/categoryBase'
+
+  /budgets/{budgetId}/goals:
+    $ref: './goals.yaml#/paths/goals'
+  /budgets/{budgetId}/goals/batch:
+    $ref: './goals.yaml#/paths/batch'
+
+  /friends:
+    $ref: './friends.yaml#/paths/friends'
+  /friends/{friendId}:
+    $ref: './friends.yaml#/paths/friend'
+  /friends/{friendId}/expenses:
+    $ref: './friends.yaml#/paths/expenses'
+  /friends/{friendId}/expenses/batch:
+    $ref: './friends.yaml#/paths/expensesBatch'
+
+  /holidays:
+    $ref: './calendar.yaml#/paths/holidays'
+  /holidays/years:
+    $ref: './calendar.yaml#/paths/years'
+  /holidays/import:
+    $ref: './calendar.yaml#/paths/import'
+  /holidays/years/{year}:
+    $ref: './calendar.yaml#/paths/year'

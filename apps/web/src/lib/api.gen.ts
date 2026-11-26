@@ -1325,23 +1325,9 @@ export interface components {
       /** @enum {string} */
       status: 'ok' | 'degraded'
     }
-    Error: {
-      /** @description Stable machine-readable code, e.g. `not_found`, `unauthorized`. */
-      code: string
-      /** @description Human-readable message. */
-      message: string
-      details?: {
-        [key: string]: unknown
-      }
-    }
     LoginRequest: {
       username: string
       password: string
-    }
-    ChangePasswordRequest: {
-      /** @description Empty when the user has no password yet. */
-      currentPassword: string
-      newPassword: string
     }
     CurrentUser: {
       /** Format: uuid */
@@ -1354,17 +1340,14 @@ export interface components {
       /** @description Whether the user can log in with a password. */
       hasPassword: boolean
     }
-    ProfileUpdate: {
-      username: string
-      displayName: string
-    }
-    Preferences: {
-      /**
-       * @description Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
-       *     `nnoremap H 0`, `let mapleader = ","`). Parsed by the web app;
-       *     the server only stores it.
-       */
-      editorKeymap: string
+    Error: {
+      /** @description Stable machine-readable code, e.g. `not_found`, `unauthorized`. */
+      code: string
+      /** @description Human-readable message. */
+      message: string
+      details?: {
+        [key: string]: unknown
+      }
     }
     LoginProvider: {
       code: string
@@ -1389,6 +1372,13 @@ export interface components {
       /** Format: date-time */
       updatedAt: string
     }
+    OidcProviderList: {
+      items: components['schemas']['OidcProvider'][]
+      /** @description Redirect URI to register at every identity provider. */
+      callbackUrl: string
+      /** @description Whether FACTUAL_ENCRYPTION_KEY is set; OIDC login needs it. */
+      encryptionConfigured: boolean
+    }
     OidcProviderInput: {
       /** @description Used in URLs, e.g. `google`. */
       code: string
@@ -1403,12 +1393,14 @@ export interface components {
       enabled: boolean
       remark: string
     }
-    OidcProviderList: {
-      items: components['schemas']['OidcProvider'][]
-      /** @description Redirect URI to register at every identity provider. */
-      callbackUrl: string
-      /** @description Whether FACTUAL_ENCRYPTION_KEY is set; OIDC login needs it. */
-      encryptionConfigured: boolean
+    ProfileUpdate: {
+      username: string
+      displayName: string
+    }
+    ChangePasswordRequest: {
+      /** @description Empty when the user has no password yet. */
+      currentPassword: string
+      newPassword: string
     }
     LinkedIdentity: {
       /** Format: uuid */
@@ -1420,6 +1412,14 @@ export interface components {
       createdAt: string
       /** Format: date-time */
       lastLoginAt: string | null
+    }
+    Preferences: {
+      /**
+       * @description Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
+       *     `nnoremap H 0`, `let mapleader = ","`). Parsed by the web app;
+       *     the server only stores it.
+       */
+      editorKeymap: string
     }
     /** @enum {string} */
     BudgetRole: 'owner' | 'editor' | 'viewer'
@@ -1473,6 +1473,89 @@ export interface components {
        */
       offBudgetBalance: number
     }
+    EnvelopeMonth: {
+      /** Format: uuid */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description Given from the pool this month.
+       */
+      allocated: number
+      /**
+       * Format: int64
+       * @description Recorded in the category this month (negative = spent).
+       */
+      activity: number
+      /**
+       * Format: int64
+       * @description Balance at the start of the month: every earlier allocation and
+       *     activity, positive or negative (ADR-026). The balance at the end
+       *     is carried + allocated + activity.
+       */
+      carried: number
+    }
+    IncomeMonth: {
+      /** Format: uuid */
+      categoryId: string
+      /** Format: int64 */
+      received: number
+    }
+    ScheduleShare: {
+      /** Format: uuid */
+      scheduleId: string
+      /**
+       * Format: int64
+       * @description What the schedule asks of the envelope this month (spending is positive).
+       */
+      amount: number
+      /**
+       * Format: uuid
+       * @description The loan a loan's schedule pays (ADR-097): its principal and
+       *     interest count in their categories' envelopes. Such schedules are
+       *     not on the schedules page.
+       */
+      loanAccountId?: string | null
+    }
+    GoalShare: {
+      /** Format: uuid */
+      goalId: string
+      /** Format: int64 */
+      amount: number
+    }
+    EnvelopeTarget: {
+      /**
+       * Format: uuid
+       * @description The envelope.
+       */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description base plus the schedules' and the goals' amounts.
+       */
+      total: number
+      /** Format: int64 */
+      base: number | null
+      schedules: components['schemas']['ScheduleShare'][]
+      /** @description What the envelope's open goals ask this month, in priority order (ADR-093). */
+      goals: components['schemas']['GoalShare'][]
+    }
+    SpokenFor: {
+      /**
+       * Format: uuid
+       * @description The envelope.
+       */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description Set aside for its schedules' occurrences not posted yet.
+       */
+      schedules: number
+      /**
+       * Format: int64
+       * @description What its goals have saved.
+       */
+      goals: number
+    }
     BudgetMonth: {
       /** @description YYYY-MM */
       month: string
@@ -1503,96 +1586,17 @@ export interface components {
        */
       spokenFor: components['schemas']['SpokenFor'][]
     }
-    SpokenFor: {
-      /**
-       * Format: uuid
-       * @description The envelope.
-       */
-      categoryId: string
-      /**
-       * Format: int64
-       * @description Set aside for its schedules' occurrences not posted yet.
-       */
-      schedules: number
-      /**
-       * Format: int64
-       * @description What its goals have saved.
-       */
-      goals: number
-    }
-    IncomeMonth: {
-      /** Format: uuid */
-      categoryId: string
-      /** Format: int64 */
-      received: number
-    }
-    EnvelopeMonth: {
-      /** Format: uuid */
-      categoryId: string
-      /**
-       * Format: int64
-       * @description Given from the pool this month.
-       */
-      allocated: number
-      /**
-       * Format: int64
-       * @description Recorded in the category this month (negative = spent).
-       */
-      activity: number
-      /**
-       * Format: int64
-       * @description Balance at the start of the month: every earlier allocation and
-       *     activity, positive or negative (ADR-026). The balance at the end
-       *     is carried + allocated + activity.
-       */
-      carried: number
-    }
-    AllocationBatch: {
-      allocations: components['schemas']['AllocationInput'][]
-    }
     AllocationInput: {
       /** Format: uuid */
       categoryId: string
       /** Format: int64 */
       amount: number
     }
-    /**
-     * @description `friend` accounts hold what a friend owes (ADR-036); they are created
-     *     with the friend and changed only through shared expenses.
-     * @enum {string}
-     */
-    AccountKind:
-      | 'cash'
-      | 'bank'
-      | 'credit_card'
-      | 'loan'
-      | 'investment'
-      | 'friend'
-    /** @enum {string} */
-    NewAccountKind: 'cash' | 'bank' | 'credit_card' | 'loan' | 'investment'
-    Account: {
-      /** Format: uuid */
-      id: string
-      name: string
-      kind: components['schemas']['AccountKind']
-      onBudget: boolean
-      closed: boolean
-      /** Format: int32 */
-      sortOrder: number
-      /** Format: int64 */
-      balance: number
-      /** Format: int64 */
-      clearedBalance: number
-      /** @description Whether the account has transactions besides its opening balance (it then cannot be deleted). */
-      hasActivity: boolean
-      /** @description A credit card's statement settings; null for other accounts and cards without them. */
-      card: components['schemas']['CardSettings'] | null
-      /**
-       * Format: uuid
-       * @description The friend a friend account is with; null for other accounts.
-       */
-      friendId: string | null
+    AllocationBatch: {
+      allocations: components['schemas']['AllocationInput'][]
     }
+    /** @enum {string} */
+    CategoryKind: 'expense' | 'income'
     CategoryInput: {
       /** Format: uuid */
       id: string
@@ -1627,6 +1631,169 @@ export interface components {
       allocations: components['schemas']['AllocationChange'][]
       bases: components['schemas']['BaseChange'][]
     }
+    SharedExpenseBatchSaved: {
+      /** Format: int32 */
+      upserted: number
+      /** Format: int32 */
+      deleted: number
+    }
+    BatchProblem: {
+      /**
+       * Format: uuid
+       * @description The transaction the problem belongs to.
+       */
+      id: string
+      /** @description Which part is wrong (date, payee, note, category, amount, account, entries), or empty. */
+      field: string
+      /** @description Stable code, e.g. category_required. */
+      code: string
+      message: string
+    }
+    BatchErrors: {
+      errors: components['schemas']['BatchProblem'][]
+    }
+    /**
+     * @description `friend` accounts hold what a friend owes (ADR-036); they are created
+     *     with the friend and changed only through shared expenses.
+     * @enum {string}
+     */
+    AccountKind:
+      | 'cash'
+      | 'bank'
+      | 'credit_card'
+      | 'loan'
+      | 'investment'
+      | 'friend'
+    CardSettings: {
+      /**
+       * Format: int32
+       * @description 結帳日; a month without that day closes on its last day.
+       */
+      statementDay: number
+      /**
+       * Format: int32
+       * @description 繳款截止日; in the month after the statement day when it is not later than it.
+       */
+      dueDay: number
+      /** Format: int64 */
+      creditLimit: number | null
+      /**
+       * Format: uuid
+       * @description The account the card is paid from on the due date (ADR-090).
+       */
+      autopayAccountId: string | null
+    }
+    Account: {
+      /** Format: uuid */
+      id: string
+      name: string
+      kind: components['schemas']['AccountKind']
+      onBudget: boolean
+      closed: boolean
+      /** Format: int32 */
+      sortOrder: number
+      /** Format: int64 */
+      balance: number
+      /** Format: int64 */
+      clearedBalance: number
+      /** @description Whether the account has transactions besides its opening balance (it then cannot be deleted). */
+      hasActivity: boolean
+      /** @description A credit card's statement settings; null for other accounts and cards without them. */
+      card: components['schemas']['CardSettings'] | null
+      /**
+       * Format: uuid
+       * @description The friend a friend account is with; null for other accounts.
+       */
+      friendId: string | null
+    }
+    /** @enum {string} */
+    NewAccountKind: 'cash' | 'bank' | 'credit_card' | 'loan' | 'investment'
+    /**
+     * @description 本息平均攤還 (level payments) or 本金平均攤還 (equal principal).
+     * @enum {string}
+     */
+    LoanMethod: 'annuity' | 'equalPrincipal'
+    /**
+     * @description What an extra payment does, end earlier or keep the end and pay less.
+     * @enum {string}
+     */
+    PrepayMode: 'shortenTerm' | 'reducePayment'
+    LoanRate: {
+      /** Format: date */
+      effectiveFrom: string
+      /**
+       * Format: double
+       * @description Percent a year, up to four decimals (2.35 is 2.35%).
+       */
+      annualRate: number
+    }
+    /**
+     * @description Moving an occurrence that falls on a day off (ADR-087).
+     * @enum {string}
+     */
+    HolidayShift: 'noShift' | 'nextWorkday' | 'prevWorkday'
+    LoanTerms: {
+      /**
+       * Format: int64
+       * @description The amount lent.
+       */
+      principal: number
+      /** Format: int32 */
+      termMonths: number
+      /**
+       * Format: date
+       * @description 撥款日.
+       */
+      startDate: string
+      /**
+       * Format: date
+       * @description 首期繳款日; its day of the month is the payment day.
+       */
+      firstPaymentDate: string
+      method: components['schemas']['LoanMethod']
+      /**
+       * Format: int32
+       * @description Months at the start that pay only interest.
+       */
+      graceMonths: number
+      prepayMode: components['schemas']['PrepayMode']
+      /** @description The first from 撥款日, later ones are rate changes from their date. */
+      rates: components['schemas']['LoanRate'][]
+      /**
+       * Format: uuid
+       * @description The on-budget account payments come from; without one nothing is posted.
+       */
+      payFromAccountId: string | null
+      /** Format: uuid */
+      principalCategoryId: string | null
+      /** Format: uuid */
+      interestCategoryId: string | null
+      holidayShift: components['schemas']['HolidayShift']
+    }
+    AccountCreate: {
+      name: string
+      kind: components['schemas']['NewAccountKind']
+      /** @description Ignored for credit cards (always on budget), loans and investments (never). */
+      onBudget: boolean
+      /**
+       * Format: int64
+       * @description Balance on openingDate; negative for money owed (a credit card, a loan).
+       */
+      openingBalance: number
+      /** Format: date */
+      openingDate: string
+      card?: components['schemas']['CardSettings']
+      /**
+       * @description A loan's terms, saved with the account (ADR-100): the opening
+       *     balance is then what the terms leave owed (openingBalance and
+       *     openingDate are ignored), and its schedule pays it when it has an
+       *     account to pay from. Only for kind loan.
+       */
+      loan?: components['schemas']['LoanTerms']
+    }
+    Reorder: {
+      ids: string[]
+    }
     AccountInput: {
       /** Format: uuid */
       id: string
@@ -1660,51 +1827,117 @@ export interface components {
       upserts: components['schemas']['AccountInput'][]
       deletes: string[]
     }
-    CardSettings: {
-      /**
-       * Format: int32
-       * @description 結帳日; a month without that day closes on its last day.
-       */
-      statementDay: number
-      /**
-       * Format: int32
-       * @description 繳款截止日; in the month after the statement day when it is not later than it.
-       */
-      dueDay: number
-      /** Format: int64 */
-      creditLimit: number | null
-      /**
-       * Format: uuid
-       * @description The account the card is paid from on the due date (ADR-090).
-       */
-      autopayAccountId: string | null
-    }
-    AccountCreate: {
-      name: string
-      kind: components['schemas']['NewAccountKind']
-      /** @description Ignored for credit cards (always on budget), loans and investments (never). */
-      onBudget: boolean
-      /**
-       * Format: int64
-       * @description Balance on openingDate; negative for money owed (a credit card, a loan).
-       */
-      openingBalance: number
-      /** Format: date */
-      openingDate: string
-      card?: components['schemas']['CardSettings']
-      /**
-       * @description A loan's terms, saved with the account (ADR-100): the opening
-       *     balance is then what the terms leave owed (openingBalance and
-       *     openingDate are ignored), and its schedule pays it when it has an
-       *     account to pay from. Only for kind loan.
-       */
-      loan?: components['schemas']['LoanTerms']
-    }
     AccountUpdate: {
       name: string
       /** @description A closed account is hidden from pickers; it must have a zero balance. */
       closed: boolean
       card?: components['schemas']['CardSettings']
+    }
+    Category: {
+      /** Format: uuid */
+      id: string
+      /** Format: uuid */
+      parentId: string | null
+      name: string
+      kind: components['schemas']['CategoryKind']
+      /** @description The subcategories share this category's budget (its envelope). */
+      pooled: boolean
+      /** @description Created by the app (e.g. opening balances); cannot be changed. */
+      isSystem: boolean
+      /** Format: int32 */
+      sortOrder: number
+      archived: boolean
+      /**
+       * Format: int64
+       * @description The envelope's base amount per month (ADR-086).
+       */
+      budgetBase: number | null
+    }
+    CategoryCreate: {
+      /** Format: uuid */
+      parentId: string | null
+      name: string
+      kind: components['schemas']['CategoryKind']
+      /** @description Defaults to true for expense categories (ADR-061); income categories never pool. */
+      pooled?: boolean
+    }
+    CategoryUpdate: {
+      name: string
+      pooled: boolean
+      archived: boolean
+    }
+    CategoryMove: {
+      /**
+       * Format: uuid
+       * @description The new parent; null for the top level.
+       */
+      parentId: string | null
+      /**
+       * Format: int32
+       * @description Position among the new siblings of the same kind (past the end = last).
+       */
+      index: number
+    }
+    /** @enum {string} */
+    ClearedState: 'uncleared' | 'cleared' | 'reconciled'
+    Entry: {
+      /** Format: uuid */
+      id: string
+      /** Format: uuid */
+      accountId: string
+      /** Format: uuid */
+      categoryId: string | null
+      /**
+       * Format: int64
+       * @description Change in the account's balance.
+       */
+      amount: number
+      memo: string
+      cleared: components['schemas']['ClearedState']
+      /**
+       * Format: uuid
+       * @description The card statement the entry is billed in (ADR-088); null or absent when not billed.
+       */
+      statementId?: string | null
+    }
+    Transaction: {
+      /** Format: uuid */
+      id: string
+      /** Format: date */
+      date: string
+      /** Format: uuid */
+      payeeId: string | null
+      payeeName: string | null
+      note: string
+      needsReview: boolean
+      /** @description The opening balance of an account. */
+      isOpening: boolean
+      /**
+       * Format: uuid
+       * @description The shared expense this transaction was generated from (ADR-035); it is changed on the friend's page, not in the register.
+       */
+      sharedExpenseId?: string | null
+      entries: components['schemas']['Entry'][]
+    }
+    OpenStatement: {
+      /** Format: uuid */
+      id: string
+      /** Format: date */
+      periodStart: string
+      /** Format: date */
+      periodEnd: string
+      /** Format: date */
+      dueDate: string
+      /**
+       * Format: int64
+       * @description Spending not billed yet, less refunds (positive is spent).
+       */
+      charges: number
+      /**
+       * Format: int64
+       * @description Payments not billed yet.
+       */
+      payments: number
     }
     /**
      * @description 待繳, 部分繳款, 已繳清, 逾期; `settled` for a statement a newer one
@@ -1760,26 +1993,6 @@ export interface components {
       remaining: number
       state: components['schemas']['StatementState']
     }
-    OpenStatement: {
-      /** Format: uuid */
-      id: string
-      /** Format: date */
-      periodStart: string
-      /** Format: date */
-      periodEnd: string
-      /** Format: date */
-      dueDate: string
-      /**
-       * Format: int64
-       * @description Spending not billed yet, less refunds (positive is spent).
-       */
-      charges: number
-      /**
-       * Format: int64
-       * @description Payments not billed yet.
-       */
-      payments: number
-    }
     CardStatements: {
       card: components['schemas']['CardSettings'] | null
       open: components['schemas']['OpenStatement'] | null
@@ -1802,103 +2015,109 @@ export interface components {
        */
       statementId: string
     }
+    /**
+     * @description `before`: paid before the loan was set up (from the terms); `posted`:
+     *     paid by its schedule (actual figures); `skipped`; `pending`: its date has
+     *     come but it is not posted; `planned`: still to come.
+     * @enum {string}
+     */
+    LoanPeriodState: 'before' | 'posted' | 'skipped' | 'pending' | 'planned'
+    LoanPeriod: {
+      /** Format: int32 */
+      n: number
+      /**
+       * Format: date
+       * @description The payment date the terms give (before moving off days off).
+       */
+      date: string
+      /** Format: double */
+      annualRate: number
+      /** Format: int64 */
+      principal: number
+      /** Format: int64 */
+      interest: number
+      /**
+       * Format: int64
+       * @description What is owed after it.
+       */
+      balance: number
+      state: components['schemas']['LoanPeriodState']
+    }
+    /** @description What the terms say is owed on a day against what the loan account says. */
+    LoanCheck: {
+      /** Format: date */
+      date: string
+      /** Format: int64 */
+      computed: number
+      /** Format: int64 */
+      recorded: number
+    }
+    LoanDetails: {
+      /** Format: uuid */
+      accountId: string
+      terms: components['schemas']['LoanTerms']
+      /**
+       * Format: date
+       * @description The first payment its schedule pays; earlier ones were paid before it was set up.
+       */
+      trackedFrom: string | null
+      /** Format: uuid */
+      scheduleId: string | null
+      /**
+       * Format: int64
+       * @description What the loan account says is owed today.
+       */
+      principalLeft: number
+      /** Format: int64 */
+      principalRepaid: number
+      /**
+       * Format: int64
+       * @description The terms' interest before it was set up plus what its payments posted.
+       */
+      interestPaid: number
+      /** Format: int32 */
+      periodsLeft: number
+      nextPayment: components['schemas']['LoanPeriod'] | null
+      /** Format: date */
+      payoffDate: string | null
+      /** @description Before the first tracked payment, terms against the account (null when it is paid off). */
+      check: components['schemas']['LoanCheck'] | null
+      periods: components['schemas']['LoanPeriod'][]
+    }
+    LoanPreview: {
+      /**
+       * Format: int64
+       * @description The first payment that repays principal (after any grace).
+       */
+      payment: number
+      /** Format: int64 */
+      totalInterest: number
+      periods: components['schemas']['LoanPeriod'][]
+    }
+    LoanAlign: {
+      /** Format: date */
+      date: string
+      /**
+       * Format: int64
+       * @description What the bank shows as owed at the end of that day.
+       */
+      principalLeft: number
+    }
+    LoanAligned: {
+      /** Format: uuid */
+      transactionId: string | null
+      /**
+       * Format: int64
+       * @description The change posted on the loan account (positive lowers what is owed).
+       */
+      adjustment: number
+    }
     StatementDue: {
       /** Format: int64 */
       amount: number | null
     }
     /** @enum {string} */
-    CategoryKind: 'expense' | 'income'
-    Category: {
-      /** Format: uuid */
-      id: string
-      /** Format: uuid */
-      parentId: string | null
-      name: string
-      kind: components['schemas']['CategoryKind']
-      /** @description The subcategories share this category's budget (its envelope). */
-      pooled: boolean
-      /** @description Created by the app (e.g. opening balances); cannot be changed. */
-      isSystem: boolean
-      /** Format: int32 */
-      sortOrder: number
-      archived: boolean
-      /**
-       * Format: int64
-       * @description The envelope's base amount per month (ADR-086).
-       */
-      budgetBase: number | null
-    }
-    CategoryCreate: {
-      /** Format: uuid */
-      parentId: string | null
-      name: string
-      kind: components['schemas']['CategoryKind']
-      /** @description Defaults to true for expense categories (ADR-061); income categories never pool. */
-      pooled?: boolean
-    }
-    CategoryUpdate: {
-      name: string
-      pooled: boolean
-      archived: boolean
-    }
-    CategoryMove: {
-      /**
-       * Format: uuid
-       * @description The new parent; null for the top level.
-       */
-      parentId: string | null
-      /**
-       * Format: int32
-       * @description Position among the new siblings of the same kind (past the end = last).
-       */
-      index: number
-    }
-    Reorder: {
-      ids: string[]
-    }
-    /** @enum {string} */
     RegisterScope: 'all' | 'onBudget' | 'offBudget'
-    /** @enum {string} */
-    ClearedState: 'uncleared' | 'cleared' | 'reconciled'
-    Entry: {
-      /** Format: uuid */
-      id: string
-      /** Format: uuid */
-      accountId: string
-      /** Format: uuid */
-      categoryId: string | null
-      /**
-       * Format: int64
-       * @description Change in the account's balance.
-       */
-      amount: number
-      memo: string
-      cleared: components['schemas']['ClearedState']
-      /**
-       * Format: uuid
-       * @description The card statement the entry is billed in (ADR-088); null or absent when not billed.
-       */
-      statementId?: string | null
-    }
-    Transaction: {
-      /** Format: uuid */
-      id: string
-      /** Format: date */
-      date: string
-      /** Format: uuid */
-      payeeId: string | null
-      payeeName: string | null
-      note: string
-      needsReview: boolean
-      /** @description The opening balance of an account. */
-      isOpening: boolean
-      /**
-       * Format: uuid
-       * @description The shared expense this transaction was generated from (ADR-035); it is changed on the friend's page, not in the register.
-       */
-      sharedExpenseId?: string | null
-      entries: components['schemas']['Entry'][]
-    }
     Payee: {
       /** Format: uuid */
       id: string
@@ -1927,6 +2146,13 @@ export interface components {
       memo: string
       cleared: components['schemas']['ClearedState']
     }
+    /** @description The schedule occurrence a new transaction posts (an edited 預定 row). */
+    ScheduledOccurrence: {
+      /** Format: uuid */
+      scheduleId: string
+      /** Format: date */
+      occurrence: string
+    }
     TransactionInput: {
       /** Format: uuid */
       id: string
@@ -1942,6 +2168,12 @@ export interface components {
       upserts: components['schemas']['TransactionInput'][]
       deletes: string[]
     }
+    BatchSaved: {
+      /** Format: int32 */
+      upserted: number
+      /** Format: int32 */
+      deleted: number
+    }
     TransactionIds: {
       ids: string[]
     }
@@ -1952,32 +2184,6 @@ export interface components {
        */
       reviewed: number
     }
-    BatchSaved: {
-      /** Format: int32 */
-      upserted: number
-      /** Format: int32 */
-      deleted: number
-    }
-    BatchProblem: {
-      /**
-       * Format: uuid
-       * @description The transaction the problem belongs to.
-       */
-      id: string
-      /** @description Which part is wrong (date, payee, note, category, amount, account, entries), or empty. */
-      field: string
-      /** @description Stable code, e.g. category_required. */
-      code: string
-      message: string
-    }
-    BatchErrors: {
-      errors: components['schemas']['BatchProblem'][]
-    }
-    /**
-     * @description Moving an occurrence that falls on a day off (ADR-087).
-     * @enum {string}
-     */
-    HolidayShift: 'noShift' | 'nextWorkday' | 'prevWorkday'
     /**
      * @description How the schedule counts in its envelope's target (ADR-086): not at
      *     all, the sum of its occurrences in their month, or each occurrence
@@ -2047,6 +2253,15 @@ export interface components {
        */
       posted: number
     }
+    OccurrenceEntry: {
+      memo: string
+      /** Format: uuid */
+      accountId: string
+      /** Format: uuid */
+      categoryId: string | null
+      /** Format: int64 */
+      amount: number
+    }
     Occurrence: {
       /** Format: uuid */
       scheduleId: string
@@ -2077,169 +2292,6 @@ export interface components {
        */
       entries?: components['schemas']['OccurrenceEntry'][]
     }
-    /**
-     * @description 本息平均攤還 (level payments) or 本金平均攤還 (equal principal).
-     * @enum {string}
-     */
-    LoanMethod: 'annuity' | 'equalPrincipal'
-    /**
-     * @description What an extra payment does, end earlier or keep the end and pay less.
-     * @enum {string}
-     */
-    PrepayMode: 'shortenTerm' | 'reducePayment'
-    LoanRate: {
-      /** Format: date */
-      effectiveFrom: string
-      /**
-       * Format: double
-       * @description Percent a year, up to four decimals (2.35 is 2.35%).
-       */
-      annualRate: number
-    }
-    LoanTerms: {
-      /**
-       * Format: int64
-       * @description The amount lent.
-       */
-      principal: number
-      /** Format: int32 */
-      termMonths: number
-      /**
-       * Format: date
-       * @description 撥款日.
-       */
-      startDate: string
-      /**
-       * Format: date
-       * @description 首期繳款日; its day of the month is the payment day.
-       */
-      firstPaymentDate: string
-      method: components['schemas']['LoanMethod']
-      /**
-       * Format: int32
-       * @description Months at the start that pay only interest.
-       */
-      graceMonths: number
-      prepayMode: components['schemas']['PrepayMode']
-      /** @description The first from 撥款日, later ones are rate changes from their date. */
-      rates: components['schemas']['LoanRate'][]
-      /**
-       * Format: uuid
-       * @description The on-budget account payments come from; without one nothing is posted.
-       */
-      payFromAccountId: string | null
-      /** Format: uuid */
-      principalCategoryId: string | null
-      /** Format: uuid */
-      interestCategoryId: string | null
-      holidayShift: components['schemas']['HolidayShift']
-    }
-    /**
-     * @description `before`: paid before the loan was set up (from the terms); `posted`:
-     *     paid by its schedule (actual figures); `skipped`; `pending`: its date has
-     *     come but it is not posted; `planned`: still to come.
-     * @enum {string}
-     */
-    LoanPeriodState: 'before' | 'posted' | 'skipped' | 'pending' | 'planned'
-    LoanPeriod: {
-      /** Format: int32 */
-      n: number
-      /**
-       * Format: date
-       * @description The payment date the terms give (before moving off days off).
-       */
-      date: string
-      /** Format: double */
-      annualRate: number
-      /** Format: int64 */
-      principal: number
-      /** Format: int64 */
-      interest: number
-      /**
-       * Format: int64
-       * @description What is owed after it.
-       */
-      balance: number
-      state: components['schemas']['LoanPeriodState']
-    }
-    LoanPreview: {
-      /**
-       * Format: int64
-       * @description The first payment that repays principal (after any grace).
-       */
-      payment: number
-      /** Format: int64 */
-      totalInterest: number
-      periods: components['schemas']['LoanPeriod'][]
-    }
-    /** @description What the terms say is owed on a day against what the loan account says. */
-    LoanCheck: {
-      /** Format: date */
-      date: string
-      /** Format: int64 */
-      computed: number
-      /** Format: int64 */
-      recorded: number
-    }
-    LoanDetails: {
-      /** Format: uuid */
-      accountId: string
-      terms: components['schemas']['LoanTerms']
-      /**
-       * Format: date
-       * @description The first payment its schedule pays; earlier ones were paid before it was set up.
-       */
-      trackedFrom: string | null
-      /** Format: uuid */
-      scheduleId: string | null
-      /**
-       * Format: int64
-       * @description What the loan account says is owed today.
-       */
-      principalLeft: number
-      /** Format: int64 */
-      principalRepaid: number
-      /**
-       * Format: int64
-       * @description The terms' interest before it was set up plus what its payments posted.
-       */
-      interestPaid: number
-      /** Format: int32 */
-      periodsLeft: number
-      nextPayment: components['schemas']['LoanPeriod'] | null
-      /** Format: date */
-      payoffDate: string | null
-      /** @description Before the first tracked payment, terms against the account (null when it is paid off). */
-      check: components['schemas']['LoanCheck'] | null
-      periods: components['schemas']['LoanPeriod'][]
-    }
-    LoanAlign: {
-      /** Format: date */
-      date: string
-      /**
-       * Format: int64
-       * @description What the bank shows as owed at the end of that day.
-       */
-      principalLeft: number
-    }
-    LoanAligned: {
-      /** Format: uuid */
-      transactionId: string | null
-      /**
-       * Format: int64
-       * @description The change posted on the loan account (positive lowers what is owed).
-       */
-      adjustment: number
-    }
-    OccurrenceEntry: {
-      memo: string
-      /** Format: uuid */
-      accountId: string
-      /** Format: uuid */
-      categoryId: string | null
-      /** Format: int64 */
-      amount: number
-    }
     OccurrenceRef: {
       /** Format: date */
       occurrence: string
@@ -2248,41 +2300,11 @@ export interface components {
       /** Format: uuid */
       transactionId: string
     }
-    /** @description The schedule occurrence a new transaction posts (an edited 預定 row). */
-    ScheduledOccurrence: {
-      /** Format: uuid */
-      scheduleId: string
-      /** Format: date */
-      occurrence: string
-    }
     CategoryBase: {
       /**
        * Format: int64
        * @description Base amount per month; 0 removes it.
        */
-      amount: number
-    }
-    EnvelopeTarget: {
-      /**
-       * Format: uuid
-       * @description The envelope.
-       */
-      categoryId: string
-      /**
-       * Format: int64
-       * @description base plus the schedules' and the goals' amounts.
-       */
-      total: number
-      /** Format: int64 */
-      base: number | null
-      schedules: components['schemas']['ScheduleShare'][]
-      /** @description What the envelope's open goals ask this month, in priority order (ADR-093). */
-      goals: components['schemas']['GoalShare'][]
-    }
-    GoalShare: {
-      /** Format: uuid */
-      goalId: string
-      /** Format: int64 */
       amount: number
     }
     /**
@@ -2293,12 +2315,6 @@ export interface components {
      * @enum {string}
      */
     GoalKind: 'target' | 'targetByDate' | 'maintain' | 'monthly'
-    /**
-     * @description 存錢中, 已存滿, 冷靜中 (full but its waitUntil is still ahead), 已達成
-     *     (marked by the owner), 已封存.
-     * @enum {string}
-     */
-    GoalStatus: 'saving' | 'full' | 'waiting' | 'achieved' | 'archived'
     GoalInput: {
       /** Format: uuid */
       id: string
@@ -2345,6 +2361,12 @@ export interface components {
        */
       sortOrder: number
     }
+    /**
+     * @description 存錢中, 已存滿, 冷靜中 (full but its waitUntil is still ahead), 已達成
+     *     (marked by the owner), 已封存.
+     * @enum {string}
+     */
+    GoalStatus: 'saving' | 'full' | 'waiting' | 'achieved' | 'archived'
     Goal: components['schemas']['GoalInput'] & {
       /**
        * Format: uuid
@@ -2459,6 +2481,16 @@ export interface components {
      * @enum {string}
      */
     SharedKind: 'expense' | 'settlement'
+    ForeignAmount: {
+      currency: string
+      /**
+       * Format: int64
+       * @description In that currency's minor units.
+       */
+      amount: number
+      /** @description Units of the expense's currency per unit of this one when it was recorded (returned, ignored on input). */
+      rate?: string
+    }
     /** @enum {string} */
     SplitMethod: 'equal' | 'exact' | 'percent' | 'shares'
     SharedPayer: {
@@ -2480,16 +2512,6 @@ export interface components {
        * @description The percentage or number of shares it was worked out from (percent and shares).
        */
       weight: number | null
-    }
-    ForeignAmount: {
-      currency: string
-      /**
-       * Format: int64
-       * @description In that currency's minor units.
-       */
-      amount: number
-      /** @description Units of the expense's currency per unit of this one when it was recorded (returned, ignored on input). */
-      rate?: string
     }
     MySide: {
       /** Format: uuid */
@@ -2575,38 +2597,16 @@ export interface components {
       upserts: components['schemas']['SharedExpenseInput'][]
       deletes: string[]
     }
-    SharedExpenseBatchSaved: {
-      /** Format: int32 */
-      upserted: number
-      /** Format: int32 */
-      deleted: number
-    }
-    ScheduleShare: {
-      /** Format: uuid */
-      scheduleId: string
-      /**
-       * Format: int64
-       * @description What the schedule asks of the envelope this month (spending is positive).
-       */
-      amount: number
-      /**
-       * Format: uuid
-       * @description The loan a loan's schedule pays (ADR-097): its principal and
-       *     interest count in their categories' envelopes. Such schedules are
-       *     not on the schedules page.
-       */
-      loanAccountId?: string | null
-    }
-    HolidayCalendar: {
-      /** @description Years with an imported calendar. */
-      years: number[]
-      days: components['schemas']['Holiday'][]
-    }
     Holiday: {
       /** Format: date */
       date: string
       off: boolean
       note: string
+    }
+    HolidayCalendar: {
+      /** @description Years with an imported calendar. */
+      years: number[]
+      days: components['schemas']['Holiday'][]
     }
     HolidayYear: {
       /** Format: int32 */
@@ -2627,14 +2627,6 @@ export interface components {
     }
   }
   responses: {
-    /** @description Redirect */
-    Redirect: {
-      headers: {
-        Location?: string
-        [name: string]: unknown
-      }
-      content?: never
-    }
     /** @description Invalid request */
     BadRequest: {
       headers: {
@@ -2662,14 +2654,22 @@ export interface components {
         'application/json': components['schemas']['Error']
       }
     }
-    /** @description Not found */
-    NotFound: {
+    /** @description Too many attempts */
+    TooManyRequests: {
       headers: {
         [name: string]: unknown
       }
       content: {
         'application/json': components['schemas']['Error']
       }
+    }
+    /** @description Redirect */
+    Redirect: {
+      headers: {
+        Location?: string
+        [name: string]: unknown
+      }
+      content?: never
     }
     /** @description Duplicate key, or the resource is still in use */
     Conflict: {
@@ -2680,8 +2680,8 @@ export interface components {
         'application/json': components['schemas']['Error']
       }
     }
-    /** @description Too many attempts */
-    TooManyRequests: {
+    /** @description Not found */
+    NotFound: {
       headers: {
         [name: string]: unknown
       }
@@ -2691,19 +2691,19 @@ export interface components {
     }
   }
   parameters: {
+    ProviderCode: string
+    /** @description App path to land on after login (must start with /). */
+    Redirect: string
+    Id: string
     BudgetId: string
     /** @description A calendar month, YYYY-MM. */
     Month: string
     AccountId: string
+    CategoryId: string
     PayeeId: string
     ScheduleId: string
-    CategoryId: string
     /** @description The friend's user id. */
     FriendId: string
-    Id: string
-    ProviderCode: string
-    /** @description App path to land on after login (must start with /). */
-    Redirect: string
   }
   requestBodies: never
   headers: never

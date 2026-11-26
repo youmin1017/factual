@@ -1,0 +1,184 @@
+# Parameters, responses and schemas shared by every domain.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+parameters:
+  BudgetId:
+    name: budgetId
+    in: path
+    required: true
+    schema:
+      type: string
+      format: uuid
+
+  Month:
+    name: month
+    in: path
+    required: true
+    description: A calendar month, YYYY-MM.
+    schema:
+      type: string
+      pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+
+  AccountId:
+    name: accountId
+    in: path
+    required: true
+    schema:
+      type: string
+      format: uuid
+
+  PayeeId:
+    name: payeeId
+    in: path
+    required: true
+    schema:
+      type: string
+      format: uuid
+
+  ScheduleId:
+    name: scheduleId
+    in: path
+    required: true
+    schema:
+      type: string
+      format: uuid
+
+  CategoryId:
+    name: categoryId
+    in: path
+    required: true
+    schema:
+      type: string
+      format: uuid
+
+  FriendId:
+    name: friendId
+    in: path
+    required: true
+    description: The friend's user id.
+    schema:
+      type: string
+      format: uuid
+
+  Id:
+    name: id
+    in: path
+    required: true
+    schema:
+      type: string
+      format: uuid
+
+  ProviderCode:
+    name: code
+    in: path
+    required: true
+    schema:
+      type: string
+
+  Redirect:
+    name: redirect
+    in: query
+    description: App path to land on after login (must start with /).
+    schema:
+      type: string
+schemas:
+  Error:
+    type: object
+    required: [code, message]
+    properties:
+      code:
+        type: string
+        description: Stable machine-readable code, e.g. `not_found`, `unauthorized`.
+      message:
+        type: string
+        description: Human-readable message.
+      details:
+        type: object
+        additionalProperties: true
+
+  Reorder:
+    type: object
+    required: [ids]
+    properties:
+      ids:
+        type: array
+        minItems: 1
+        maxItems: 500
+        items:
+          type: string
+          format: uuid
+
+  BatchProblem:
+    type: object
+    required: [id, field, code, message]
+    properties:
+      id:
+        type: string
+        format: uuid
+        description: The transaction the problem belongs to.
+      field:
+        type: string
+        description: Which part is wrong (date, payee, note, category, amount, account, entries), or empty.
+      code:
+        type: string
+        description: Stable code, e.g. category_required.
+      message:
+        type: string
+
+  BatchErrors:
+    type: object
+    required: [errors]
+    properties:
+      errors:
+        type: array
+        items:
+          $ref: '#/schemas/BatchProblem'
+responses:
+  Redirect:
+    description: Redirect
+    headers:
+      Location:
+        schema:
+          type: string
+
+  BadRequest:
+    description: Invalid request
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  Unauthorized:
+    description: Login required, or wrong credentials
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  Forbidden:
+    description: Not allowed
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  NotFound:
+    description: Not found
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  Conflict:
+    description: Duplicate key, or the resource is still in use
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  TooManyRequests:
+    description: Too many attempts
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'

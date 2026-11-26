@@ -1,0 +1,31 @@
+# Health.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  health:
+    get:
+      operationId: getHealth
+      tags: [system]
+      summary: Whether the API is up and can reach its database
+      x-auth: public
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Health'
+        '503':
+          description: The database is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Health'
+schemas:
+  Health:
+    type: object
+    required: [status]
+    properties:
+      status:
+        type: string
+        enum: [ok, degraded]

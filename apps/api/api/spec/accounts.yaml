@@ -1,0 +1,311 @@
+# Accounts and the accounts page.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  accounts:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: listAccounts
+      tags: [ledger]
+      summary: Accounts of a budget with their balances
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Account'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+    post:
+      operationId: createAccount
+      tags: [ledger]
+      summary: Add an account, with its opening balance
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/AccountCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Account'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  order:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    put:
+      operationId: reorderAccounts
+      tags: [ledger]
+      summary: Set the order of accounts
+      description: Accounts are shown in the order of `ids`; accounts not listed keep their place after them.
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/schemas/Reorder'
+      responses:
+        '204':
+          description: Reordered
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  batch:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    post:
+      operationId: saveAccounts
+      tags: [ledger]
+      summary: Apply the accounts page's buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated account id (ADR-108). A new
+        account takes its kind, whether it is on budget and its opening
+        balance; an existing one its name, order, card settings and whether
+        it is closed. All or nothing, with problems reported per account
+        (ADR-044).
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/AccountBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: './friends.yaml#/schemas/SharedExpenseBatchSaved'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '422':
+          description: Nothing was saved; the accounts listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/schemas/BatchErrors'
+
+  account:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/AccountId'
+    put:
+      operationId: updateAccount
+      tags: [ledger]
+      summary: Rename, close or reopen an account
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/AccountUpdate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Account'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+    delete:
+      operationId: deleteAccount
+      tags: [ledger]
+      summary: Delete an account that has no transactions besides its opening balance
+      x-auth: authenticated
+      x-budget: manage
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+schemas:
+  AccountKind:
+    type: string
+    enum: [cash, bank, credit_card, loan, investment, friend]
+    description: |
+      `friend` accounts hold what a friend owes (ADR-036); they are created
+      with the friend and changed only through shared expenses.
+
+  NewAccountKind:
+    type: string
+    enum: [cash, bank, credit_card, loan, investment]
+
+  Account:
+    type: object
+    required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity, card, friendId]
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+      kind:
+        $ref: '#/schemas/AccountKind'
+      onBudget:
+        type: boolean
+      closed:
+        type: boolean
+      sortOrder:
+        type: integer
+        format: int32
+      balance:
+        type: integer
+        format: int64
+      clearedBalance:
+        type: integer
+        format: int64
+      hasActivity:
+        type: boolean
+        description: Whether the account has transactions besides its opening balance (it then cannot be deleted).
+      card:
+        allOf:
+          - $ref: './cards.yaml#/schemas/CardSettings'
+        nullable: true
+        description: A credit card's statement settings; null for other accounts and cards without them.
+      friendId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The friend a friend account is with; null for other accounts.
+
+  AccountInput:
+    type: object
+    required: [id, name, kind, onBudget, openingBalance, openingDate, closed, sortOrder]
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+        maxLength: 64
+      kind:
+        $ref: '#/schemas/NewAccountKind'
+      onBudget:
+        type: boolean
+        description: New accounts only; ignored for credit cards, loans and investments.
+      openingBalance:
+        type: integer
+        format: int64
+        description: New accounts only.
+      openingDate:
+        type: string
+        format: date
+        description: New accounts only.
+      closed:
+        type: boolean
+      sortOrder:
+        type: integer
+        format: int32
+      card:
+        allOf:
+          - $ref: './cards.yaml#/schemas/CardSettings'
+        nullable: true
+        description: A credit card's statement settings; absent or null leaves them as they are.
+      loan:
+        allOf:
+          - $ref: './loans.yaml#/schemas/LoanTerms'
+        nullable: true
+        description: |
+          A loan account's terms (ADR-096, ADR-110); absent or null leaves
+          them as they are. A new loan account with terms starts owing
+          what they leave owed, and its opening balance is ignored.
+
+  AccountBatch:
+    type: object
+    required: [upserts, deletes]
+    properties:
+      upserts:
+        type: array
+        maxItems: 500
+        items:
+          $ref: '#/schemas/AccountInput'
+      deletes:
+        type: array
+        maxItems: 500
+        items:
+          type: string
+          format: uuid
+
+  AccountCreate:
+    type: object
+    required: [name, kind, onBudget, openingBalance, openingDate]
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 64
+      kind:
+        $ref: '#/schemas/NewAccountKind'
+      onBudget:
+        type: boolean
+        description: Ignored for credit cards (always on budget), loans and investments (never).
+      openingBalance:
+        type: integer
+        format: int64
+        description: Balance on openingDate; negative for money owed (a credit card, a loan).
+      openingDate:
+        type: string
+        format: date
+      card:
+        $ref: './cards.yaml#/schemas/CardSettings'
+      loan:
+        allOf:
+          - $ref: './loans.yaml#/schemas/LoanTerms'
+        description: |
+          A loan's terms, saved with the account (ADR-100): the opening
+          balance is then what the terms leave owed (openingBalance and
+          openingDate are ignored), and its schedule pays it when it has an
+          account to pay from. Only for kind loan.
+
+  AccountUpdate:
+    type: object
+    required: [name, closed]
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 64
+      closed:
+        type: boolean
+        description: A closed account is hidden from pickers; it must have a zero balance.
+      card:
+        $ref: './cards.yaml#/schemas/CardSettings'

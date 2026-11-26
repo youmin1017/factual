@@ -1,0 +1,260 @@
+# Savings goals.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  goals:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: listGoals
+      tags: [ledger]
+      summary: The budget's goals in priority order, with what each has saved (ADR-092, ADR-094)
+      description: |
+        Every goal, achieved and archived ones included, in priority order,
+        with what it has saved today (its envelope's balance handed down the
+        envelope's open goals in that order) and what it asks this month
+        (ADR-093). Also what the page needs to project when each goal is
+        reached: the budget's average monthly spending, its typical monthly
+        income, this month's targets without goals and the envelopes'
+        balances.
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Goals
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/GoalList'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  batch:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    post:
+      operationId: saveGoals
+      tags: [ledger]
+      summary: Apply the goals page's buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated goal id. All or nothing,
+        with problems reported per goal (ADR-044).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/GoalBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/GoalBatchSaved'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '422':
+          description: Nothing was saved; the goals listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/schemas/BatchErrors'
+schemas:
+  GoalShare:
+    type: object
+    required: [goalId, amount]
+    properties:
+      goalId:
+        type: string
+        format: uuid
+      amount:
+        type: integer
+        format: int64
+
+  GoalKind:
+    type: string
+    enum: [target, targetByDate, maintain, monthly]
+    description: |
+      目標金額 (a total, optionally saved at most monthlyAmount a month),
+      期限前存到 (a total by a date), 維持水位 (maintainMonths times the
+      average monthly spending, optionally at most monthlyAmount a month),
+      每月固定 (monthlyAmount every month, no total) (ADR-092).
+
+  GoalStatus:
+    type: string
+    enum: [saving, full, waiting, achieved, archived]
+    description: |
+      存錢中, 已存滿, 冷靜中 (full but its waitUntil is still ahead), 已達成
+      (marked by the owner), 已封存.
+
+  GoalInput:
+    type: object
+    required: [id, categoryId, name, kind, targetAmount, targetDate, monthlyAmount, maintainMonths, note, url, waitUntil, achieved, archived, sortOrder]
+    properties:
+      id:
+        type: string
+        format: uuid
+      categoryId:
+        type: string
+        format: uuid
+        description: An expense category; the goal counts for the envelope it is budgeted in.
+      name:
+        type: string
+        maxLength: 100
+      kind:
+        $ref: '#/schemas/GoalKind'
+      targetAmount:
+        type: integer
+        format: int64
+        nullable: true
+        description: target and targetByDate.
+      targetDate:
+        type: string
+        format: date
+        nullable: true
+        description: targetByDate.
+      monthlyAmount:
+        type: integer
+        format: int64
+        nullable: true
+        description: monthly; at most this much a month for target and maintain.
+      maintainMonths:
+        type: integer
+        format: int32
+        nullable: true
+        description: maintain.
+      note:
+        type: string
+        maxLength: 500
+      url:
+        type: string
+        maxLength: 2000
+        description: Where the thing to buy is sold.
+      waitUntil:
+        type: string
+        format: date
+        nullable: true
+        description: A cooling-off date; full goals show 冷靜中 until then.
+      achieved:
+        type: boolean
+      archived:
+        type: boolean
+      sortOrder:
+        type: integer
+        format: int32
+        description: Position in the budget's priority order (lower first).
+
+  Goal:
+    allOf:
+      - $ref: '#/schemas/GoalInput'
+      - type: object
+        required: [envelopeId, createdAt, achievedAt, saved, total, ask, status]
+        properties:
+          envelopeId:
+            type: string
+            format: uuid
+            nullable: true
+            description: The envelope the goal counts for; null when its category is in none.
+          createdAt:
+            type: string
+            format: date-time
+          achievedAt:
+            type: string
+            format: date-time
+            nullable: true
+          saved:
+            type: integer
+            format: int64
+            description: Its share of its envelope's balance today.
+          total:
+            type: integer
+            format: int64
+            nullable: true
+            description: The amount it saves towards (the level for maintain); null for monthly.
+          ask:
+            type: integer
+            format: int64
+            description: What it asks of its envelope this month (ADR-093).
+          status:
+            $ref: '#/schemas/GoalStatus'
+
+  EnvelopeBalance:
+    type: object
+    required: [categoryId, balance, carried]
+    properties:
+      categoryId:
+        type: string
+        format: uuid
+      balance:
+        type: integer
+        format: int64
+        description: At the end of the current month.
+      carried:
+        type: integer
+        format: int64
+        description: At the start of the current month.
+
+  GoalList:
+    type: object
+    required: [month, goals, averageSpending, typicalIncome, baseTargets, envelopes]
+    properties:
+      month:
+        type: string
+        description: The current month, YYYY-MM.
+      goals:
+        type: array
+        items:
+          $ref: '#/schemas/Goal'
+      averageSpending:
+        type: integer
+        format: int64
+        description: Average monthly spending over the last six complete months that have any.
+      typicalIncome:
+        type: integer
+        format: int64
+        description: Median monthly income over the last six complete months that have any.
+      baseTargets:
+        type: integer
+        format: int64
+        description: This month's targets without goals (bases and schedules).
+      envelopes:
+        type: array
+        description: |
+          Every envelope with money, folded as the targets are, less what
+          its schedules hold (ADR-095): the money its goals share.
+        items:
+          $ref: '#/schemas/EnvelopeBalance'
+
+  GoalBatch:
+    type: object
+    required: [upserts, deletes]
+    properties:
+      upserts:
+        type: array
+        maxItems: 500
+        items:
+          $ref: '#/schemas/GoalInput'
+      deletes:
+        type: array
+        maxItems: 500
+        items:
+          type: string
+          format: uuid
+
+  GoalBatchSaved:
+    type: object
+    required: [upserted, deleted]
+    properties:
+      upserted:
+        type: integer
+        format: int32
+      deleted:
+        type: integer
+        format: int32

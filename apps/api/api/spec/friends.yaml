@@ -1,0 +1,423 @@
+# Friends and shared expenses.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  # --- Friends and shared expenses (M12, ADR-103, ADR-104, ADR-106)
+  friends:
+    get:
+      operationId: listFriends
+      tags: [splitting]
+      summary: The caller's friends, with the balance of each friend's account
+      description: |
+        Friends are users the caller splits with: placeholders the caller
+        added by name (ADR-016, ADR-104) and, later, registered users. Each
+        has a friend account in the caller's default budget (ADR-018,
+        ADR-036), whose balance is what the friend owes the caller
+        (positive) or the caller owes them (negative).
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Friends, by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Friend'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+    post:
+      operationId: createFriend
+      tags: [splitting]
+      summary: Add a friend who has no account yet (a placeholder member)
+      description: |
+        Creates a user without a password, private to the caller, and their
+        friend account in the caller's default budget. Fails with
+        `no_default_budget` while the caller has no budget, and `name_taken`
+        when the default budget already has an account of that name.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/FriendInput'
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Friend'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  friend:
+    parameters:
+      - $ref: './common.yaml#/parameters/FriendId'
+    patch:
+      operationId: updateFriend
+      tags: [splitting]
+      summary: Rename a placeholder friend and their friend account
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/FriendInput'
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Friend'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+    delete:
+      operationId: deleteFriend
+      tags: [splitting]
+      summary: Remove a friend who has no shared expenses
+      description: |
+        Removes the friendship and the friend account, and the placeholder
+        itself. Fails with `friend_in_use` while shared expenses with them
+        remain.
+      x-auth: authenticated
+      responses:
+        '204':
+          description: Removed
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  expenses:
+    parameters:
+      - $ref: './common.yaml#/parameters/FriendId'
+    get:
+      operationId: listFriendExpenses
+      tags: [splitting]
+      summary: The shared expenses and settlements between the caller and one friend
+      description: |
+        Oldest first, deleted ones left out. Each carries the caller's side
+        in their own ledger (`mine`): the account they paid from or were
+        paid into and the category of their share.
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Shared expenses
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/FriendExpenses'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  expensesBatch:
+    parameters:
+      - $ref: './common.yaml#/parameters/FriendId'
+    post:
+      operationId: saveFriendExpenses
+      tags: [splitting]
+      summary: Apply the friend page's buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated expense id; the server
+        works out the shares from the split method and writes the caller's
+        transaction in their default budget for each (ADR-106). Only the
+        user who recorded an expense changes or deletes it. All or nothing,
+        with problems reported per expense (ADR-044).
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/SharedExpenseBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/SharedExpenseBatchSaved'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '422':
+          description: Nothing was saved; the expenses listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/schemas/BatchErrors'
+schemas:
+  Friend:
+    type: object
+    required: [id, displayName, placeholder, budgetId, accountId, balance, expenseCount]
+    properties:
+      id:
+        type: string
+        format: uuid
+        description: The friend's user id.
+      displayName:
+        type: string
+      placeholder:
+        type: boolean
+        description: Has no account yet (ADR-016); only the caller sees them.
+      budgetId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The caller's default budget, which holds the friend account.
+      accountId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The friend account in that budget.
+      balance:
+        type: integer
+        format: int64
+        description: "What the friend owes the caller (negative: what the caller owes them)."
+      expenseCount:
+        type: integer
+        format: int32
+        description: Shared expenses and settlements between the two (a friend with none can be removed).
+
+  FriendInput:
+    type: object
+    required: [displayName]
+    properties:
+      displayName:
+        type: string
+        minLength: 1
+        maxLength: 64
+
+  SharedKind:
+    type: string
+    enum: [expense, settlement]
+    description: A settlement is money paid back; its payer pays the whole amount and the receiver's share is all of it (ADR-034).
+
+  SplitMethod:
+    type: string
+    enum: [equal, exact, percent, shares]
+
+  SharedPayer:
+    type: object
+    required: [userId, amount]
+    properties:
+      userId:
+        type: string
+        format: uuid
+      amount:
+        type: integer
+        format: int64
+
+  SharedShare:
+    type: object
+    required: [userId, amount, weight]
+    properties:
+      userId:
+        type: string
+        format: uuid
+      amount:
+        type: integer
+        format: int64
+        description: What this participant's share comes to.
+      weight:
+        type: number
+        format: double
+        nullable: true
+        description: The percentage or number of shares it was worked out from (percent and shares).
+
+  ForeignAmount:
+    type: object
+    required: [currency, amount]
+    properties:
+      currency:
+        type: string
+        pattern: '^[A-Z]{3}$'
+      amount:
+        type: integer
+        format: int64
+        minimum: 1
+        description: In that currency's minor units.
+      rate:
+        type: string
+        description: Units of the expense's currency per unit of this one when it was recorded (returned, ignored on input).
+
+  MySide:
+    type: object
+    required: [transactionId, accountId, categoryId]
+    properties:
+      transactionId:
+        type: string
+        format: uuid
+        nullable: true
+      accountId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The account the caller paid from or was paid into.
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The category of the caller's share.
+
+  SharedExpense:
+    type: object
+    required: [id, kind, date, description, note, currency, total, foreign, splitMethod, payers, shares, recordedBy, mine]
+    properties:
+      id:
+        type: string
+        format: uuid
+      kind:
+        $ref: '#/schemas/SharedKind'
+      date:
+        type: string
+        format: date
+      description:
+        type: string
+      note:
+        type: string
+      currency:
+        type: string
+      total:
+        type: integer
+        format: int64
+        description: In the expense's currency, the budget's (ADR-041).
+      foreign:
+        allOf:
+          - $ref: '#/schemas/ForeignAmount'
+        nullable: true
+        description: What was paid in another currency, if it was.
+      splitMethod:
+        $ref: '#/schemas/SplitMethod'
+      payers:
+        type: array
+        items:
+          $ref: '#/schemas/SharedPayer'
+      shares:
+        type: array
+        items:
+          $ref: '#/schemas/SharedShare'
+      recordedBy:
+        type: string
+        format: uuid
+      mine:
+        $ref: '#/schemas/MySide'
+
+  FriendExpenses:
+    type: object
+    required: [friend, expenses]
+    properties:
+      friend:
+        $ref: '#/schemas/Friend'
+      expenses:
+        type: array
+        items:
+          $ref: '#/schemas/SharedExpense'
+
+  SharedShareInput:
+    type: object
+    required: [userId]
+    properties:
+      userId:
+        type: string
+        format: uuid
+      amount:
+        type: integer
+        format: int64
+        description: The share itself (exact); worked out by the server for the other methods.
+      weight:
+        type: number
+        format: double
+        description: The percentage (percent) or number of shares (shares).
+
+  SharedExpenseInput:
+    type: object
+    required: [id, kind, date, description, note, total, splitMethod, payers, shares]
+    properties:
+      id:
+        type: string
+        format: uuid
+      kind:
+        $ref: '#/schemas/SharedKind'
+      date:
+        type: string
+        format: date
+      description:
+        type: string
+        maxLength: 200
+      note:
+        type: string
+        maxLength: 1000
+      total:
+        type: integer
+        format: int64
+      foreign:
+        $ref: '#/schemas/ForeignAmount'
+      splitMethod:
+        $ref: '#/schemas/SplitMethod'
+      payers:
+        type: array
+        maxItems: 2
+        items:
+          $ref: '#/schemas/SharedPayer'
+      shares:
+        type: array
+        maxItems: 2
+        items:
+          $ref: '#/schemas/SharedShareInput'
+      accountId:
+        type: string
+        format: uuid
+        description: The caller's account paid from or into; required when the caller pays or is paid.
+      categoryId:
+        type: string
+        format: uuid
+        description: The category of the caller's share; required when it is not zero (not for settlements).
+
+  SharedExpenseBatch:
+    type: object
+    required: [upserts, deletes]
+    properties:
+      upserts:
+        type: array
+        maxItems: 500
+        items:
+          $ref: '#/schemas/SharedExpenseInput'
+      deletes:
+        type: array
+        maxItems: 500
+        items:
+          type: string
+          format: uuid
+
+  SharedExpenseBatchSaved:
+    type: object
+    required: [upserted, deleted]
+    properties:
+      upserted:
+        type: integer
+        format: int32
+      deleted:
+        type: integer
+        format: int32

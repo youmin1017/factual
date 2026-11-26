@@ -41,7 +41,7 @@ API 啟動時會自動套用尚未執行的 migration。第一次啟動會建立
 ## 結構
 
 - `apps/api`:Go API(echo、oapi-codegen、sqlc、pgx、goose)。
-  - `api/openapi.yaml`:API 規格,唯一的真相來源。
+  - `api/spec/`:API 規格,唯一的真相來源;每個領域一個檔案,`root.yaml` 列出所有路徑。`mise run gen` 把它們合併成 `api/openapi.yaml`(產生的檔案,不要手改)。
   - `db/migrations`:SQL migration,同時是 sqlc 的 schema。
   - `internal/domain/<name>`:各領域的服務與 SQL。
 - `apps/web`:TanStack Start(React、SPA 模式)、Tailwind、shadcn/ui、TanStack Query、oxlint、oxfmt。
@@ -53,7 +53,7 @@ API 啟動時會自動套用尚未執行的 migration。第一次啟動會建立
 
 ## 開發流程:新增一支 API
 
-1. 修改 `apps/api/api/openapi.yaml`。
+1. 在 `apps/api/api/spec/` 所屬領域的檔案寫路徑和 schema,並在 `root.yaml` 加一行指過去。
 2. 需要新資料表就 `mise run //apps/api:db:new <name>` 並撰寫 SQL。
 3. 在所屬領域的 `queries/*.sql` 寫查詢(新領域要在 `apps/api/sqlc.yaml` 加一段)。
 4. `mise run gen`。

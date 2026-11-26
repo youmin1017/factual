@@ -1,0 +1,175 @@
+# Days off (the government calendar).
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  # --- Days off (ADR-087)
+  holidays:
+    get:
+      operationId: getHolidays
+      tags: [calendar]
+      summary: Days off between two years
+      description: |
+        The years with an imported calendar, and the days of those years
+        that differ from "Saturdays and Sundays are off" or carry a note.
+        Days of other years follow the weekend rule.
+      x-auth: authenticated
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int32
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: The calendar
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/HolidayCalendar'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+
+  years:
+    get:
+      operationId: listHolidayYears
+      tags: [calendar]
+      summary: The imported years
+      x-auth: admin
+      responses:
+        '200':
+          description: Years
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/HolidayYear'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+
+  import:
+    post:
+      operationId: importHolidays
+      tags: [calendar]
+      summary: Import the government's office calendar from a URL or a CSV text
+      description: |
+        The official CSV (西元日期,星期,是否放假,備註; UTF-8 with or without
+        BOM; 2 = off, 0 = working). Every year in it is replaced. A URL is
+        fetched by the server (http or https, at most 1 MB) and kept so the
+        year can be fetched again.
+      x-auth: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/HolidayImport'
+      responses:
+        '200':
+          description: The years imported
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/HolidayYear'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+
+  year:
+    parameters:
+      - name: year
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+    delete:
+      operationId: deleteHolidayYear
+      tags: [calendar]
+      summary: Forget a year (its days follow the weekend rule again)
+      x-auth: admin
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+schemas:
+  HolidayCalendar:
+    type: object
+    required: [years, days]
+    properties:
+      years:
+        type: array
+        description: Years with an imported calendar.
+        items:
+          type: integer
+          format: int32
+      days:
+        type: array
+        items:
+          $ref: '#/schemas/Holiday'
+
+  Holiday:
+    type: object
+    required: [date, off, note]
+    properties:
+      date:
+        type: string
+        format: date
+      off:
+        type: boolean
+      note:
+        type: string
+
+  HolidayYear:
+    type: object
+    required: [year, sourceUrl, days, daysOff, importedAt, importedBy]
+    properties:
+      year:
+        type: integer
+        format: int32
+      sourceUrl:
+        type: string
+        description: Where it was fetched from; empty when imported from a file.
+      days:
+        type: integer
+        format: int32
+      daysOff:
+        type: integer
+        format: int32
+      importedAt:
+        type: string
+        format: date-time
+      importedBy:
+        type: string
+        nullable: true
+
+  HolidayImport:
+    type: object
+    properties:
+      url:
+        type: string
+        maxLength: 2000
+      csv:
+        type: string
+        maxLength: 1000000

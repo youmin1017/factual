@@ -1,0 +1,533 @@
+# Sessions, OpenID Connect, identity provider settings and the logged-in user.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  # --- Sessions ---
+  login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in with username and password
+      description: Creates a session and sets the session cookie.
+      x-auth: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/CurrentUser'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '429':
+          $ref: './common.yaml#/responses/TooManyRequests'
+
+  logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: End the current session
+      description: Always succeeds; clears the session cookie.
+      x-auth: public
+      responses:
+        '204':
+          description: Logged out
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+
+  # --- OpenID Connect. The browser navigates to the flow endpoints (no
+  # fetch); results come back as redirects to web pages with ?error=<code>.
+  oidcLoginProviders:
+    get:
+      operationId: listLoginProviders
+      tags: [auth]
+      summary: Enabled identity providers for the login page
+      x-auth: public
+      responses:
+        '200':
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/LoginProvider'
+
+  oidcLogin:
+    parameters:
+      - $ref: './common.yaml#/parameters/ProviderCode'
+      - $ref: './common.yaml#/parameters/Redirect'
+    get:
+      operationId: startOidcLogin
+      tags: [auth]
+      summary: Start logging in with an identity provider
+      description: Sets the flow cookie and redirects to the IdP (or to /login?error=...).
+      x-auth: public
+      responses:
+        '302':
+          $ref: './common.yaml#/responses/Redirect'
+
+  oidcLink:
+    parameters:
+      - $ref: './common.yaml#/parameters/ProviderCode'
+    get:
+      operationId: startOidcLink
+      tags: [auth]
+      summary: Start linking an identity to the logged-in user
+      description: Sets the flow cookie and redirects to the IdP (or to /profile?error=...).
+      x-auth: authenticated
+      responses:
+        '302':
+          $ref: './common.yaml#/responses/Redirect'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+
+  oidcCallback:
+    get:
+      operationId: oidcCallback
+      tags: [auth]
+      summary: Redirect target of every identity provider
+      description: |
+        Completes the flow from the flow cookie. Login: sets the session cookie
+        and redirects to the requested page, or to /login?error=<code>. Link:
+        redirects to /profile?linked=<provider> or /profile?error=<code>.
+      x-auth: public
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          description: Set by the IdP when the user cancelled or the request failed.
+          schema:
+            type: string
+      responses:
+        '302':
+          $ref: './common.yaml#/responses/Redirect'
+
+  # --- Identity provider settings (instance admin) ---
+  oidcProviders:
+    get:
+      operationId: listOidcProviders
+      tags: [auth]
+      summary: Identity providers (client secrets are never returned)
+      x-auth: admin
+      responses:
+        '200':
+          description: Providers
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/OidcProviderList'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+    post:
+      operationId: createOidcProvider
+      tags: [auth]
+      summary: Add an identity provider (the issuer must serve OIDC discovery)
+      x-auth: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/OidcProviderInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/OidcProvider'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  oidcProvider:
+    parameters:
+      - $ref: './common.yaml#/parameters/Id'
+    put:
+      operationId: updateOidcProvider
+      tags: [auth]
+      summary: Update an identity provider (an empty clientSecret keeps the stored one)
+      x-auth: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/OidcProviderInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/OidcProvider'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+    delete:
+      operationId: deleteOidcProvider
+      tags: [auth]
+      summary: Delete an identity provider (its linked identities are removed)
+      x-auth: admin
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  # --- The logged-in user ---
+  me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: The logged-in user
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/CurrentUser'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+    patch:
+      operationId: updateProfile
+      tags: [auth]
+      summary: Rename the logged-in user
+      description: |
+        Changes the username (what the user logs in with) and the display
+        name. Both are trimmed; the username is unique regardless of case
+        and has no spaces. Sessions and linked identities are unaffected.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/CurrentUser'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  password:
+    put:
+      operationId: changePassword
+      tags: [auth]
+      summary: Set or change the logged-in user's password
+      description: |
+        `currentPassword` is required when the user already has a password.
+        Other sessions of the user are ended; the current one stays.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Changed
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+
+  identities:
+    get:
+      operationId: listMyIdentities
+      tags: [auth]
+      summary: Identities the logged-in user linked
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Linked identities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/LinkedIdentity'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+
+  identity:
+    parameters:
+      - $ref: './common.yaml#/parameters/Id'
+    delete:
+      operationId: unlinkMyIdentity
+      tags: [auth]
+      summary: Unlink one of the logged-in user's identities
+      description: Refused when it is the user's last way to log in (no password, no other identity).
+      x-auth: authenticated
+      responses:
+        '204':
+          description: Unlinked
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  preferences:
+    get:
+      operationId: getPreferences
+      tags: [auth]
+      summary: The logged-in user's preferences
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Preferences'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+    put:
+      operationId: updatePreferences
+      tags: [auth]
+      summary: Replace the logged-in user's preferences
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/Preferences'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Preferences'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+schemas:
+  LoginRequest:
+    type: object
+    required: [username, password]
+    properties:
+      username:
+        type: string
+        minLength: 1
+        maxLength: 64
+      password:
+        type: string
+        minLength: 1
+        maxLength: 256
+
+  ChangePasswordRequest:
+    type: object
+    required: [currentPassword, newPassword]
+    properties:
+      currentPassword:
+        type: string
+        maxLength: 256
+        description: Empty when the user has no password yet.
+      newPassword:
+        type: string
+        minLength: 8
+        maxLength: 256
+
+  CurrentUser:
+    type: object
+    required: [id, username, displayName, email, isAdmin, hasPassword]
+    properties:
+      id:
+        type: string
+        format: uuid
+      username:
+        type: string
+      displayName:
+        type: string
+      email:
+        type: string
+      isAdmin:
+        type: boolean
+        description: Instance admin; may manage identity providers.
+      hasPassword:
+        type: boolean
+        description: Whether the user can log in with a password.
+
+  ProfileUpdate:
+    type: object
+    required: [username, displayName]
+    properties:
+      username:
+        type: string
+        minLength: 1
+        maxLength: 64
+      displayName:
+        type: string
+        minLength: 1
+        maxLength: 64
+
+  Preferences:
+    type: object
+    required: [editorKeymap]
+    properties:
+      editorKeymap:
+        type: string
+        maxLength: 8000
+        description: |
+          Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
+          `nnoremap H 0`, `let mapleader = ","`). Parsed by the web app;
+          the server only stores it.
+
+  LoginProvider:
+    type: object
+    required: [code, name]
+    properties:
+      code:
+        type: string
+      name:
+        type: string
+
+  OidcProvider:
+    type: object
+    required: [id, code, name, issuer, clientId, hasSecret, scopes, sort, enabled, remark, createdAt, updatedAt]
+    properties:
+      id:
+        type: string
+        format: uuid
+      code:
+        type: string
+      name:
+        type: string
+      issuer:
+        type: string
+      clientId:
+        type: string
+      hasSecret:
+        type: boolean
+        description: Whether a client secret is stored (it is never returned).
+      scopes:
+        type: string
+      sort:
+        type: integer
+        format: int32
+      enabled:
+        type: boolean
+      remark:
+        type: string
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+
+  OidcProviderInput:
+    type: object
+    required: [code, name, issuer, clientId, clientSecret, scopes, sort, enabled, remark]
+    properties:
+      code:
+        type: string
+        pattern: '^[a-z][a-z0-9_-]{1,31}$'
+        description: Used in URLs, e.g. `google`.
+      name:
+        type: string
+        minLength: 1
+        maxLength: 64
+      issuer:
+        type: string
+        minLength: 1
+        maxLength: 255
+      clientId:
+        type: string
+        minLength: 1
+        maxLength: 255
+      clientSecret:
+        type: string
+        maxLength: 2048
+        description: Empty on update keeps the stored secret.
+      scopes:
+        type: string
+        maxLength: 255
+      sort:
+        type: integer
+        format: int32
+      enabled:
+        type: boolean
+      remark:
+        type: string
+        maxLength: 255
+
+  OidcProviderList:
+    type: object
+    required: [items, callbackUrl, encryptionConfigured]
+    properties:
+      items:
+        type: array
+        items:
+          $ref: '#/schemas/OidcProvider'
+      callbackUrl:
+        type: string
+        description: Redirect URI to register at every identity provider.
+      encryptionConfigured:
+        type: boolean
+        description: Whether FACTUAL_ENCRYPTION_KEY is set; OIDC login needs it.
+
+  LinkedIdentity:
+    type: object
+    required: [id, providerCode, providerName, email, createdAt, lastLoginAt]
+    properties:
+      id:
+        type: string
+        format: uuid
+      providerCode:
+        type: string
+      providerName:
+        type: string
+      email:
+        type: string
+      createdAt:
+        type: string
+        format: date-time
+      lastLoginAt:
+        type: string
+        format: date-time
+        nullable: true

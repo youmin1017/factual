@@ -1,0 +1,348 @@
+# Loans: terms, preview and alignment.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  loan:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/AccountId'
+    get:
+      operationId: getLoan
+      tags: [ledger]
+      summary: A loan's terms, where it stands and its table (ADR-096..098)
+      description: |
+        404 for an account that is not a loan or whose terms are not set.
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: The loan
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/LoanDetails'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+    put:
+      operationId: setLoan
+      tags: [ledger]
+      summary: Set a loan account's terms
+      description: |
+        Saves the terms and its rates, and the schedule that pays it when it
+        has an account to pay from (ADR-097). The first time, the loan is
+        tracked from the first payment after today, and an account with no
+        entries gets an opening balance of what the terms leave owed then
+        (ADR-098); setting terms again keeps that day. Problems carry the
+        field in `details.field`.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/LoanTerms'
+      responses:
+        '200':
+          description: The loan
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/LoanDetails'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+    delete:
+      operationId: deleteLoan
+      tags: [ledger]
+      summary: Remove a loan's terms and its schedule; posted payments stay
+      x-auth: authenticated
+      x-budget: write
+      responses:
+        '204':
+          description: Removed
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  preview:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    post:
+      operationId: previewLoan
+      tags: [ledger]
+      summary: The table terms would give, without saving them
+      description: |
+        Needs no account, so terms typed while a loan account is being
+        created preview too (ADR-100).
+      x-auth: authenticated
+      x-budget: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/LoanTerms'
+      responses:
+        '200':
+          description: The table
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/LoanPreview'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+
+  align:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/AccountId'
+    post:
+      operationId: alignLoan
+      tags: [ledger]
+      summary: Align what the loan owes on a day with what the bank shows (ADR-098)
+      description: |
+        Posts the difference on the loan account alone (payee 貸款調整, no
+        category), so neither the pool nor an envelope changes; nothing when
+        they already agree. Later periods are computed from the aligned
+        balance.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/LoanAlign'
+      responses:
+        '200':
+          description: Aligned
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/LoanAligned'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+schemas:
+  LoanMethod:
+    type: string
+    enum: [annuity, equalPrincipal]
+    description: 本息平均攤還 (level payments) or 本金平均攤還 (equal principal).
+
+  PrepayMode:
+    type: string
+    enum: [shortenTerm, reducePayment]
+    description: What an extra payment does, end earlier or keep the end and pay less.
+
+  LoanRate:
+    type: object
+    required: [effectiveFrom, annualRate]
+    properties:
+      effectiveFrom:
+        type: string
+        format: date
+      annualRate:
+        type: number
+        format: double
+        minimum: 0
+        maximum: 100
+        description: Percent a year, up to four decimals (2.35 is 2.35%).
+
+  LoanTerms:
+    type: object
+    required: [principal, termMonths, startDate, firstPaymentDate, method, graceMonths, prepayMode, rates,
+               payFromAccountId, principalCategoryId, interestCategoryId, holidayShift]
+    properties:
+      principal:
+        type: integer
+        format: int64
+        minimum: 1
+        description: The amount lent.
+      termMonths:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 600
+      startDate:
+        type: string
+        format: date
+        description: 撥款日.
+      firstPaymentDate:
+        type: string
+        format: date
+        description: 首期繳款日; its day of the month is the payment day.
+      method:
+        $ref: '#/schemas/LoanMethod'
+      graceMonths:
+        type: integer
+        format: int32
+        minimum: 0
+        description: Months at the start that pay only interest.
+      prepayMode:
+        $ref: '#/schemas/PrepayMode'
+      rates:
+        type: array
+        minItems: 1
+        items:
+          $ref: '#/schemas/LoanRate'
+        description: The first from 撥款日, later ones are rate changes from their date.
+      payFromAccountId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The on-budget account payments come from; without one nothing is posted.
+      principalCategoryId:
+        type: string
+        format: uuid
+        nullable: true
+      interestCategoryId:
+        type: string
+        format: uuid
+        nullable: true
+      holidayShift:
+        $ref: './schedules.yaml#/schemas/HolidayShift'
+
+  LoanPeriodState:
+    type: string
+    enum: [before, posted, skipped, pending, planned]
+    description: |
+      `before`: paid before the loan was set up (from the terms); `posted`:
+      paid by its schedule (actual figures); `skipped`; `pending`: its date has
+      come but it is not posted; `planned`: still to come.
+
+  LoanPeriod:
+    type: object
+    required: [n, date, annualRate, principal, interest, balance, state]
+    properties:
+      n:
+        type: integer
+        format: int32
+      date:
+        type: string
+        format: date
+        description: The payment date the terms give (before moving off days off).
+      annualRate:
+        type: number
+        format: double
+      principal:
+        type: integer
+        format: int64
+      interest:
+        type: integer
+        format: int64
+      balance:
+        type: integer
+        format: int64
+        description: What is owed after it.
+      state:
+        $ref: '#/schemas/LoanPeriodState'
+
+  LoanPreview:
+    type: object
+    required: [payment, totalInterest, periods]
+    properties:
+      payment:
+        type: integer
+        format: int64
+        description: The first payment that repays principal (after any grace).
+      totalInterest:
+        type: integer
+        format: int64
+      periods:
+        type: array
+        items:
+          $ref: '#/schemas/LoanPeriod'
+
+  LoanCheck:
+    type: object
+    required: [date, computed, recorded]
+    description: What the terms say is owed on a day against what the loan account says.
+    properties:
+      date:
+        type: string
+        format: date
+      computed:
+        type: integer
+        format: int64
+      recorded:
+        type: integer
+        format: int64
+
+  LoanDetails:
+    type: object
+    required: [accountId, terms, trackedFrom, scheduleId, principalLeft, principalRepaid, interestPaid,
+               periodsLeft, nextPayment, payoffDate, check, periods]
+    properties:
+      accountId:
+        type: string
+        format: uuid
+      terms:
+        $ref: '#/schemas/LoanTerms'
+      trackedFrom:
+        type: string
+        format: date
+        nullable: true
+        description: The first payment its schedule pays; earlier ones were paid before it was set up.
+      scheduleId:
+        type: string
+        format: uuid
+        nullable: true
+      principalLeft:
+        type: integer
+        format: int64
+        description: What the loan account says is owed today.
+      principalRepaid:
+        type: integer
+        format: int64
+      interestPaid:
+        type: integer
+        format: int64
+        description: The terms' interest before it was set up plus what its payments posted.
+      periodsLeft:
+        type: integer
+        format: int32
+      nextPayment:
+        nullable: true
+        allOf:
+          - $ref: '#/schemas/LoanPeriod'
+      payoffDate:
+        type: string
+        format: date
+        nullable: true
+      check:
+        nullable: true
+        allOf:
+          - $ref: '#/schemas/LoanCheck'
+        description: Before the first tracked payment, terms against the account (null when it is paid off).
+      periods:
+        type: array
+        items:
+          $ref: '#/schemas/LoanPeriod'
+
+  LoanAlign:
+    type: object
+    required: [date, principalLeft]
+    properties:
+      date:
+        type: string
+        format: date
+      principalLeft:
+        type: integer
+        format: int64
+        minimum: 0
+        description: What the bank shows as owed at the end of that day.
+
+  LoanAligned:
+    type: object
+    required: [transactionId, adjustment]
+    properties:
+      transactionId:
+        type: string
+        format: uuid
+        nullable: true
+      adjustment:
+        type: integer
+        format: int64
+        description: The change posted on the loan account (positive lowers what is owed).

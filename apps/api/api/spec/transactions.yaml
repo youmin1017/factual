@@ -1,0 +1,432 @@
+# Transactions: registers, payees and the batch save.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  # --- Transactions (M4: the account register and :w)
+  accountRegister:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/AccountId'
+    get:
+      operationId: getRegister
+      tags: [ledger]
+      summary: Every transaction touching an account, with all of their entries
+      description: Oldest first. Balances are computed by the client from the entries.
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Transaction'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  register:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: getScopeRegister
+      tags: [ledger]
+      summary: Transactions on a group of accounts, oldest first
+      description: |
+        Every transaction with an entry on an account in the scope: all
+        accounts, the budget accounts, or the tracking accounts (ADR-071).
+        Each comes with all of its entries, as in an account's register.
+      x-auth: authenticated
+      x-budget: read
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            $ref: '#/schemas/RegisterScope'
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Transaction'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  payees:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: listPayees
+      tags: [ledger]
+      summary: Payees, with the category last used for each
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Payees
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Payee'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  payee:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/PayeeId'
+    put:
+      operationId: renamePayee
+      tags: [ledger]
+      summary: Rename a payee
+      description: Answers 409 `payee_exists` when another payee has the name; merge them instead.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/PayeeUpdate'
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Payee'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+    delete:
+      operationId: deletePayee
+      tags: [ledger]
+      summary: Delete a payee no transaction or schedule uses
+      x-auth: authenticated
+      x-budget: write
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  payeeMerge:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/PayeeId'
+    post:
+      operationId: mergePayees
+      tags: [ledger]
+      summary: Merge other payees into this one
+      description: |
+        Transactions and schedules of the source payees move to this payee,
+        then the sources are deleted, in one database transaction.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/PayeeMerge'
+      responses:
+        '200':
+          description: Merged
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Payee'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  batch:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    post:
+      operationId: saveTransactions
+      tags: [ledger]
+      summary: Apply an editor buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated transaction id (ADR-021):
+        an unknown id creates the transaction, a known one replaces its date,
+        payee, note and entries. Payees are given by name and created when
+        missing. Either everything is applied or nothing is, and every problem
+        found is reported against the transaction it belongs to (ADR-044).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/TransactionBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/BatchSaved'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '422':
+          description: Nothing was saved; the transactions listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/schemas/BatchErrors'
+
+  reviewed:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    post:
+      operationId: markReviewed
+      tags: [ledger]
+      summary: Confirm transactions that need review (:review)
+      description: |
+        Clears `needsReview` on the transactions given (a schedule posted
+        them with an estimated amount, ADR-085). Ids that are not in the
+        budget or need no review are ignored. Saving a transaction through
+        the batch endpoint confirms it too.
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/TransactionIds'
+      responses:
+        '200':
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Reviewed'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+schemas:
+  RegisterScope:
+    type: string
+    enum: [all, onBudget, offBudget]
+
+  ClearedState:
+    type: string
+    enum: [uncleared, cleared, reconciled]
+
+  Entry:
+    type: object
+    required: [id, accountId, categoryId, amount, memo, cleared]
+    properties:
+      id:
+        type: string
+        format: uuid
+      accountId:
+        type: string
+        format: uuid
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      amount:
+        type: integer
+        format: int64
+        description: Change in the account's balance.
+      memo:
+        type: string
+      cleared:
+        $ref: '#/schemas/ClearedState'
+      statementId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The card statement the entry is billed in (ADR-088); null or absent when not billed.
+
+  Transaction:
+    type: object
+    required: [id, date, payeeId, payeeName, note, needsReview, isOpening, entries]
+    properties:
+      id:
+        type: string
+        format: uuid
+      date:
+        type: string
+        format: date
+      payeeId:
+        type: string
+        format: uuid
+        nullable: true
+      payeeName:
+        type: string
+        nullable: true
+      note:
+        type: string
+      needsReview:
+        type: boolean
+      isOpening:
+        type: boolean
+        description: The opening balance of an account.
+      sharedExpenseId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The shared expense this transaction was generated from (ADR-035); it is changed on the friend's page, not in the register.
+      entries:
+        type: array
+        items:
+          $ref: '#/schemas/Entry'
+
+  Payee:
+    type: object
+    required: [id, name, lastCategoryId, transactionCount]
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+      lastCategoryId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The category of the payee's most recent categorized entry, to fill in new rows.
+      transactionCount:
+        type: integer
+        format: int32
+
+  PayeeUpdate:
+    type: object
+    required: [name]
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 64
+
+  PayeeMerge:
+    type: object
+    required: [sourceIds]
+    properties:
+      sourceIds:
+        type: array
+        minItems: 1
+        maxItems: 200
+        items:
+          type: string
+          format: uuid
+
+  EntryInput:
+    type: object
+    required: [accountId, categoryId, amount, memo, cleared]
+    properties:
+      accountId:
+        type: string
+        format: uuid
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      amount:
+        type: integer
+        format: int64
+      memo:
+        type: string
+        maxLength: 255
+      cleared:
+        $ref: '#/schemas/ClearedState'
+
+  TransactionInput:
+    type: object
+    required: [id, date, payee, note, entries]
+    properties:
+      id:
+        type: string
+        format: uuid
+      date:
+        type: string
+        format: date
+      payee:
+        type: string
+        maxLength: 64
+        description: Payee name; empty for none (e.g. a transfer). Created when it does not exist.
+      note:
+        type: string
+        maxLength: 255
+      entries:
+        type: array
+        minItems: 1
+        maxItems: 50
+        items:
+          $ref: '#/schemas/EntryInput'
+      occurrence:
+        $ref: './schedules.yaml#/schemas/ScheduledOccurrence'
+
+  TransactionBatch:
+    type: object
+    required: [upserts, deletes]
+    properties:
+      upserts:
+        type: array
+        maxItems: 2000
+        items:
+          $ref: '#/schemas/TransactionInput'
+      deletes:
+        type: array
+        maxItems: 2000
+        items:
+          type: string
+          format: uuid
+
+  TransactionIds:
+    type: object
+    required: [ids]
+    properties:
+      ids:
+        type: array
+        minItems: 1
+        maxItems: 2000
+        items:
+          type: string
+          format: uuid
+
+  Reviewed:
+    type: object
+    required: [reviewed]
+    properties:
+      reviewed:
+        type: integer
+        format: int32
+        description: Transactions that needed review and no longer do.
+
+  BatchSaved:
+    type: object
+    required: [upserted, deleted]
+    properties:
+      upserted:
+        type: integer
+        format: int32
+      deleted:
+        type: integer
+        format: int32

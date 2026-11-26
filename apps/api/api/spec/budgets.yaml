@@ -1,0 +1,182 @@
+# Budgets themselves and their summary.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  # --- Budgets. Operations inside a budget declare `x-budget`: the
+  # permission the caller's role in that budget must grant (ADR-017).
+  budgets:
+    get:
+      operationId: listBudgets
+      tags: [ledger]
+      summary: Budgets the caller is a member of
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Budgets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Budget'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+    post:
+      operationId: createBudget
+      tags: [ledger]
+      summary: Create a budget owned by the caller
+      description: The first budget a user creates becomes their default one.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/BudgetCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Budget'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+
+  budget:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: getBudget
+      tags: [ledger]
+      summary: One budget
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Budget'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+    put:
+      operationId: updateBudget
+      tags: [ledger]
+      summary: Rename a budget
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/BudgetUpdate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Budget'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  summary:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: getBudgetSummary
+      tags: [ledger]
+      summary: Totals of a budget
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/BudgetSummary'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+schemas:
+  BudgetRole:
+    type: string
+    enum: [owner, editor, viewer]
+
+  Budget:
+    type: object
+    required: [id, name, currency, minorUnits, role, isDefault, createdAt]
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+      currency:
+        type: string
+        description: ISO 4217 code, e.g. TWD.
+      minorUnits:
+        type: integer
+        format: int32
+        description: Digits after the decimal point in amounts of this budget.
+      role:
+        $ref: '#/schemas/BudgetRole'
+      isDefault:
+        type: boolean
+        description: The caller's default budget (shared expenses land here).
+      createdAt:
+        type: string
+        format: date-time
+
+  BudgetCreate:
+    type: object
+    required: [name, currency, starterCategories]
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 64
+      currency:
+        type: string
+        pattern: '^[A-Z]{3}$'
+      starterCategories:
+        type: boolean
+        description: Create a common set of categories to start from.
+
+  BudgetUpdate:
+    type: object
+    required: [name]
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 64
+
+  BudgetSummary:
+    type: object
+    required: [pool, envelopeBalance, onBudgetBalance, offBudgetBalance]
+    properties:
+      pool:
+        type: integer
+        format: int64
+        description: Money not yet given to any envelope.
+      envelopeBalance:
+        type: integer
+        format: int64
+        description: |
+          What all envelopes hold together: every allocation plus every
+          expense recorded in a category. The on-budget accounts always
+          sum to pool + envelopeBalance (ADR-020).
+      onBudgetBalance:
+        type: integer
+        format: int64
+        description: Sum of the on-budget accounts.
+      offBudgetBalance:
+        type: integer
+        format: int64
+        description: Sum of the tracking (off-budget) accounts.

@@ -1,0 +1,406 @@
+# Schedules and their occurrences.
+# Part of the API spec; spec/root.yaml lists every path. Bundled into
+# ../openapi.yaml by `mise run gen`.
+paths:
+  # --- Schedules (M9, ADR-084..086)
+  schedules:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: listSchedules
+      tags: [ledger]
+      summary: The budget's schedules, oldest first
+      x-auth: authenticated
+      x-budget: read
+      responses:
+        '200':
+          description: Schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Schedule'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  batch:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    post:
+      operationId: saveSchedules
+      tags: [ledger]
+      summary: Apply the schedules page's buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated schedule id. Editing a
+        schedule changes every occurrence not yet posted; posted ones stay as
+        they are. Occurrences of the saved schedules that are already due are
+        posted before the response (ADR-085). All or nothing, with problems
+        reported per schedule (ADR-044).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/ScheduleBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/ScheduleBatchSaved'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '422':
+          description: Nothing was saved; the schedules listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/schemas/BatchErrors'
+
+  upcoming:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+    get:
+      operationId: listUpcoming
+      tags: [ledger]
+      summary: Occurrences not yet posted, up to a date (預定 rows, ADR-085)
+      description: |
+        Every occurrence of an active schedule that is neither posted nor
+        skipped and is posted on or before `until` (after moving off days
+        off), earliest first.
+      x-auth: authenticated
+      x-budget: read
+      parameters:
+        - name: until
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Occurrences
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/schemas/Occurrence'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  skips:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/ScheduleId'
+    post:
+      operationId: skipOccurrence
+      tags: [ledger]
+      summary: Skip one occurrence (:skip)
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/OccurrenceRef'
+      responses:
+        '204':
+          description: Skipped
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+
+  skip:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/ScheduleId'
+      - name: occurrence
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+    delete:
+      operationId: unskipOccurrence
+      tags: [ledger]
+      summary: Bring a skipped occurrence back (:unskip)
+      x-auth: authenticated
+      x-budget: write
+      responses:
+        '204':
+          description: Brought back
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+
+  post:
+    parameters:
+      - $ref: './common.yaml#/parameters/BudgetId'
+      - $ref: './common.yaml#/parameters/ScheduleId'
+    post:
+      operationId: postOccurrence
+      tags: [ledger]
+      summary: Post one occurrence now, as it is (:post)
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/schemas/OccurrenceRef'
+      responses:
+        '200':
+          description: Posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/schemas/Posted'
+        '400':
+          $ref: './common.yaml#/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/responses/Conflict'
+schemas:
+  HolidayShift:
+    type: string
+    enum: [noShift, nextWorkday, prevWorkday]
+    description: Moving an occurrence that falls on a day off (ADR-087).
+
+  BudgetMode:
+    type: string
+    enum: [notBudgeted, full, spread]
+    description: |
+      How the schedule counts in its envelope's target (ADR-086): not at
+      all, the sum of its occurrences in their month, or each occurrence
+      spread over the months before it.
+
+  ScheduleInput:
+    type: object
+    required: [id, source, rule, start, holidayShift, payee, note, accountId, transferAccountId, categoryId, amount, estimate, budgetMode, paused]
+    properties:
+      id:
+        type: string
+        format: uuid
+      source:
+        type: string
+        maxLength: 100
+        description: The rule as the user wrote it (每月 5 日), shown back as written.
+      rule:
+        type: string
+        minLength: 1
+        maxLength: 200
+        description: iCalendar RRULE without DTSTART, e.g. FREQ=MONTHLY;BYMONTHDAY=5.
+      start:
+        type: string
+        format: date
+        description: DTSTART; the first occurrence is the first date the rule gives from here.
+      holidayShift:
+        $ref: '#/schemas/HolidayShift'
+      payee:
+        type: string
+        maxLength: 64
+      note:
+        type: string
+        maxLength: 255
+      accountId:
+        type: string
+        format: uuid
+      transferAccountId:
+        type: string
+        format: uuid
+        nullable: true
+        description: The other account of a transfer; then categoryId is null.
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      amount:
+        type: integer
+        format: int64
+        description: Change in the account's balance per occurrence (negative = spent).
+      estimate:
+        type: boolean
+        description: The amount is a guess; posted transactions need review.
+      budgetMode:
+        $ref: '#/schemas/BudgetMode'
+      paused:
+        type: boolean
+
+  Schedule:
+    allOf:
+      - $ref: '#/schemas/ScheduleInput'
+      - type: object
+        required: [nextOccurrence, nextDate, skips]
+        properties:
+          nextOccurrence:
+            type: string
+            format: date
+            nullable: true
+            description: The next occurrence not yet posted, as the rule gives it; null once the rule has ended.
+          nextDate:
+            type: string
+            format: date
+            nullable: true
+            description: The date it will be posted on, after moving off days off.
+          skips:
+            type: array
+            items:
+              type: string
+              format: date
+
+  ScheduleBatch:
+    type: object
+    required: [upserts, deletes]
+    properties:
+      upserts:
+        type: array
+        maxItems: 500
+        items:
+          $ref: '#/schemas/ScheduleInput'
+      deletes:
+        type: array
+        maxItems: 500
+        items:
+          type: string
+          format: uuid
+
+  ScheduleBatchSaved:
+    type: object
+    required: [upserted, deleted, posted]
+    properties:
+      upserted:
+        type: integer
+        format: int32
+      deleted:
+        type: integer
+        format: int32
+      posted:
+        type: integer
+        format: int32
+        description: Occurrences that were due and got posted.
+
+  Occurrence:
+    type: object
+    required: [scheduleId, occurrence, date, payee, note, accountId, transferAccountId, categoryId, amount, estimate]
+    properties:
+      scheduleId:
+        type: string
+        format: uuid
+      occurrence:
+        type: string
+        format: date
+        description: The date the rule gives; identifies the occurrence.
+      date:
+        type: string
+        format: date
+        description: The date it is posted on.
+      payee:
+        type: string
+      note:
+        type: string
+      accountId:
+        type: string
+        format: uuid
+      transferAccountId:
+        type: string
+        format: uuid
+        nullable: true
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      amount:
+        type: integer
+        format: int64
+      estimate:
+        type: boolean
+      entries:
+        type: array
+        items:
+          $ref: '#/schemas/OccurrenceEntry'
+        description: |
+          Every entry the occurrence posts, when it is more than one line
+          (a loan payment, principal and interest, ADR-097).
+
+  OccurrenceEntry:
+    type: object
+    required: [accountId, categoryId, amount, memo]
+    properties:
+      memo:
+        type: string
+      accountId:
+        type: string
+        format: uuid
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      amount:
+        type: integer
+        format: int64
+
+  OccurrenceRef:
+    type: object
+    required: [occurrence]
+    properties:
+      occurrence:
+        type: string
+        format: date
+
+  Posted:
+    type: object
+    required: [transactionId]
+    properties:
+      transactionId:
+        type: string
+        format: uuid
+
+  ScheduledOccurrence:
+    type: object
+    required: [scheduleId, occurrence]
+    description: The schedule occurrence a new transaction posts (an edited 預定 row).
+    properties:
+      scheduleId:
+        type: string
+        format: uuid
+      occurrence:
+        type: string
+        format: date
+
+  ScheduleShare:
+    type: object
+    required: [scheduleId, amount]
+    properties:
+      scheduleId:
+        type: string
+        format: uuid
+      amount:
+        type: integer
+        format: int64
+        description: What the schedule asks of the envelope this month (spending is positive).
+      loanAccountId:
+        type: string
+        format: uuid
+        nullable: true
+        description: |
+          The loan a loan's schedule pays (ADR-097): its principal and
+          interest count in their categories' envelopes. Such schedules are
+          not on the schedules page.
