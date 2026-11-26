@@ -13,7 +13,7 @@ Factual: self-hosted, multi-user budgeting + expense splitting (envelope budgets
 - Tasks are mise tasks: repo-wide in `mise.toml`, per project in `apps/api/mise.toml` and `apps/web/mise.toml` (`mise run //apps/api:test`). `mise tasks ls --all` lists them.
 - `mise run setup` install tools/deps and enable git hooks (`.githooks` -> lefthook).
 - `mise run dev` opens the dekit console (`dekit.yaml`: db, API :8080 with air, web :3000); `mise run dev:down` stops a detached stack. Non-interactive: `dekit up`, `dekit ls`, `dekit down` (don't pipe `dekit up`: the runner keeps the pipe open).
-- `mise run gen` regenerates oapi-codegen + sqlc + web API types.
+- `mise run gen` bundles the API spec and regenerates oapi-codegen + sqlc + web API types. In development the API reference (Scalar, from the served spec) is at `http://localhost:8080/api/docs` (`FACTUAL_API_DOCS`, off by default in production, ADR-114).
 - `mise run check` lint + format check + typecheck + test + build.
 - `mise run //apps/api:test:db` then `//apps/api:test:integration` runs the DB integration tests against the local container (database `factual_test`, wiped by the tests). They include the login and OIDC flows against a fake identity provider (`internal/server/auth_test.go`).
 - `mise run build` builds one binary with the web app embedded (`apps/api/bin/factual`); `mise run docker:build` builds the image `factual:latest`.

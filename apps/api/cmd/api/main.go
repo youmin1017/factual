@@ -87,7 +87,7 @@ func run() error {
 	if web == nil {
 		slog.Info("built without the web app; only the API is served")
 	}
-	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc, Ledger: ledgerSvc, Calendar: cal, Web: web})
+	e, err := server.New(server.Deps{DB: pool, Identity: identitySvc, Ledger: ledgerSvc, Calendar: cal, Web: web, APIDocs: cfg.APIDocs})
 	if err != nil {
 		return err
 	}

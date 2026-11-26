@@ -97,6 +97,21 @@ func TestOpenAPISpecIsServed(t *testing.T) {
 	}
 }
 
+func TestAPIDocsOnlyWhenEnabled(t *testing.T) {
+	if rec := request(t, fakeDB{}, http.MethodGet, "/api/docs"); rec.Code != http.StatusNotFound {
+		t.Fatalf("docs off: status = %d, want 404", rec.Code)
+	}
+	e, err := New(Deps{DB: fakeDB{}, APIDocs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/docs", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "./openapi.json") {
+		t.Fatalf("docs on: status = %d, body %.200s", rec.Code, rec.Body)
+	}
+}
+
 func TestAuthenticatedOperationNeedsSession(t *testing.T) {
 	for _, path := range []string{"/api/me", "/api/me/identities", "/api/oidc-providers"} {
 		rec := request(t, fakeDB{}, http.MethodGet, path)

@@ -38,6 +38,8 @@ type Deps struct {
 	Ledger   *ledger.Service
 	Calendar *calendar.Service
 	Web      fs.FS
+	// APIDocs serves the API reference at /api/docs (FACTUAL_API_DOCS, ADR-114).
+	APIDocs bool
 }
 
 // The domains' operations are promoted into server by embedding their
@@ -107,6 +109,9 @@ func New(d Deps) (*echo.Echo, error) {
 	e.GET(apispec.BaseURL+"/openapi.json", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, swagger)
 	})
+	if d.APIDocs {
+		e.GET(apispec.BaseURL+"/docs", serveDocs)
+	}
 
 	g := e.Group("")
 	rules := accessRules(ops)

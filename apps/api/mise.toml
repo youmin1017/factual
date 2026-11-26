@@ -23,6 +23,9 @@ FACTUAL_ENCRYPTION_KEY = "SQeEjaShvZuovCLhHE3qew8DIzf+TVZDs1oBVfTYOPs="
 # Created on first start while nobody can log in; change the password after logging in.
 FACTUAL_BOOTSTRAP_ADMIN_USERNAME = "admin"
 FACTUAL_BOOTSTRAP_ADMIN_PASSWORD = "admin12345"
+# The API reference (Scalar) at http://localhost:8080/api/docs, or through
+# the web dev server at http://localhost:3000/api/docs.
+FACTUAL_API_DOCS = "true"
 # goose CLI (db:* tasks); keep GOOSE_DBSTRING equal to FACTUAL_DATABASE_URL.
 GOOSE_DRIVER = "postgres"
 GOOSE_DBSTRING = "postgres://factual:factual@localhost:5432/factual?sslmode=disable"

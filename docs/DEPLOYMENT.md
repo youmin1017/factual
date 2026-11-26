@@ -63,6 +63,7 @@ App 用 `X-Forwarded-For` 中最後一個不是內網位址的項目當作用戶
 | `FACTUAL_COOKIE_SECURE` | cookie 是否加上 Secure，預設看 `FACTUAL_PUBLIC_URL` 是不是 https |
 | `FACTUAL_HTTP_ADDR` | 容器內的監聽位址，預設 `:8080` |
 | `FACTUAL_DB_AUTO_MIGRATE` | 啟動時套用資料庫 migration，預設 `true` |
+| `FACTUAL_API_DOCS` | 設為 `true` 會在 `/api/docs` 提供 API 文件（Scalar，script 從 jsDelivr 載入），預設 `false`。規格本身一律在 `/api/openapi.json` |
 
 只有 Compose 用到的：`POSTGRES_PASSWORD`（只用英數字，它會放進連線網址）、`FACTUAL_LISTEN`（主機上的監聽位址，預設 `127.0.0.1:8080`）、`FACTUAL_IMAGE`（要跑的映像檔，預設 `ghcr.io/youmin1017/factual:latest`）。
 

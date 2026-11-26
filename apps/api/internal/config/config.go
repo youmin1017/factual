@@ -23,7 +23,10 @@ type Config struct {
 	DatabaseURL string
 	// AutoMigrate applies pending migrations on startup (FACTUAL_DB_AUTO_MIGRATE, default true).
 	AutoMigrate bool
-	Auth        Auth
+	// APIDocs serves the API reference at /api/docs (FACTUAL_API_DOCS,
+	// default false; on in local development).
+	APIDocs bool
+	Auth    Auth
 }
 
 // Auth configures sessions and logins.
@@ -82,6 +85,9 @@ func Load() (Config, error) {
 
 	var err error
 	if cfg.AutoMigrate, err = getbool("FACTUAL_DB_AUTO_MIGRATE", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.APIDocs, err = getbool("FACTUAL_API_DOCS", false); err != nil {
 		return Config{}, err
 	}
 	if cfg.Auth.PasswordLogin, err = getbool("FACTUAL_PASSWORD_LOGIN", true); err != nil {

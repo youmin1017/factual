@@ -12,6 +12,7 @@ tasks:
     autostart: true
 
   # Applies pending migrations on startup, then serves with hot reload (air).
+  # The API reference is at http://localhost:8080/api/docs (FACTUAL_API_DOCS).
   api:
     cmd: mise run //apps/api:dev
     deps: [db]
