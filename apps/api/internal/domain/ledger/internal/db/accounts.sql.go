@@ -38,6 +38,33 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (u
 	return id, err
 }
 
+const createAccountWithID = `-- name: CreateAccountWithID :exec
+insert into accounts (id, budget_id, name, kind, on_budget, sort_order)
+values ($1, $2, $3, $4, $5, $6)
+`
+
+type CreateAccountWithIDParams struct {
+	ID        uuid.UUID
+	BudgetID  uuid.UUID
+	Name      string
+	Kind      AccountKind
+	OnBudget  bool
+	SortOrder int32
+}
+
+// A new account of the accounts page, keyed by the id the client chose.
+func (q *Queries) CreateAccountWithID(ctx context.Context, arg CreateAccountWithIDParams) error {
+	_, err := q.db.Exec(ctx, createAccountWithID,
+		arg.ID,
+		arg.BudgetID,
+		arg.Name,
+		arg.Kind,
+		arg.OnBudget,
+		arg.SortOrder,
+	)
+	return err
+}
+
 const createEntry = `-- name: CreateEntry :exec
 insert into entries (budget_id, transaction_id, account_id, category_id, amount, memo, cleared)
 values ($1, $2, $3, $4, $5, $6, $7)
@@ -120,12 +147,12 @@ func (q *Queries) DeleteOpeningTransactions(ctx context.Context, arg DeleteOpeni
 
 const getAccount = `-- name: GetAccount :one
 select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null)::boolean as closed,
-       b.balance, b.cleared_balance,
+       b.balance, b.cleared_balance, a.friend_user_id,
        exists (select 1 from entries e join transactions t on t.id = e.transaction_id
                 where e.account_id = a.id and not t.is_opening)::boolean as has_activity
   from accounts a
   join account_balances b on b.account_id = a.id
- where a.budget_id = $1 and a.id = $2 and a.kind in ('cash', 'bank', 'credit_card', 'loan', 'investment')
+ where a.budget_id = $1 and a.id = $2 and a.kind in ('cash', 'bank', 'credit_card', 'loan', 'investment', 'friend')
 `
 
 type GetAccountParams struct {
@@ -142,6 +169,7 @@ type GetAccountRow struct {
 	Closed         bool
 	Balance        int64
 	ClearedBalance int64
+	FriendUserID   uuid.NullUUID
 	HasActivity    bool
 }
 
@@ -157,19 +185,95 @@ func (q *Queries) GetAccount(ctx context.Context, arg GetAccountParams) (GetAcco
 		&i.Closed,
 		&i.Balance,
 		&i.ClearedBalance,
+		&i.FriendUserID,
 		&i.HasActivity,
 	)
 	return i, err
 }
 
-const listAccounts = `-- name: ListAccounts :many
-select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null)::boolean as closed,
-       b.balance, b.cleared_balance,
+const getAccountOwners = `-- name: GetAccountOwners :many
+select id, budget_id from accounts where id = any($1::uuid[])
+`
+
+type GetAccountOwnersRow struct {
+	ID       uuid.UUID
+	BudgetID uuid.UUID
+}
+
+func (q *Queries) GetAccountOwners(ctx context.Context, ids []uuid.UUID) ([]GetAccountOwnersRow, error) {
+	rows, err := q.db.Query(ctx, getAccountOwners, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAccountOwnersRow
+	for rows.Next() {
+		var i GetAccountOwnersRow
+		if err := rows.Scan(&i.ID, &i.BudgetID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAccountHeads = `-- name: ListAccountHeads :many
+select a.id, a.name, a.kind, (a.closed_at is not null)::boolean as closed, b.balance,
        exists (select 1 from entries e join transactions t on t.id = e.transaction_id
                 where e.account_id = a.id and not t.is_opening)::boolean as has_activity
   from accounts a
   join account_balances b on b.account_id = a.id
- where a.budget_id = $1 and a.kind in ('cash', 'bank', 'credit_card', 'loan', 'investment')
+ where a.budget_id = $1
+`
+
+type ListAccountHeadsRow struct {
+	ID          uuid.UUID
+	Name        string
+	Kind        AccountKind
+	Closed      bool
+	Balance     int64
+	HasActivity bool
+}
+
+// What the accounts batch checks: every account of the budget.
+func (q *Queries) ListAccountHeads(ctx context.Context, budgetID uuid.UUID) ([]ListAccountHeadsRow, error) {
+	rows, err := q.db.Query(ctx, listAccountHeads, budgetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAccountHeadsRow
+	for rows.Next() {
+		var i ListAccountHeadsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Kind,
+			&i.Closed,
+			&i.Balance,
+			&i.HasActivity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAccounts = `-- name: ListAccounts :many
+select a.id, a.name, a.kind, a.on_budget, a.sort_order, (a.closed_at is not null)::boolean as closed,
+       b.balance, b.cleared_balance, a.friend_user_id,
+       exists (select 1 from entries e join transactions t on t.id = e.transaction_id
+                where e.account_id = a.id and not t.is_opening)::boolean as has_activity
+  from accounts a
+  join account_balances b on b.account_id = a.id
+ where a.budget_id = $1 and a.kind in ('cash', 'bank', 'credit_card', 'loan', 'investment', 'friend')
  order by a.on_budget desc, a.sort_order, a.name
 `
 
@@ -182,10 +286,12 @@ type ListAccountsRow struct {
 	Closed         bool
 	Balance        int64
 	ClearedBalance int64
+	FriendUserID   uuid.NullUUID
 	HasActivity    bool
 }
 
-// Accounts the user manages; friend and suspense accounts belong to splitting.
+// The budget's accounts; friend accounts are listed with the friend they are
+// with (ADR-106), suspense accounts belong to splitting with registered users.
 func (q *Queries) ListAccounts(ctx context.Context, budgetID uuid.UUID) ([]ListAccountsRow, error) {
 	rows, err := q.db.Query(ctx, listAccounts, budgetID)
 	if err != nil {
@@ -204,6 +310,7 @@ func (q *Queries) ListAccounts(ctx context.Context, budgetID uuid.UUID) ([]ListA
 			&i.Closed,
 			&i.Balance,
 			&i.ClearedBalance,
+			&i.FriendUserID,
 			&i.HasActivity,
 		); err != nil {
 			return nil, err

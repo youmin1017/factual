@@ -6,6 +6,8 @@ import type { Schemas } from './api'
 export type Budget = Schemas['Budget']
 export type Account = Schemas['Account']
 export type AccountKind = Schemas['AccountKind']
+/** The kinds an account is created with; friend accounts come with friends. */
+export type NewAccountKind = Schemas['NewAccountKind']
 export type Category = Schemas['Category']
 export type Payee = Schemas['Payee']
 
@@ -95,7 +97,7 @@ export type CardSettings = Schemas['CardSettings']
 export type Statement = Schemas['Statement']
 
 export const accountKinds: Array<{
-  value: AccountKind
+  value: NewAccountKind
   label: string
   /** Whether its balance is usually money owed (entered as a positive debt). */
   debt: boolean
@@ -108,6 +110,7 @@ export const accountKinds: Array<{
 ]
 
 export function accountKindLabel(kind: AccountKind): string {
+  if (kind === 'friend') return '朋友'
   return accountKinds.find((k) => k.value === kind)?.label ?? kind
 }
 
@@ -174,5 +177,15 @@ export function upcomingQuery(budgetId: string) {
 export function holidaysQuery(year: number) {
   return $api.queryOptions('get', '/holidays', {
     params: { query: { from: year, to: year + 2 } },
+  })
+}
+
+/** The user's friends, with what each owes (M12, ADR-106). */
+export const friendsQuery = $api.queryOptions('get', '/friends')
+
+/** The shared expenses with one friend; the friend's page owns them once loaded. */
+export function friendExpensesQuery(friendId: string) {
+  return $api.queryOptions('get', '/friends/{friendId}/expenses', {
+    params: { path: { friendId } },
   })
 }

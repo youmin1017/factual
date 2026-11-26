@@ -134,8 +134,8 @@ export type LineAction =
  * selected as the register is (j/k, counts, gg/G, V; h/l across columns).
  * Each month's allocation column takes its budget; the name column renames
  * and edits the tree. `y` keeps lines (categories and allocations), `d` and
- * `p` act on the cursor's column. Every change is saved at once; `u` and
- * Ctrl-r undo and redo by saving again.
+ * `p` act on the cursor's column. Every change waits in the page's buffer
+ * until :w saves them all (ADR-109); `u` and Ctrl-r undo and redo in it.
  */
 export function BudgetGrid({
   months,
@@ -153,6 +153,10 @@ export function BudgetGrid({
   goals,
   pool,
   setBase,
+  dirty,
+  restored,
+  onSave,
+  onDiscard,
 }: {
   /** The months shown, each with the same lines (`pageMonths`). */
   months: Array<MonthLines>
@@ -179,6 +183,14 @@ export function BudgetGrid({
   pool: number
   /** Sets an envelope's base amount (0 removes it); an error message, or null. */
   setBase: (categoryId: string, amount: number) => Promise<string | null>
+  /** How many changes wait for :w (ADR-109). */
+  dirty: number
+  /** Whether the changes waiting are a draft left by an earlier visit. */
+  restored: boolean
+  /** Saves every change (:w). */
+  onSave: () => Promise<{ ok: boolean; message: string }>
+  /** Drops every change not saved (:e!). */
+  onDiscard: () => void
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -207,7 +219,11 @@ export function BudgetGrid({
   const [draft, setDraft] = useState<Draft | null>(null)
   const [edit, setEdit] = useState('')
   const [command, setCommand] = useState('')
-  const [message, setMessage] = useState<Message | null>(null)
+  const [message, setMessage] = useState<Message | null>(() =>
+    restored && dirty > 0
+      ? { text: '已還原上次未儲存的變更（:w 儲存，:e! 放棄）', tone: 'info' }
+      : null,
+  )
   const [help, setHelp] = useState(false)
   const [saving, setSaving] = useState(false)
   const pending = useRef({ count: '', op: '' })
@@ -248,8 +264,8 @@ export function BudgetGrid({
           : afterSubtree(lines, anchorAt)
 
   useEffect(() => {
-    setEditorStatus({ mode, dirty: 0 })
-  }, [mode])
+    setEditorStatus({ mode, dirty })
+  }, [mode, dirty])
   useEffect(() => () => setEditorStatus(null), [])
   useEffect(() => {
     if ((mode === 'normal' || mode === 'visual') && !help)
@@ -298,6 +314,14 @@ export function BudgetGrid({
   }
 
   // ---------- saving and undo
+
+  /** `:w`: every change in one request (ADR-109). */
+  async function save() {
+    setSaving(true)
+    const result = await onSave()
+    setSaving(false)
+    say(result.message, result.ok ? 'info' : 'error')
+  }
 
   async function run(fn: () => Promise<string | null>): Promise<boolean> {
     setSaving(true)
@@ -1298,7 +1322,11 @@ export function BudgetGrid({
     } else if (/^months?\b/.test(cmd)) {
       say('一次可以顯示 1 到 3 個月，例如 :months 3', 'error')
     } else if (['w', 'wa', 'wq', 'x', 'up', 'update'].includes(cmd)) {
-      say('預算改完就儲存了，不用 :w')
+      void save()
+    } else if (cmd === 'e!') {
+      onDiscard()
+      history.current = { undo: [], redo: [] }
+      say('已放棄所有未儲存的變更')
     } else if (/^winc(md)? [hjkl]$/.test(cmd)) {
       const dir = windowDirection(cmd.slice(-1))
       if (dir) movePane(dir, gridRef.current)
@@ -1538,7 +1566,7 @@ export function BudgetGrid({
         })
       case '<C-s>':
       case '<D-s>':
-        return done(() => say('預算改完就儲存了'))
+        return done(() => void save())
       case '<Esc>':
         return done(() => setMessage(null))
       default:
@@ -1799,7 +1827,8 @@ export function BudgetGrid({
           </span>
         ) : (
           <span className="truncate text-muted-foreground">
-            jk 移動 · hl 換欄 · i 分配或改名 · V 選取 · yy dd p · ? 快捷鍵
+            jk 移動 · hl 換欄 · i 分配或改名 · V 選取 · yy dd p · :w 儲存 · ?
+            快捷鍵
           </span>
         )}
       </div>

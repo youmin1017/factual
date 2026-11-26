@@ -750,6 +750,8 @@ export const problemMessages: Record<string, string> = {
   already_saved: '這一期已經入帳了，重新整理（:e!）看看',
   not_an_occurrence: '這個排程沒有這一期',
   occurrence_skipped: '這一期已經略過了',
+  shared_transaction:
+    '這筆是分帳產生的交易：只能核對或改類別，其他的請到分帳頁修改（:e! 還原）',
 }
 
 export function problemColumn(field: string): Column | null {
@@ -955,6 +957,32 @@ export function rank<T>(
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((x) => x.item)
+}
+
+/**
+ * `rank` for a cell editor. While the text is still the cell's own value
+ * (`own`: insert entered with i on a filled cell, nothing typed yet), every
+ * option is offered with that value first, so another one can be picked
+ * without erasing it; once something is typed, only what matches it.
+ */
+export function rankCell<T>(
+  items: Array<T>,
+  edit: string,
+  own: string | null,
+  text: (item: T) => string,
+  limit = 8,
+): Array<T> {
+  if (own === null || edit === '' || edit !== own) {
+    return rank(items, edit, text, limit)
+  }
+  const current = items.find((item) => text(item) === edit)
+  const rest = rank(
+    items.filter((item) => item !== current),
+    '',
+    text,
+    current ? limit - 1 : limit,
+  )
+  return current ? [current, ...rest] : rest
 }
 
 /** Categories with their full paths, from the API's flat list. */

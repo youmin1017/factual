@@ -31,7 +31,7 @@ import {
   formatDate,
   isoDate,
   problemMessages,
-  rank,
+  rankCell,
 } from '#/lib/register'
 import { cn } from '#/lib/utils'
 import { CellEditor, eraseBeforeCaret, nextPick } from '../register/cell-editor'
@@ -648,9 +648,12 @@ export function GoalGrid({
     if (mode !== 'insert' || !current) return []
     switch (column) {
       case 'category':
-        return rank(goalCategories(ctx, envelopes), edit, (c) => c.path).map(
-          (c) => ({ value: c.path, label: c.path }),
-        )
+        return rankCell(
+          goalCategories(ctx, envelopes),
+          edit,
+          bulk ? null : goalCellText(current, column, ctx),
+          (c) => c.path,
+        ).map((c) => ({ value: c.path, label: c.path }))
       case 'kind': {
         const labels = Object.values(kindLabels)
         // The cell's own label (i on the cell) still lists every kind.

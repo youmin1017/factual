@@ -75,9 +75,9 @@ func TestGoals(t *testing.T) {
 		decode(t, rec, &c)
 		return c
 	}
-	hobby := mk(nil, "興趣", api.Expense) // shares its budget with its subcategories (ADR-061)
-	badminton := mk(&hobby.Id, "羽球", api.Expense)
-	salary := mk(nil, "薪資", api.Income)
+	hobby := mk(nil, "興趣", api.CategoryKindExpense) // shares its budget with its subcategories (ADR-061)
+	badminton := mk(&hobby.Id, "羽球", api.CategoryKindExpense)
+	salary := mk(nil, "薪資", api.CategoryKindIncome)
 
 	october := func(d int) openapi_types.Date { return date(2026, time.October, d) }
 	wantStatus(t, save(admin, f.budget, []api.TransactionInput{
@@ -222,7 +222,7 @@ func TestSpokenFor(t *testing.T) {
 	hs := newHarness(t)
 	admin := hs.browser().mustLogin(adminName, adminPassword)
 	f := newLedgerFixture(t, admin)
-	rec := createCategory(t, admin, f.budget, nil, "保險", api.Expense)
+	rec := createCategory(t, admin, f.budget, nil, "保險", api.CategoryKindExpense)
 	wantStatus(t, rec, http.StatusCreated)
 	var insurance api.Category
 	decode(t, rec, &insurance)

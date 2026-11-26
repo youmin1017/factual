@@ -52,11 +52,11 @@ func TestLoans(t *testing.T) {
 		}
 		return n
 	}
-	rec := createCategory(t, admin, f.budget, nil, "房貸利息", api.Expense)
+	rec := createCategory(t, admin, f.budget, nil, "房貸利息", api.CategoryKindExpense)
 	wantStatus(t, rec, http.StatusCreated)
 	var interestCat api.Category
 	decode(t, rec, &interestCat)
-	house := createAccount(t, admin, f.budget, accountInput("房貸", api.Loan, false, 0))
+	house := createAccount(t, admin, f.budget, accountInput("房貸", api.NewAccountKindLoan, false, 0))
 	loanPath := "/accounts/" + house.Id.String() + "/loan"
 	terms := api.LoanTerms{
 		Principal: 1_000_000, TermMonths: 240, StartDate: ymd(2025, 1, 10), FirstPaymentDate: ymd(2025, 2, 10),
@@ -292,7 +292,7 @@ func TestLoans(t *testing.T) {
 	// terms, create nothing. Back on 11/20, as when the first was set up.
 	setClock(testToday)
 	before := len(listAccounts(t, admin, f.budget))
-	withTerms := accountInput("車貸二", api.Loan, false, -123)
+	withTerms := accountInput("車貸二", api.NewAccountKindLoan, false, -123)
 	withTerms.Loan = &terms
 	rec = admin.do(http.MethodPost, budgetPath(f.budget, "/accounts"), withTerms)
 	wantStatus(t, rec, http.StatusCreated)
@@ -302,7 +302,7 @@ func TestLoans(t *testing.T) {
 	if created.Balance != -owed || got.PrincipalLeft != owed || got.ScheduleId == nil || got.TrackedFrom.String() != "2026-12-10" {
 		t.Fatalf("created with terms: balance %d, left %d, tracked from %v, schedule %v", created.Balance, got.PrincipalLeft, got.TrackedFrom, got.ScheduleId)
 	}
-	onBank := accountInput("活存", api.Bank, true, 0)
+	onBank := accountInput("活存", api.NewAccountKindBank, true, 0)
 	onBank.Loan = &terms
 	rec = admin.do(http.MethodPost, budgetPath(f.budget, "/accounts"), onBank)
 	if e := decodeError(t, rec); e.Code != "not_a_loan" {
@@ -310,7 +310,7 @@ func TestLoans(t *testing.T) {
 	}
 	badTerms := terms
 	badTerms.TermMonths = 0
-	withBad := accountInput("車貸三", api.Loan, false, 0)
+	withBad := accountInput("車貸三", api.NewAccountKindLoan, false, 0)
 	withBad.Loan = &badTerms
 	rec = admin.do(http.MethodPost, budgetPath(f.budget, "/accounts"), withBad)
 	wantStatus(t, rec, http.StatusBadRequest)

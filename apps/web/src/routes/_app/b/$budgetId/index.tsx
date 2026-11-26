@@ -9,11 +9,10 @@ import { Check, ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Amount } from '#/components/amount'
 import { BudgetGrid } from '#/components/budget/budget-grid'
-import { useCategoryApi } from '#/components/budget/category-api'
+import { useBudgetEdits } from '#/components/budget/category-api'
 import { Button } from '#/components/ui/button'
 import { Label } from '#/components/ui/label'
 import { Switch } from '#/components/ui/switch'
-import { api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
 import {
   accountsQuery,
@@ -24,6 +23,7 @@ import {
   summaryQuery,
   upcomingQuery,
 } from '#/lib/budget'
+import { overlay } from '#/lib/budget-buffer'
 import {
   budgetLines,
   isMonth,
@@ -37,7 +37,7 @@ import {
 import { useKeymap } from '#/lib/preferences'
 import { describeRRule } from '#/lib/schedule-rule'
 import { cn } from '#/lib/utils'
-import type { Allocation } from '#/components/budget/budget-grid'
+import type { Category } from '#/lib/budget'
 
 interface BudgetSearch {
   month?: string
@@ -56,6 +56,7 @@ export const Route = createFileRoute('/_app/b/$budgetId/')({
 })
 
 const COUNT_KEY = 'factual:budget-months'
+const NO_CATEGORIES: Array<Category> = []
 
 /** How many months this viewer chose to see (kept in this browser only). */
 function storedCount(): number {
@@ -119,7 +120,8 @@ function BudgetPage() {
     })),
   })
   const keymap = useKeymap()
-  const categoryApi = useCategoryApi(budget.id)
+  // Every change waits in the page's buffer until :w (ADR-109).
+  const edits = useBudgetEdits(budget.id, categories.data ?? NO_CATEGORIES)
   const [showArchived, setShowArchived] = useState(false)
 
   function choose(n: number) {
@@ -155,11 +157,22 @@ function BudgetPage() {
     )
   }
 
-  const months = pageMonths(categories.data, loaded, { showArchived })
+  const savedCategories = categories.data
+  const shownData = loaded.map((m) => overlay(m, edits.buffer, savedCategories))
+  const months = pageMonths(edits.categories, shownData, { showArchived })
+  edits.holdsMoney.current = (id) =>
+    shownData.some(
+      (m) =>
+        m.envelopes.some(
+          (e) =>
+            e.categoryId === id &&
+            (e.allocated !== 0 || e.activity !== 0 || e.carried !== 0),
+        ) || m.incomes.some((x) => x.categoryId === id && x.received !== 0),
+    )
   const shown = loaded[0].month
   const last = loaded[loaded.length - 1].month
   const totals = monthTotals(months[0].lines)
-  const anyArchived = categories.data.some((c) => c.archived)
+  const anyArchived = edits.categories.some((c) => c.archived)
   const s = summary.data
   const balanced = s.onBudgetBalance === s.pool + s.envelopeBalance
   // Card spending already left its envelope; the money waits in the bank
@@ -168,7 +181,7 @@ function BudgetPage() {
     (a) => a.kind === 'credit_card' && !a.closed && a.balance < 0,
   )
   const mu = budget.minorUnits
-  const pool = loaded[0].pool
+  const pool = shownData[0].pool
   const target = targetTotal(months[0].lines)
 
   const accountName = new Map(accounts.data.map((a) => [a.id, a.name]))
@@ -209,71 +222,20 @@ function BudgetPage() {
     .filter((o) => o.amount > 0)
     .reduce((sum, o) => sum + o.amount, 0)
 
-  async function setBase(categoryId: string, amount: number) {
-    const { error } = await api.PUT(
-      '/budgets/{budgetId}/categories/{categoryId}/base',
-      {
-        params: { path: { budgetId: budget.id, categoryId } },
-        body: { amount },
-      },
-    )
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: categoriesQuery(budget.id).queryKey,
-      }),
-      queryClient.invalidateQueries({ queryKey: ['budget-month', budget.id] }),
-    ])
-    return error ? apiErrorMessage(error) : null
-  }
-
   function goTo(next: string) {
     void navigate({ search: { month: next === thisMonth ? undefined : next } })
-  }
-
-  async function allocate(m: string, set: Array<Allocation>) {
-    const key = budgetMonthQuery(budget.id, m).queryKey
-    // Shown at once; the server's numbers follow.
-    queryClient.setQueryData(key, (old) => {
-      if (!old) return old
-      const envelopes = [...old.envelopes]
-      let p = old.pool
-      for (const a of set) {
-        const i = envelopes.findIndex((e) => e.categoryId === a.categoryId)
-        const from = i < 0 ? 0 : envelopes[i].allocated
-        p -= a.amount - from
-        if (i < 0)
-          envelopes.push({
-            categoryId: a.categoryId,
-            allocated: a.amount,
-            activity: 0,
-            carried: 0,
-          })
-        else envelopes[i] = { ...envelopes[i], allocated: a.amount }
-      }
-      return { ...old, pool: p, envelopes }
-    })
-    const { error } = await api.PUT(
-      '/budgets/{budgetId}/months/{month}/allocations',
-      {
-        params: { path: { budgetId: budget.id, month: m } },
-        body: { allocations: set },
-      },
-    )
-    // Later months carry this one's balances, so they all reload.
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['budget-month', budget.id] }),
-      queryClient.invalidateQueries({
-        queryKey: summaryQuery(budget.id).queryKey,
-      }),
-    ])
-    return error ? apiErrorMessage(error) : null
   }
 
   async function lastMonth(m: string) {
     const before = await queryClient.fetchQuery(
       budgetMonthQuery(budget.id, shiftMonth(m, -1)),
     )
-    return budgetLines(categories.data ?? [], before.envelopes)
+    const shownBefore = overlay(
+      before,
+      edits.buffer,
+      categories.data ?? NO_CATEGORIES,
+    )
+    return budgetLines(edits.categories, shownBefore.envelopes)
   }
 
   return (
@@ -454,7 +416,7 @@ function BudgetPage() {
 
       <BudgetGrid
         months={months}
-        categories={categories.data}
+        categories={edits.categories}
         minorUnits={mu}
         keymap={keymap}
         canManage={budget.role === 'owner'}
@@ -464,13 +426,17 @@ function BudgetPage() {
           choose(n)
           return n > fit ? `視窗太窄，現在只放得下 ${fit} 個月` : null
         }}
-        allocate={allocate}
+        allocate={edits.allocate}
         lastMonth={lastMonth}
-        categoryApi={categoryApi}
+        categoryApi={edits.categoryApi}
         scheduleNames={scheduleNames}
         goals={goalInfo}
         pool={pool}
-        setBase={setBase}
+        setBase={edits.setBase}
+        dirty={edits.dirty}
+        restored={edits.restored}
+        onSave={edits.save}
+        onDiscard={edits.discard}
       />
     </div>
   )

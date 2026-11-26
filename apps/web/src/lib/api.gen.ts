@@ -401,6 +401,34 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/budgets/{budgetId}/budget/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the budget page's buffer in one database transaction (:w)
+     * @description The category tree as the page left it (categories keyed by the
+     *     client-generated id, deleted ones by id), the allocations changed in
+     *     any month and the envelopes' base amounts (ADR-109). The tree is
+     *     checked as a whole (depth, kinds, names, cycles); allocations and
+     *     bases go only to envelopes of the tree as saved. Changing categories
+     *     needs `manage`; allocations and bases `write`. All or nothing, with
+     *     problems reported per category (ADR-044).
+     */
+    post: operations['saveBudget']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/budgets/{budgetId}/accounts': {
     parameters: {
       query?: never
@@ -437,6 +465,32 @@ export interface paths {
      */
     put: operations['reorderAccounts']
     post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/budgets/{budgetId}/accounts/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the accounts page's buffer in one database transaction (:w)
+     * @description Upserts are keyed by the client-generated account id (ADR-108). A new
+     *     account takes its kind, whether it is on budget and its opening
+     *     balance; an existing one its name, order, card settings and whether
+     *     it is closed. All or nothing, with problems reported per account
+     *     (ADR-044).
+     */
+    post: operations['saveAccounts']
     delete?: never
     options?: never
     head?: never
@@ -1073,6 +1127,115 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/friends': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * The caller's friends, with the balance of each friend's account
+     * @description Friends are users the caller splits with: placeholders the caller
+     *     added by name (ADR-016, ADR-104) and, later, registered users. Each
+     *     has a friend account in the caller's default budget (ADR-018,
+     *     ADR-036), whose balance is what the friend owes the caller
+     *     (positive) or the caller owes them (negative).
+     */
+    get: operations['listFriends']
+    put?: never
+    /**
+     * Add a friend who has no account yet (a placeholder member)
+     * @description Creates a user without a password, private to the caller, and their
+     *     friend account in the caller's default budget. Fails with
+     *     `no_default_budget` while the caller has no budget, and `name_taken`
+     *     when the default budget already has an account of that name.
+     */
+    post: operations['createFriend']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/friends/{friendId}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description The friend's user id. */
+        friendId: components['parameters']['FriendId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /**
+     * Remove a friend who has no shared expenses
+     * @description Removes the friendship and the friend account, and the placeholder
+     *     itself. Fails with `friend_in_use` while shared expenses with them
+     *     remain.
+     */
+    delete: operations['deleteFriend']
+    options?: never
+    head?: never
+    /** Rename a placeholder friend and their friend account */
+    patch: operations['updateFriend']
+    trace?: never
+  }
+  '/friends/{friendId}/expenses': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description The friend's user id. */
+        friendId: components['parameters']['FriendId']
+      }
+      cookie?: never
+    }
+    /**
+     * The shared expenses and settlements between the caller and one friend
+     * @description Oldest first, deleted ones left out. Each carries the caller's side
+     *     in their own ledger (`mine`): the account they paid from or were
+     *     paid into and the category of their share.
+     */
+    get: operations['listFriendExpenses']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/friends/{friendId}/expenses/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description The friend's user id. */
+        friendId: components['parameters']['FriendId']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the friend page's buffer in one database transaction (:w)
+     * @description Upserts are keyed by the client-generated expense id; the server
+     *     works out the shares from the split method and writes the caller's
+     *     transaction in their default budget for each (ADR-106). Only the
+     *     user who recorded an expense changes or deletes it. All or nothing,
+     *     with problems reported per expense (ADR-044).
+     */
+    post: operations['saveFriendExpenses']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/holidays': {
     parameters: {
       query?: never
@@ -1393,8 +1556,20 @@ export interface components {
       /** Format: int64 */
       amount: number
     }
+    /**
+     * @description `friend` accounts hold what a friend owes (ADR-036); they are created
+     *     with the friend and changed only through shared expenses.
+     * @enum {string}
+     */
+    AccountKind:
+      | 'cash'
+      | 'bank'
+      | 'credit_card'
+      | 'loan'
+      | 'investment'
+      | 'friend'
     /** @enum {string} */
-    AccountKind: 'cash' | 'bank' | 'credit_card' | 'loan' | 'investment'
+    NewAccountKind: 'cash' | 'bank' | 'credit_card' | 'loan' | 'investment'
     Account: {
       /** Format: uuid */
       id: string
@@ -1412,6 +1587,72 @@ export interface components {
       hasActivity: boolean
       /** @description A credit card's statement settings; null for other accounts and cards without them. */
       card: components['schemas']['CardSettings'] | null
+      /**
+       * Format: uuid
+       * @description The friend a friend account is with; null for other accounts.
+       */
+      friendId: string | null
+    }
+    CategoryInput: {
+      /** Format: uuid */
+      id: string
+      /** Format: uuid */
+      parentId: string | null
+      name: string
+      kind: components['schemas']['CategoryKind']
+      pooled: boolean
+      archived: boolean
+      /** Format: int32 */
+      sortOrder: number
+    }
+    AllocationChange: {
+      /** Format: uuid */
+      categoryId: string
+      month: string
+      /** Format: int64 */
+      amount: number
+    }
+    BaseChange: {
+      /** Format: uuid */
+      categoryId: string
+      /**
+       * Format: int64
+       * @description 0 removes the base.
+       */
+      amount: number
+    }
+    BudgetBatch: {
+      categories: components['schemas']['CategoryInput'][]
+      deleteCategories: string[]
+      allocations: components['schemas']['AllocationChange'][]
+      bases: components['schemas']['BaseChange'][]
+    }
+    AccountInput: {
+      /** Format: uuid */
+      id: string
+      name: string
+      kind: components['schemas']['NewAccountKind']
+      /** @description New accounts only; ignored for credit cards, loans and investments. */
+      onBudget: boolean
+      /**
+       * Format: int64
+       * @description New accounts only.
+       */
+      openingBalance: number
+      /**
+       * Format: date
+       * @description New accounts only.
+       */
+      openingDate: string
+      closed: boolean
+      /** Format: int32 */
+      sortOrder: number
+      /** @description A credit card's statement settings; absent or null leaves them as they are. */
+      card?: components['schemas']['CardSettings'] | null
+    }
+    AccountBatch: {
+      upserts: components['schemas']['AccountInput'][]
+      deletes: string[]
     }
     CardSettings: {
       /**
@@ -1434,7 +1675,7 @@ export interface components {
     }
     AccountCreate: {
       name: string
-      kind: components['schemas']['AccountKind']
+      kind: components['schemas']['NewAccountKind']
       /** @description Ignored for credit cards (always on budget), loans and investments (never). */
       onBudget: boolean
       /**
@@ -1645,6 +1886,11 @@ export interface components {
       needsReview: boolean
       /** @description The opening balance of an account. */
       isOpening: boolean
+      /**
+       * Format: uuid
+       * @description The shared expense this transaction was generated from (ADR-035); it is changed on the friend's page, not in the register.
+       */
+      sharedExpenseId?: string | null
       entries: components['schemas']['Entry'][]
     }
     Payee: {
@@ -2169,6 +2415,166 @@ export interface components {
       /** Format: int32 */
       deleted: number
     }
+    Friend: {
+      /**
+       * Format: uuid
+       * @description The friend's user id.
+       */
+      id: string
+      displayName: string
+      /** @description Has no account yet (ADR-016); only the caller sees them. */
+      placeholder: boolean
+      /**
+       * Format: uuid
+       * @description The caller's default budget, which holds the friend account.
+       */
+      budgetId: string | null
+      /**
+       * Format: uuid
+       * @description The friend account in that budget.
+       */
+      accountId: string | null
+      /**
+       * Format: int64
+       * @description What the friend owes the caller (negative: what the caller owes them).
+       */
+      balance: number
+      /**
+       * Format: int32
+       * @description Shared expenses and settlements between the two (a friend with none can be removed).
+       */
+      expenseCount: number
+    }
+    FriendInput: {
+      displayName: string
+    }
+    /**
+     * @description A settlement is money paid back; its payer pays the whole amount and the receiver's share is all of it (ADR-034).
+     * @enum {string}
+     */
+    SharedKind: 'expense' | 'settlement'
+    /** @enum {string} */
+    SplitMethod: 'equal' | 'exact' | 'percent' | 'shares'
+    SharedPayer: {
+      /** Format: uuid */
+      userId: string
+      /** Format: int64 */
+      amount: number
+    }
+    SharedShare: {
+      /** Format: uuid */
+      userId: string
+      /**
+       * Format: int64
+       * @description What this participant's share comes to.
+       */
+      amount: number
+      /**
+       * Format: double
+       * @description The percentage or number of shares it was worked out from (percent and shares).
+       */
+      weight: number | null
+    }
+    ForeignAmount: {
+      currency: string
+      /**
+       * Format: int64
+       * @description In that currency's minor units.
+       */
+      amount: number
+      /** @description Units of the expense's currency per unit of this one when it was recorded (returned, ignored on input). */
+      rate?: string
+    }
+    MySide: {
+      /** Format: uuid */
+      transactionId: string | null
+      /**
+       * Format: uuid
+       * @description The account the caller paid from or was paid into.
+       */
+      accountId: string | null
+      /**
+       * Format: uuid
+       * @description The category of the caller's share.
+       */
+      categoryId: string | null
+    }
+    SharedExpense: {
+      /** Format: uuid */
+      id: string
+      kind: components['schemas']['SharedKind']
+      /** Format: date */
+      date: string
+      description: string
+      note: string
+      currency: string
+      /**
+       * Format: int64
+       * @description In the expense's currency, the budget's (ADR-041).
+       */
+      total: number
+      /** @description What was paid in another currency, if it was. */
+      foreign: components['schemas']['ForeignAmount'] | null
+      splitMethod: components['schemas']['SplitMethod']
+      payers: components['schemas']['SharedPayer'][]
+      shares: components['schemas']['SharedShare'][]
+      /** Format: uuid */
+      recordedBy: string
+      mine: components['schemas']['MySide']
+    }
+    FriendExpenses: {
+      friend: components['schemas']['Friend']
+      expenses: components['schemas']['SharedExpense'][]
+    }
+    SharedShareInput: {
+      /** Format: uuid */
+      userId: string
+      /**
+       * Format: int64
+       * @description The share itself (exact); worked out by the server for the other methods.
+       */
+      amount?: number
+      /**
+       * Format: double
+       * @description The percentage (percent) or number of shares (shares).
+       */
+      weight?: number
+    }
+    SharedExpenseInput: {
+      /** Format: uuid */
+      id: string
+      kind: components['schemas']['SharedKind']
+      /** Format: date */
+      date: string
+      description: string
+      note: string
+      /** Format: int64 */
+      total: number
+      foreign?: components['schemas']['ForeignAmount']
+      splitMethod: components['schemas']['SplitMethod']
+      payers: components['schemas']['SharedPayer'][]
+      shares: components['schemas']['SharedShareInput'][]
+      /**
+       * Format: uuid
+       * @description The caller's account paid from or into; required when the caller pays or is paid.
+       */
+      accountId?: string
+      /**
+       * Format: uuid
+       * @description The category of the caller's share; required when it is not zero (not for settlements).
+       */
+      categoryId?: string
+    }
+    SharedExpenseBatch: {
+      upserts: components['schemas']['SharedExpenseInput'][]
+      deletes: string[]
+    }
+    SharedExpenseBatchSaved: {
+      /** Format: int32 */
+      upserted: number
+      /** Format: int32 */
+      deleted: number
+    }
     ScheduleShare: {
       /** Format: uuid */
       scheduleId: string
@@ -2286,6 +2692,8 @@ export interface components {
     PayeeId: string
     ScheduleId: string
     CategoryId: string
+    /** @description The friend's user id. */
+    FriendId: string
     Id: string
     ProviderCode: string
     /** @description App path to land on after login (must start with /). */
@@ -2878,6 +3286,44 @@ export interface operations {
       404: components['responses']['NotFound']
     }
   }
+  saveBudget: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BudgetBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SharedExpenseBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      /** @description Nothing was saved; the categories listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
+    }
+  }
   listAccounts: {
     parameters: {
       query?: never
@@ -2955,6 +3401,44 @@ export interface operations {
       }
       400: components['responses']['BadRequest']
       404: components['responses']['NotFound']
+    }
+  }
+  saveAccounts: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        budgetId: components['parameters']['BudgetId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AccountBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SharedExpenseBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      /** @description Nothing was saved; the accounts listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
     }
   }
   updateAccount: {
@@ -3851,6 +4335,173 @@ export interface operations {
       403: components['responses']['Forbidden']
       404: components['responses']['NotFound']
       /** @description Nothing was saved; the goals listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
+    }
+  }
+  listFriends: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Friends, by name */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Friend'][]
+        }
+      }
+      401: components['responses']['Unauthorized']
+    }
+  }
+  createFriend: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FriendInput']
+      }
+    }
+    responses: {
+      /** @description Added */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Friend']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      409: components['responses']['Conflict']
+    }
+  }
+  deleteFriend: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description The friend's user id. */
+        friendId: components['parameters']['FriendId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Removed */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  updateFriend: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description The friend's user id. */
+        friendId: components['parameters']['FriendId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FriendInput']
+      }
+    }
+    responses: {
+      /** @description Renamed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Friend']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  listFriendExpenses: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description The friend's user id. */
+        friendId: components['parameters']['FriendId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Shared expenses */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['FriendExpenses']
+        }
+      }
+      401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
+    }
+  }
+  saveFriendExpenses: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description The friend's user id. */
+        friendId: components['parameters']['FriendId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SharedExpenseBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SharedExpenseBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      404: components['responses']['NotFound']
+      /** @description Nothing was saved; the expenses listed have problems */
       422: {
         headers: {
           [name: string]: unknown

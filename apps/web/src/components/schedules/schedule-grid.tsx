@@ -12,6 +12,7 @@ import {
   parseDate,
   problemMessages,
   rank,
+  rankCell,
 } from '#/lib/register'
 import {
   focusField,
@@ -604,15 +605,21 @@ export function ScheduleGrid({
 
   function suggestions(): Array<Suggestion> {
     if (mode !== 'insert' || !current) return []
+    // The cell's own text, while nothing has been typed over it: every
+    // option is offered, that one first.
+    const own = bulk
+      ? null
+      : scheduleCellText(current, column, ctx, nextOf(current, today, off))
     switch (column) {
       case 'account':
-        return rank(
+        return rankCell(
           openAccounts(current.transferTo).map((a) => ({
             value: a.name,
             label: a.name,
             hint: a.onBudget ? '預算內' : '追蹤',
           })),
           edit,
+          own,
           (a) => a.value,
         )
       case 'payee': {
@@ -629,14 +636,17 @@ export function ScheduleGrid({
             ? ctx.categories.get(p.lastCategoryId)?.path
             : undefined,
         }))
-        return edit ? rank([...named, ...transfers], edit, (s) => s.value) : []
+        return edit
+          ? rankCell([...named, ...transfers], edit, own, (s) => s.value)
+          : []
       }
       case 'category':
-        return rank(
+        return rankCell(
           [...ctx.categories.values()].filter(
             (c) => !c.isSystem && !c.archived,
           ),
           edit,
+          own,
           (c) => c.path,
         ).map((c) => ({
           value: c.path,

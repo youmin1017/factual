@@ -15,6 +15,8 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppProfileRouteImport } from './routes/_app/profile'
 import { Route as AppSetupRouteImport } from './routes/_app/setup'
 import { Route as AppBBudgetIdRouteImport } from './routes/_app/b/$budgetId'
+import { Route as AppFriendsIndexRouteImport } from './routes/_app/friends/index'
+import { Route as AppFriendsFriendIdRouteImport } from './routes/_app/friends/$friendId'
 import { Route as AppSettingsEditorRouteImport } from './routes/_app/settings/editor'
 import { Route as AppSettingsHolidaysRouteImport } from './routes/_app/settings/holidays'
 import { Route as AppSettingsOidcProvidersRouteImport } from './routes/_app/settings/oidc-providers'
@@ -52,6 +54,16 @@ const AppSetupRoute = AppSetupRouteImport.update({
 const AppBBudgetIdRoute = AppBBudgetIdRouteImport.update({
   id: '/b/$budgetId',
   path: '/b/$budgetId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFriendsIndexRoute = AppFriendsIndexRouteImport.update({
+  id: '/friends/',
+  path: '/friends/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFriendsFriendIdRoute = AppFriendsFriendIdRouteImport.update({
+  id: '/friends/$friendId',
+  path: '/friends/$friendId',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsEditorRoute = AppSettingsEditorRouteImport.update({
@@ -109,9 +121,11 @@ export interface FileRoutesByFullPath {
   '/profile': typeof AppProfileRoute
   '/setup': typeof AppSetupRoute
   '/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
+  '/friends/$friendId': typeof AppFriendsFriendIdRoute
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/holidays': typeof AppSettingsHolidaysRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/friends/': typeof AppFriendsIndexRoute
   '/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/b/$budgetId/schedules': typeof AppBBudgetIdSchedulesRoute
@@ -124,9 +138,11 @@ export interface FileRoutesByTo {
   '/profile': typeof AppProfileRoute
   '/setup': typeof AppSetupRoute
   '/': typeof AppIndexRoute
+  '/friends/$friendId': typeof AppFriendsFriendIdRoute
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/holidays': typeof AppSettingsHolidaysRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/friends': typeof AppFriendsIndexRoute
   '/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/b/$budgetId/schedules': typeof AppBBudgetIdSchedulesRoute
@@ -142,9 +158,11 @@ export interface FileRoutesById {
   '/_app/setup': typeof AppSetupRoute
   '/_app/': typeof AppIndexRoute
   '/_app/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
+  '/_app/friends/$friendId': typeof AppFriendsFriendIdRoute
   '/_app/settings/editor': typeof AppSettingsEditorRoute
   '/_app/settings/holidays': typeof AppSettingsHolidaysRoute
   '/_app/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/_app/friends/': typeof AppFriendsIndexRoute
   '/_app/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/_app/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
   '/_app/b/$budgetId/schedules': typeof AppBBudgetIdSchedulesRoute
@@ -160,9 +178,11 @@ export interface FileRouteTypes {
     | '/profile'
     | '/setup'
     | '/b/$budgetId'
+    | '/friends/$friendId'
     | '/settings/editor'
     | '/settings/holidays'
     | '/settings/oidc-providers'
+    | '/friends/'
     | '/b/$budgetId/goals'
     | '/b/$budgetId/payees'
     | '/b/$budgetId/schedules'
@@ -175,9 +195,11 @@ export interface FileRouteTypes {
     | '/profile'
     | '/setup'
     | '/'
+    | '/friends/$friendId'
     | '/settings/editor'
     | '/settings/holidays'
     | '/settings/oidc-providers'
+    | '/friends'
     | '/b/$budgetId/goals'
     | '/b/$budgetId/payees'
     | '/b/$budgetId/schedules'
@@ -192,9 +214,11 @@ export interface FileRouteTypes {
     | '/_app/setup'
     | '/_app/'
     | '/_app/b/$budgetId'
+    | '/_app/friends/$friendId'
     | '/_app/settings/editor'
     | '/_app/settings/holidays'
     | '/_app/settings/oidc-providers'
+    | '/_app/friends/'
     | '/_app/b/$budgetId/goals'
     | '/_app/b/$budgetId/payees'
     | '/_app/b/$budgetId/schedules'
@@ -250,6 +274,20 @@ declare module '@tanstack/react-router' {
       path: '/b/$budgetId'
       fullPath: '/b/$budgetId'
       preLoaderRoute: typeof AppBBudgetIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/friends/': {
+      id: '/_app/friends/'
+      path: '/friends'
+      fullPath: '/friends/'
+      preLoaderRoute: typeof AppFriendsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/friends/$friendId': {
+      id: '/_app/friends/$friendId'
+      path: '/friends/$friendId'
+      fullPath: '/friends/$friendId'
+      preLoaderRoute: typeof AppFriendsFriendIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/editor': {
@@ -345,9 +383,11 @@ interface AppRouteChildren {
   AppSetupRoute: typeof AppSetupRoute
   AppIndexRoute: typeof AppIndexRoute
   AppBBudgetIdRoute: typeof AppBBudgetIdRouteWithChildren
+  AppFriendsFriendIdRoute: typeof AppFriendsFriendIdRoute
   AppSettingsEditorRoute: typeof AppSettingsEditorRoute
   AppSettingsHolidaysRoute: typeof AppSettingsHolidaysRoute
   AppSettingsOidcProvidersRoute: typeof AppSettingsOidcProvidersRoute
+  AppFriendsIndexRoute: typeof AppFriendsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -355,9 +395,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppSetupRoute: AppSetupRoute,
   AppIndexRoute: AppIndexRoute,
   AppBBudgetIdRoute: AppBBudgetIdRouteWithChildren,
+  AppFriendsFriendIdRoute: AppFriendsFriendIdRoute,
   AppSettingsEditorRoute: AppSettingsEditorRoute,
   AppSettingsHolidaysRoute: AppSettingsHolidaysRoute,
   AppSettingsOidcProvidersRoute: AppSettingsOidcProvidersRoute,
+  AppFriendsIndexRoute: AppFriendsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

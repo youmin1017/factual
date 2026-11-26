@@ -312,7 +312,7 @@ func TestBudgetTargets(t *testing.T) {
 	mk := func(parent *uuid.UUID, name string, pooled bool) api.Category {
 		t.Helper()
 		rec := admin.do(http.MethodPost, budgetPath(f.budget, "/categories"),
-			api.CategoryCreate{ParentId: parent, Name: name, Kind: api.Expense, Pooled: &pooled})
+			api.CategoryCreate{ParentId: parent, Name: name, Kind: api.CategoryKindExpense, Pooled: &pooled})
 		wantStatus(t, rec, http.StatusCreated)
 		var c api.Category
 		decode(t, rec, &c)

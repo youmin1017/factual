@@ -71,6 +71,38 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 	return id, err
 }
 
+const createCategoryWithID = `-- name: CreateCategoryWithID :exec
+insert into categories (id, budget_id, parent_id, name, kind, pooled, sort_order, archived_at)
+values ($1, $2, $3, $4, $5, $6,
+        $7, case when $8::boolean then now() end)
+`
+
+type CreateCategoryWithIDParams struct {
+	ID        uuid.UUID
+	BudgetID  uuid.UUID
+	ParentID  uuid.NullUUID
+	Name      string
+	Kind      CategoryKind
+	Pooled    bool
+	SortOrder int32
+	Archived  bool
+}
+
+// A new category of the budget page, keyed by the id the client chose.
+func (q *Queries) CreateCategoryWithID(ctx context.Context, arg CreateCategoryWithIDParams) error {
+	_, err := q.db.Exec(ctx, createCategoryWithID,
+		arg.ID,
+		arg.BudgetID,
+		arg.ParentID,
+		arg.Name,
+		arg.Kind,
+		arg.Pooled,
+		arg.SortOrder,
+		arg.Archived,
+	)
+	return err
+}
+
 const deleteCategory = `-- name: DeleteCategory :execrows
 delete from categories where budget_id = $1 and id = $2 and not is_system
 `
@@ -126,6 +158,35 @@ func (q *Queries) GetCategory(ctx context.Context, arg GetCategoryParams) (GetCa
 		&i.BudgetBase,
 	)
 	return i, err
+}
+
+const getCategoryOwners = `-- name: GetCategoryOwners :many
+select id, budget_id from categories where id = any($1::uuid[])
+`
+
+type GetCategoryOwnersRow struct {
+	ID       uuid.UUID
+	BudgetID uuid.UUID
+}
+
+func (q *Queries) GetCategoryOwners(ctx context.Context, ids []uuid.UUID) ([]GetCategoryOwnersRow, error) {
+	rows, err := q.db.Query(ctx, getCategoryOwners, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetCategoryOwnersRow
+	for rows.Next() {
+		var i GetCategoryOwnersRow
+		if err := rows.Scan(&i.ID, &i.BudgetID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getSystemCategory = `-- name: GetSystemCategory :one
@@ -191,6 +252,55 @@ func (q *Queries) ListCategories(ctx context.Context, budgetID uuid.UUID) ([]Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const renameCategoryTemporarily = `-- name: RenameCategoryTemporarily :exec
+update categories set name = id::text, parent_id = null where budget_id = $1 and id = $2 and not is_system
+`
+
+type RenameCategoryTemporarilyParams struct {
+	BudgetID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Moves a category out of the way (its id as its name, at the top level)
+// while a save rearranges the tree, so names can swap within one save.
+func (q *Queries) RenameCategoryTemporarily(ctx context.Context, arg RenameCategoryTemporarilyParams) error {
+	_, err := q.db.Exec(ctx, renameCategoryTemporarily, arg.BudgetID, arg.ID)
+	return err
+}
+
+const saveCategory = `-- name: SaveCategory :exec
+update categories
+   set parent_id = $1,
+       name = $2,
+       pooled = $3,
+       sort_order = $4,
+       archived_at = case when $5::boolean then coalesce(archived_at, now()) end
+ where budget_id = $6 and id = $7 and not is_system
+`
+
+type SaveCategoryParams struct {
+	ParentID  uuid.NullUUID
+	Name      string
+	Pooled    bool
+	SortOrder int32
+	Archived  bool
+	BudgetID  uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) SaveCategory(ctx context.Context, arg SaveCategoryParams) error {
+	_, err := q.db.Exec(ctx, saveCategory,
+		arg.ParentID,
+		arg.Name,
+		arg.Pooled,
+		arg.SortOrder,
+		arg.Archived,
+		arg.BudgetID,
+		arg.ID,
+	)
+	return err
 }
 
 const setCategoryOrder = `-- name: SetCategoryOrder :exec

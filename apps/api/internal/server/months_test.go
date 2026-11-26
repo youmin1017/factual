@@ -50,11 +50,11 @@ func TestEnvelopesPerMonth(t *testing.T) {
 		decode(t, rec, &c)
 		return c
 	}
-	transport := mk(nil, "交通", api.Expense, true)
-	fuel := mk(&transport.Id, "加油", api.Expense, true)
-	housing := mk(nil, "居住", api.Expense, false)
-	rent := mk(&housing.Id, "房租", api.Expense, true)
-	salary := mk(nil, "薪資", api.Income, false)
+	transport := mk(nil, "交通", api.CategoryKindExpense, true)
+	fuel := mk(&transport.Id, "加油", api.CategoryKindExpense, true)
+	housing := mk(nil, "居住", api.CategoryKindExpense, false)
+	rent := mk(&housing.Id, "房租", api.CategoryKindExpense, true)
+	salary := mk(nil, "薪資", api.CategoryKindIncome, false)
 
 	if code := allocate(admin, f.budget, "2026-11", map[uuid.UUID]int64{f.food.Id: 3000, transport.Id: 2000, rent.Id: 10000}); code != http.StatusNoContent {
 		t.Fatalf("allocate = %d", code)
@@ -150,11 +150,11 @@ func TestMovingCategories(t *testing.T) {
 		return admin.do(http.MethodPost, budgetPath(f.budget, "/categories/"+id.String()+"/move"),
 			api.CategoryMove{ParentId: parent, Index: index})
 	}
-	daily := mk(nil, "日常花費", api.Expense)
-	transport := mk(nil, "交通", api.Expense)
-	fuel := mk(&transport.Id, "油錢", api.Expense)
-	parking := mk(&transport.Id, "停車", api.Expense)
-	salary := mk(nil, "薪資", api.Income)
+	daily := mk(nil, "日常花費", api.CategoryKindExpense)
+	transport := mk(nil, "交通", api.CategoryKindExpense)
+	fuel := mk(&transport.Id, "油錢", api.CategoryKindExpense)
+	parking := mk(&transport.Id, "停車", api.CategoryKindExpense)
+	salary := mk(nil, "薪資", api.CategoryKindIncome)
 	wantStatus(t, save(admin, f.budget, []api.TransactionInput{
 		{Id: uuid.New(), Date: day(8), Entries: []api.EntryInput{entry(f.bank.Id, &fuel.Id, -300)}},
 	}), http.StatusOK)
@@ -168,7 +168,7 @@ func TestMovingCategories(t *testing.T) {
 		t.Fatalf("moved = %+v", moved)
 	}
 	// A fourth level, a cycle, another kind and system categories are refused.
-	sub := mk(nil, "其他", api.Expense)
+	sub := mk(nil, "其他", api.CategoryKindExpense)
 	wantError(t, move(sub.Id, &fuel.Id, 0), http.StatusBadRequest, "category_too_deep")
 	wantError(t, move(daily.Id, &fuel.Id, 0), http.StatusBadRequest, "category_cycle")
 	wantError(t, move(salary.Id, &daily.Id, 0), http.StatusBadRequest, "category_kind_mismatch")
@@ -186,7 +186,7 @@ func TestMovingCategories(t *testing.T) {
 		t.Fatalf("parking = %+v", p)
 	}
 	for _, c := range all {
-		if c.ParentId == nil && c.Id != parking.Id && c.Kind == api.Expense && !c.IsSystem && c.SortOrder == 0 {
+		if c.ParentId == nil && c.Id != parking.Id && c.Kind == api.CategoryKindExpense && !c.IsSystem && c.SortOrder == 0 {
 			t.Fatalf("two top-level categories first: %+v", c)
 		}
 	}
@@ -196,7 +196,7 @@ func TestMovingCategories(t *testing.T) {
 		t.Fatalf("fuel = %+v", env[fuel.Id])
 	}
 	// The same name twice under one parent is refused.
-	twin := mk(&daily.Id, "停車", api.Expense)
+	twin := mk(&daily.Id, "停車", api.CategoryKindExpense)
 	wantError(t, move(twin.Id, nil, 0), http.StatusConflict, "duplicate")
 }
 

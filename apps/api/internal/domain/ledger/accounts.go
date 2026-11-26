@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"factual/apps/api/internal/api"
 	"factual/apps/api/internal/domain/ledger/internal/db"
@@ -18,11 +17,11 @@ import (
 // onBudgetFor is whether an account of this kind counts toward the budget
 // (ADR-024): credit cards always do, loans and investments never, cash and
 // bank accounts as the user chooses.
-func onBudgetFor(kind api.AccountKind, requested bool) bool {
+func onBudgetFor(kind api.NewAccountKind, requested bool) bool {
 	switch kind {
-	case api.CreditCard:
+	case api.NewAccountKindCreditCard:
 		return true
-	case api.Loan, api.Investment:
+	case api.NewAccountKindLoan, api.NewAccountKindInvestment:
 		return false
 	}
 	return requested
@@ -56,7 +55,7 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 	caller := reqctx.Caller(ctx).UserID
 	var off func(time.Time) bool
 	if b.Card != nil {
-		if b.Kind != api.CreditCard {
+		if b.Kind != api.NewAccountKindCreditCard {
 			return nil, notACard()
 		}
 		if err := h.s.checkCard(ctx, req.BudgetId, uuid.Nil, *b.Card); err != nil {
@@ -71,7 +70,7 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 	// then what they leave owed.
 	var terms loanTerms
 	if b.Loan != nil {
-		if b.Kind != api.Loan {
+		if b.Kind != api.NewAccountKindLoan {
 			return nil, notALoan()
 		}
 		var err error
@@ -98,33 +97,8 @@ func (h *Handlers) CreateAccount(ctx context.Context, req api.CreateAccountReque
 			_, err := h.s.saveLoan(ctx, q, req.BudgetId, id, terms, *b.Loan)
 			return err
 		}
-		if b.OpeningBalance == 0 {
-			return nil
-		}
-
-		// The opening balance is a transaction like any other. On a budget
-		// account it is income (to the pool); a tracking account takes it
-		// without a category (ADR-023).
-		var category uuid.NullUUID
-		if onBudget {
-			cat, err := q.GetSystemCategory(ctx, db.GetSystemCategoryParams{
-				BudgetID: req.BudgetId, SystemKey: pgtype.Text{String: openingBalanceKey, Valid: true},
-			})
-			if err != nil {
-				return err
-			}
-			category = uuid.NullUUID{UUID: cat, Valid: true}
-		}
-		txID, err := q.CreateOpeningTransaction(ctx, db.CreateOpeningTransactionParams{
-			BudgetID: req.BudgetId, Date: b.OpeningDate.Time, CreatedBy: uuid.NullUUID{UUID: caller, Valid: true},
-		})
-		if err != nil {
-			return err
-		}
-		return q.CreateEntry(ctx, db.CreateEntryParams{
-			BudgetID: req.BudgetId, TransactionID: txID, AccountID: id, CategoryID: category,
-			Amount: b.OpeningBalance, Memo: "", Cleared: db.ClearedStateCleared,
-		})
+		return createOpening(ctx, q, req.BudgetId, id, onBudget, b.OpeningBalance, b.OpeningDate.Time,
+			uuid.NullUUID{UUID: caller, Valid: true})
 	})
 	if err != nil {
 		return nil, apperr.FromDB(err)
@@ -148,6 +122,9 @@ func (h *Handlers) UpdateAccount(ctx context.Context, req api.UpdateAccountReque
 	}
 	if err != nil {
 		return nil, err
+	}
+	if cur.Kind == db.AccountKindFriend {
+		return nil, friendAccount()
 	}
 	if b.Closed && !cur.Closed && cur.Balance != 0 {
 		return nil, apperr.New(http.StatusConflict, "account_not_empty", "an account can only be closed with a zero balance")
@@ -188,6 +165,9 @@ func (h *Handlers) DeleteAccount(ctx context.Context, req api.DeleteAccountReque
 	}
 	if err != nil {
 		return nil, err
+	}
+	if cur.Kind == db.AccountKindFriend {
+		return nil, friendAccount()
 	}
 	if cur.HasActivity {
 		return nil, accountInUse()
@@ -287,5 +267,13 @@ func accountResponse(r db.GetAccountRow) api.Account {
 	return api.Account{
 		Id: r.ID, Name: r.Name, Kind: api.AccountKind(r.Kind), OnBudget: r.OnBudget, Closed: r.Closed,
 		SortOrder: r.SortOrder, Balance: r.Balance, ClearedBalance: r.ClearedBalance, HasActivity: r.HasActivity,
+		FriendId: idPtr(r.FriendUserID),
 	}
+}
+
+// friendAccount refuses changing a friend account like the others: it is
+// renamed and removed with its friend, and only shared expenses move it
+// (ADR-106).
+func friendAccount() error {
+	return apperr.New(http.StatusConflict, "friend_account", "a friend account is changed on the friend's page")
 }

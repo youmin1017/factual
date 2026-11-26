@@ -26,11 +26,11 @@ func newLedgerFixture(t *testing.T, b *browser) ledgerFixture {
 	t.Helper()
 	budget := createBudget(t, b, "家用", false)
 	f := ledgerFixture{budget: budget}
-	f.bank = createAccount(t, b, budget, accountInput("台新", api.Bank, true, 50000))
-	f.card = createAccount(t, b, budget, accountInput("玉山卡", api.CreditCard, true, 0))
-	f.loan = createAccount(t, b, budget, accountInput("車貸", api.Loan, false, -600000))
+	f.bank = createAccount(t, b, budget, accountInput("台新", api.NewAccountKindBank, true, 50000))
+	f.card = createAccount(t, b, budget, accountInput("玉山卡", api.NewAccountKindCreditCard, true, 0))
+	f.loan = createAccount(t, b, budget, accountInput("車貸", api.NewAccountKindLoan, false, -600000))
 	mk := func(name string) api.Category {
-		rec := createCategory(t, b, budget, nil, name, api.Expense)
+		rec := createCategory(t, b, budget, nil, name, api.CategoryKindExpense)
 		wantStatus(t, rec, http.StatusCreated)
 		var c api.Category
 		decode(t, rec, &c)

@@ -86,7 +86,8 @@ func transactionsOut(txs []db.ListRegisterTransactionsRow, entries []db.ListRegi
 	for _, t := range txs {
 		tx := api.Transaction{
 			Id: t.ID, Date: openapi_types.Date{Time: t.Date}, PayeeId: idPtr(t.PayeeID), Note: t.Note,
-			NeedsReview: t.NeedsReview, IsOpening: t.IsOpening, Entries: byTx[t.ID],
+			NeedsReview: t.NeedsReview, IsOpening: t.IsOpening, SharedExpenseId: idPtr(t.SharedExpenseID),
+			Entries: byTx[t.ID],
 		}
 		if t.PayeeName.Valid {
 			tx.PayeeName = &t.PayeeName.String
@@ -111,9 +112,15 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 	if err != nil {
 		return nil, err
 	}
+	// Friend accounts appear only in the transactions shared expenses
+	// generate (ADR-106).
 	onBudget := make(map[uuid.UUID]bool, len(accounts))
+	withFriends := make(map[uuid.UUID]bool, len(accounts))
 	for _, a := range accounts {
-		onBudget[a.ID] = a.OnBudget
+		if a.ByHand {
+			onBudget[a.ID] = a.OnBudget
+		}
+		withFriends[a.ID] = a.OnBudget
 	}
 	cats, err := h.s.q.ListCategoryRefs(ctx, budgetID)
 	if err != nil {
@@ -134,8 +141,24 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 		return nil, err
 	}
 	owner := make(map[uuid.UUID]uuid.UUID, len(owners))
+	// Transactions generated from shared expenses change with the expense
+	// (ADR-106), never in the register.
+	shared := map[uuid.UUID]bool{}
+	var sharedIDs []uuid.UUID
 	for _, o := range owners {
 		owner[o.ID] = o.BudgetID
+		if o.SharedExpenseID.Valid && o.BudgetID == budgetID {
+			shared[o.ID] = true
+			sharedIDs = append(sharedIDs, o.ID)
+		}
+	}
+	shapes, err := h.s.q.ListTransactionShapes(ctx, sharedIDs)
+	if err != nil {
+		return nil, err
+	}
+	shapeOf := map[uuid.UUID][]db.ListTransactionShapesRow{}
+	for _, r := range shapes {
+		shapeOf[r.ID] = append(shapeOf[r.ID], r)
 	}
 
 	var probs problems
@@ -153,6 +176,16 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 			probs.add(u.Id, "", "not_found", "transaction not found")
 			continue
 		}
+		if shared[u.Id] {
+			// It may be cleared or recategorized here; anything else is
+			// changed through its shared expense.
+			if !sameShape(u, shapeOf[u.Id]) {
+				probs.add(u.Id, "", "shared_transaction", "a shared expense's transaction is changed on the friend's page")
+				continue
+			}
+			validateTransaction(&probs, u, withFriends, isCategory)
+			continue
+		}
 		validateTransaction(&probs, u, onBudget, isCategory)
 	}
 	for _, id := range b.Deletes {
@@ -163,6 +196,8 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 		seen[id] = true
 		if o, ok := owner[id]; ok && o != budgetID {
 			probs.add(id, "", "not_found", "transaction not found")
+		} else if shared[id] {
+			probs.add(id, "", "shared_transaction", "a shared expense's transaction is changed on the friend's page")
 		}
 	}
 	if len(probs) > 0 {
@@ -270,6 +305,33 @@ func (h *Handlers) SaveTransactions(ctx context.Context, req api.SaveTransaction
 		}
 	}
 	return api.SaveTransactions200JSONResponse{Upserted: int32(len(b.Upserts)), Deleted: deleted}, nil
+}
+
+// sameShape reports whether an edit of a shared expense's transaction keeps
+// its date, note and entries (account, whether categorized, amount), so that
+// it only changes cleared states, categories, memos or the payee.
+func sameShape(u api.TransactionInput, stored []db.ListTransactionShapesRow) bool {
+	if len(stored) == 0 || len(u.Entries) != len(stored) || !u.Date.Equal(stored[0].Date) ||
+		strings.TrimSpace(u.Note) != stored[0].Note {
+		return false
+	}
+	type key struct {
+		account     uuid.UUID
+		categorized bool
+		amount      int64
+	}
+	left := map[key]int{}
+	for _, r := range stored {
+		left[key{r.AccountID, r.Categorized, r.Amount}]++
+	}
+	for _, e := range u.Entries {
+		k := key{e.AccountId, e.CategoryId != nil, e.Amount}
+		if left[k] == 0 {
+			return false
+		}
+		left[k]--
+	}
+	return true
 }
 
 // validateTransaction checks one transaction against the rules the database

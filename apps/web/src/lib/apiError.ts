@@ -88,6 +88,14 @@ const messages: Record<string, string> = {
   fetch_failed: '無法下載這個網址的檔案',
   invalid_calendar:
     '不是行政機關辦公日曆表的 CSV（西元日期,星期,是否放假,備註），或年份不完整；請用檔名結尾是 utf8bom.csv 的版本',
+  no_default_budget: '分帳要記到帳本裡，請先建立帳本',
+  name_taken: '帳本裡已經有同名的帳戶，換個名字',
+  not_placeholder: '朋友已經有自己的帳號，名字由他自己改',
+  friend_in_use: '還有和這位朋友的分帳，刪掉分帳後才能移除',
+  friend_account: '這是和朋友的往來帳戶，請到分帳頁修改',
+  shared_transaction:
+    '這筆是分帳產生的交易：只能核對或改類別，其他的請到分帳頁修改',
+  not_recorder: '只有記這筆分帳的人能修改',
   too_many_requests: '嘗試次數過多，請稍後再試',
   internal: '系統發生錯誤，請稍後再試',
 }

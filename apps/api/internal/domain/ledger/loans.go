@@ -441,7 +441,7 @@ func (s *Service) checkLoanRefs(ctx context.Context, budgetID, account uuid.UUID
 	}
 	okAccount := false
 	for _, a := range accounts {
-		if a.ID == *in.PayFromAccountId && a.ID != account && a.OnBudget && !a.Closed {
+		if a.ID == *in.PayFromAccountId && a.ID != account && a.OnBudget && !a.Closed && a.ByHand {
 			okAccount = true
 		}
 	}

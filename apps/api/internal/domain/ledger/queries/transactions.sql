@@ -1,6 +1,6 @@
 -- name: ListRegisterTransactions :many
 -- Transactions with an entry on the account, oldest first.
-select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening
+select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening, t.shared_expense_id
   from transactions t
   left join payees p on p.id = t.payee_id
  where t.budget_id = $1
@@ -16,15 +16,27 @@ select e.id, e.transaction_id, e.account_id, e.category_id, e.amount, e.memo, e.
  order by e.transaction_id, e.amount, e.id;
 
 -- name: ListAccountRefs :many
--- Every account of the budget, for validating entries.
-select id, on_budget, (closed_at is not null)::boolean as closed from accounts where budget_id = $1;
+-- Every account of the budget, for validating entries. Friend and suspense
+-- accounts (byHand false) change only through splitting (ADR-106).
+select id, on_budget, (closed_at is not null)::boolean as closed,
+       (kind not in ('friend', 'suspense'))::boolean as by_hand
+  from accounts
+ where budget_id = $1;
+
+-- name: ListTransactionShapes :many
+-- What a transaction generated from a shared expense says, to tell a register
+-- edit that only clears or recategorizes it from one that changes it.
+select t.id, t.date, t.note, e.account_id, (e.category_id is not null)::boolean as categorized, e.amount
+  from transactions t
+  join entries e on e.transaction_id = t.id
+ where t.id = any(sqlc.arg(ids)::uuid[]);
 
 -- name: ListCategoryRefs :many
 select id, is_system from categories where budget_id = $1;
 
 -- name: GetTransactionOwners :many
 -- The budget of each existing transaction among the ids.
-select id, budget_id, is_opening from transactions where id = any(sqlc.arg(ids)::uuid[]);
+select id, budget_id, is_opening, shared_expense_id from transactions where id = any(sqlc.arg(ids)::uuid[]);
 
 -- name: UpsertPayee :one
 insert into payees (budget_id, name) values ($1, $2)
@@ -50,7 +62,7 @@ delete from transactions where budget_id = $1 and id = $2;
 -- name: ListScopeTransactions :many
 -- Transactions with an entry on an account in the scope (on_budget null:
 -- every account), oldest first.
-select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening
+select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening, t.shared_expense_id
   from transactions t
   left join payees p on p.id = t.payee_id
  where t.budget_id = sqlc.arg(budget_id)

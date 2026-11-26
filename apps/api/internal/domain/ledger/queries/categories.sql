@@ -47,3 +47,26 @@ select (exists (select 1 from categories ch where ch.parent_id = c.id)
 
 -- name: DeleteCategory :execrows
 delete from categories where budget_id = $1 and id = $2 and not is_system;
+
+-- name: CreateCategoryWithID :exec
+-- A new category of the budget page, keyed by the id the client chose.
+insert into categories (id, budget_id, parent_id, name, kind, pooled, sort_order, archived_at)
+values (sqlc.arg(id), sqlc.arg(budget_id), sqlc.narg(parent_id), sqlc.arg(name), sqlc.arg(kind), sqlc.arg(pooled),
+        sqlc.arg(sort_order), case when sqlc.arg(archived)::boolean then now() end);
+
+-- name: SaveCategory :exec
+update categories
+   set parent_id = sqlc.narg(parent_id),
+       name = sqlc.arg(name),
+       pooled = sqlc.arg(pooled),
+       sort_order = sqlc.arg(sort_order),
+       archived_at = case when sqlc.arg(archived)::boolean then coalesce(archived_at, now()) end
+ where budget_id = sqlc.arg(budget_id) and id = sqlc.arg(id) and not is_system;
+
+-- name: RenameCategoryTemporarily :exec
+-- Moves a category out of the way (its id as its name, at the top level)
+-- while a save rearranges the tree, so names can swap within one save.
+update categories set name = id::text, parent_id = null where budget_id = $1 and id = $2 and not is_system;
+
+-- name: GetCategoryOwners :many
+select id, budget_id from categories where id = any(sqlc.arg(ids)::uuid[]);

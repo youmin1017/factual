@@ -18,6 +18,7 @@ tags:
   - name: auth
   - name: ledger
   - name: calendar
+  - name: splitting
 paths:
   /healthz:
     get:
@@ -533,6 +534,48 @@ paths:
           $ref: '#/components/responses/NotFound'
 
   # --- Accounts
+  /budgets/{budgetId}/budget/batch:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    post:
+      operationId: saveBudget
+      tags: [ledger]
+      summary: Apply the budget page's buffer in one database transaction (:w)
+      description: |
+        The category tree as the page left it (categories keyed by the
+        client-generated id, deleted ones by id), the allocations changed in
+        any month and the envelopes' base amounts (ADR-109). The tree is
+        checked as a whole (depth, kinds, names, cycles); allocations and
+        bases go only to envelopes of the tree as saved. Changing categories
+        needs `manage`; allocations and bases `write`. All or nothing, with
+        problems reported per category (ADR-044).
+      x-auth: authenticated
+      x-budget: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedExpenseBatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Nothing was saved; the categories listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
   /budgets/{budgetId}/accounts:
     parameters:
       - $ref: '#/components/parameters/BudgetId'
@@ -603,6 +646,46 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+  /budgets/{budgetId}/accounts/batch:
+    parameters:
+      - $ref: '#/components/parameters/BudgetId'
+    post:
+      operationId: saveAccounts
+      tags: [ledger]
+      summary: Apply the accounts page's buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated account id (ADR-108). A new
+        account takes its kind, whether it is on budget and its opening
+        balance; an existing one its name, order, card settings and whether
+        it is closed. All or nothing, with problems reported per account
+        (ADR-044).
+      x-auth: authenticated
+      x-budget: manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedExpenseBatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Nothing was saved; the accounts listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
   /budgets/{budgetId}/accounts/{accountId}:
     parameters:
       - $ref: '#/components/parameters/BudgetId'
@@ -1478,6 +1561,169 @@ paths:
               schema:
                 $ref: '#/components/schemas/BatchErrors'
 
+  # --- Friends and shared expenses (M12, ADR-103, ADR-104, ADR-106)
+  /friends:
+    get:
+      operationId: listFriends
+      tags: [splitting]
+      summary: The caller's friends, with the balance of each friend's account
+      description: |
+        Friends are users the caller splits with: placeholders the caller
+        added by name (ADR-016, ADR-104) and, later, registered users. Each
+        has a friend account in the caller's default budget (ADR-018,
+        ADR-036), whose balance is what the friend owes the caller
+        (positive) or the caller owes them (negative).
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Friends, by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Friend'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: createFriend
+      tags: [splitting]
+      summary: Add a friend who has no account yet (a placeholder member)
+      description: |
+        Creates a user without a password, private to the caller, and their
+        friend account in the caller's default budget. Fails with
+        `no_default_budget` while the caller has no budget, and `name_taken`
+        when the default budget already has an account of that name.
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendInput'
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Friend'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /friends/{friendId}:
+    parameters:
+      - $ref: '#/components/parameters/FriendId'
+    patch:
+      operationId: updateFriend
+      tags: [splitting]
+      summary: Rename a placeholder friend and their friend account
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendInput'
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Friend'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteFriend
+      tags: [splitting]
+      summary: Remove a friend who has no shared expenses
+      description: |
+        Removes the friendship and the friend account, and the placeholder
+        itself. Fails with `friend_in_use` while shared expenses with them
+        remain.
+      x-auth: authenticated
+      responses:
+        '204':
+          description: Removed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /friends/{friendId}/expenses:
+    parameters:
+      - $ref: '#/components/parameters/FriendId'
+    get:
+      operationId: listFriendExpenses
+      tags: [splitting]
+      summary: The shared expenses and settlements between the caller and one friend
+      description: |
+        Oldest first, deleted ones left out. Each carries the caller's side
+        in their own ledger (`mine`): the account they paid from or were
+        paid into and the category of their share.
+      x-auth: authenticated
+      responses:
+        '200':
+          description: Shared expenses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendExpenses'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /friends/{friendId}/expenses/batch:
+    parameters:
+      - $ref: '#/components/parameters/FriendId'
+    post:
+      operationId: saveFriendExpenses
+      tags: [splitting]
+      summary: Apply the friend page's buffer in one database transaction (:w)
+      description: |
+        Upserts are keyed by the client-generated expense id; the server
+        works out the shares from the split method and writes the caller's
+        transaction in their default budget for each (ADR-106). Only the
+        user who recorded an expense changes or deletes it. All or nothing,
+        with problems reported per expense (ADR-044).
+      x-auth: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharedExpenseBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedExpenseBatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Nothing was saved; the expenses listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
+
   # --- Days off (ADR-087)
   /holidays:
     get:
@@ -1629,6 +1875,14 @@ components:
       name: categoryId
       in: path
       required: true
+      schema:
+        type: string
+        format: uuid
+    FriendId:
+      name: friendId
+      in: path
+      required: true
+      description: The friend's user id.
       schema:
         type: string
         format: uuid
@@ -2035,10 +2289,16 @@ components:
           format: int64
     AccountKind:
       type: string
+      enum: [cash, bank, credit_card, loan, investment, friend]
+      description: |
+        `friend` accounts hold what a friend owes (ADR-036); they are created
+        with the friend and changed only through shared expenses.
+    NewAccountKind:
+      type: string
       enum: [cash, bank, credit_card, loan, investment]
     Account:
       type: object
-      required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity, card]
+      required: [id, name, kind, onBudget, closed, sortOrder, balance, clearedBalance, hasActivity, card, friendId]
       properties:
         id:
           type: string
@@ -2068,6 +2328,132 @@ components:
             - $ref: '#/components/schemas/CardSettings'
           nullable: true
           description: A credit card's statement settings; null for other accounts and cards without them.
+        friendId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The friend a friend account is with; null for other accounts.
+    CategoryInput:
+      type: object
+      required: [id, parentId, name, kind, pooled, archived, sortOrder]
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          maxLength: 64
+        kind:
+          $ref: '#/components/schemas/CategoryKind'
+        pooled:
+          type: boolean
+        archived:
+          type: boolean
+        sortOrder:
+          type: integer
+          format: int32
+    AllocationChange:
+      type: object
+      required: [categoryId, month, amount]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        month:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        amount:
+          type: integer
+          format: int64
+    BaseChange:
+      type: object
+      required: [categoryId, amount]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 0 removes the base.
+    BudgetBatch:
+      type: object
+      required: [categories, deleteCategories, allocations, bases]
+      properties:
+        categories:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/CategoryInput'
+        deleteCategories:
+          type: array
+          maxItems: 1000
+          items:
+            type: string
+            format: uuid
+        allocations:
+          type: array
+          maxItems: 5000
+          items:
+            $ref: '#/components/schemas/AllocationChange'
+        bases:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/BaseChange'
+    AccountInput:
+      type: object
+      required: [id, name, kind, onBudget, openingBalance, openingDate, closed, sortOrder]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 64
+        kind:
+          $ref: '#/components/schemas/NewAccountKind'
+        onBudget:
+          type: boolean
+          description: New accounts only; ignored for credit cards, loans and investments.
+        openingBalance:
+          type: integer
+          format: int64
+          description: New accounts only.
+        openingDate:
+          type: string
+          format: date
+          description: New accounts only.
+        closed:
+          type: boolean
+        sortOrder:
+          type: integer
+          format: int32
+        card:
+          allOf:
+            - $ref: '#/components/schemas/CardSettings'
+          nullable: true
+          description: A credit card's statement settings; absent or null leaves them as they are.
+    AccountBatch:
+      type: object
+      required: [upserts, deletes]
+      properties:
+        upserts:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/AccountInput'
+        deletes:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
     CardSettings:
       type: object
       required: [statementDay, dueDay, creditLimit, autopayAccountId]
@@ -2103,7 +2489,7 @@ components:
           minLength: 1
           maxLength: 64
         kind:
-          $ref: '#/components/schemas/AccountKind'
+          $ref: '#/components/schemas/NewAccountKind'
         onBudget:
           type: boolean
           description: Ignored for credit cards (always on budget), loans and investments (never).
@@ -2412,6 +2798,11 @@ components:
         isOpening:
           type: boolean
           description: The opening balance of an account.
+        sharedExpenseId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The shared expense this transaction was generated from (ADR-035); it is changed on the friend's page, not in the register.
         entries:
           type: array
           items:
@@ -3177,6 +3568,246 @@ components:
             type: string
             format: uuid
     GoalBatchSaved:
+      type: object
+      required: [upserted, deleted]
+      properties:
+        upserted:
+          type: integer
+          format: int32
+        deleted:
+          type: integer
+          format: int32
+    Friend:
+      type: object
+      required: [id, displayName, placeholder, budgetId, accountId, balance, expenseCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The friend's user id.
+        displayName:
+          type: string
+        placeholder:
+          type: boolean
+          description: Has no account yet (ADR-016); only the caller sees them.
+        budgetId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The caller's default budget, which holds the friend account.
+        accountId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The friend account in that budget.
+        balance:
+          type: integer
+          format: int64
+          description: "What the friend owes the caller (negative: what the caller owes them)."
+        expenseCount:
+          type: integer
+          format: int32
+          description: Shared expenses and settlements between the two (a friend with none can be removed).
+    FriendInput:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 64
+    SharedKind:
+      type: string
+      enum: [expense, settlement]
+      description: A settlement is money paid back; its payer pays the whole amount and the receiver's share is all of it (ADR-034).
+    SplitMethod:
+      type: string
+      enum: [equal, exact, percent, shares]
+    SharedPayer:
+      type: object
+      required: [userId, amount]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          format: int64
+    SharedShare:
+      type: object
+      required: [userId, amount, weight]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          format: int64
+          description: What this participant's share comes to.
+        weight:
+          type: number
+          format: double
+          nullable: true
+          description: The percentage or number of shares it was worked out from (percent and shares).
+    ForeignAmount:
+      type: object
+      required: [currency, amount]
+      properties:
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: In that currency's minor units.
+        rate:
+          type: string
+          description: Units of the expense's currency per unit of this one when it was recorded (returned, ignored on input).
+    MySide:
+      type: object
+      required: [transactionId, accountId, categoryId]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+          nullable: true
+        accountId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The account the caller paid from or was paid into.
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The category of the caller's share.
+    SharedExpense:
+      type: object
+      required: [id, kind, date, description, note, currency, total, foreign, splitMethod, payers, shares, recordedBy, mine]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/SharedKind'
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+        note:
+          type: string
+        currency:
+          type: string
+        total:
+          type: integer
+          format: int64
+          description: In the expense's currency, the budget's (ADR-041).
+        foreign:
+          allOf:
+            - $ref: '#/components/schemas/ForeignAmount'
+          nullable: true
+          description: What was paid in another currency, if it was.
+        splitMethod:
+          $ref: '#/components/schemas/SplitMethod'
+        payers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharedPayer'
+        shares:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharedShare'
+        recordedBy:
+          type: string
+          format: uuid
+        mine:
+          $ref: '#/components/schemas/MySide'
+    FriendExpenses:
+      type: object
+      required: [friend, expenses]
+      properties:
+        friend:
+          $ref: '#/components/schemas/Friend'
+        expenses:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharedExpense'
+    SharedShareInput:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          format: int64
+          description: The share itself (exact); worked out by the server for the other methods.
+        weight:
+          type: number
+          format: double
+          description: The percentage (percent) or number of shares (shares).
+    SharedExpenseInput:
+      type: object
+      required: [id, kind, date, description, note, total, splitMethod, payers, shares]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/SharedKind'
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+          maxLength: 200
+        note:
+          type: string
+          maxLength: 1000
+        total:
+          type: integer
+          format: int64
+        foreign:
+          $ref: '#/components/schemas/ForeignAmount'
+        splitMethod:
+          $ref: '#/components/schemas/SplitMethod'
+        payers:
+          type: array
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/SharedPayer'
+        shares:
+          type: array
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/SharedShareInput'
+        accountId:
+          type: string
+          format: uuid
+          description: The caller's account paid from or into; required when the caller pays or is paid.
+        categoryId:
+          type: string
+          format: uuid
+          description: The category of the caller's share; required when it is not zero (not for settlements).
+    SharedExpenseBatch:
+      type: object
+      required: [upserts, deletes]
+      properties:
+        upserts:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/SharedExpenseInput'
+        deletes:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+    SharedExpenseBatchSaved:
       type: object
       required: [upserted, deleted]
       properties:

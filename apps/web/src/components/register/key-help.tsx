@@ -140,7 +140,7 @@ export const budgetKeys: Array<KeyGroup> = [
     entries: [
       ['i a Enter', '在分配欄：修改本月分配；在名稱欄：改名'],
       ['c s', '清空再輸入'],
-      ['u Ctrl-r', '復原、重做（會重新儲存，類別的修改也算）'],
+      ['u Ctrl-r', '復原、重做（類別的修改也算）'],
     ],
   },
   {
@@ -183,9 +183,9 @@ export const budgetKeys: Array<KeyGroup> = [
   {
     title: '輸入中',
     entries: [
-      ['Enter Esc', '儲存'],
-      ['Enter', '新增類別時：儲存，接著新增下一個'],
-      ['Tab Shift-Tab', '儲存，到下一個、上一個預算'],
+      ['Enter Esc', '完成'],
+      ['Enter', '新增類別時：完成，接著新增下一個'],
+      ['Tab Shift-Tab', '完成，到下一個、上一個預算'],
       ['Ctrl-c', '放棄這次輸入'],
       ['120*3', '可以打算式'],
     ],
@@ -193,6 +193,8 @@ export const budgetKeys: Array<KeyGroup> = [
   {
     title: '指令',
     entries: [
+      [':w', '儲存所有變更（分配、類別、基本額）；Ctrl-s 也可以'],
+      [':e!', '放棄所有未儲存的變更'],
       [':fund 3000', '從資金池再撥 3000 給這個預算；負數是退回'],
       [':copylast', '本月還沒分配、也沒有目標的預算，照上個月的金額分配'],
       [
@@ -392,6 +394,121 @@ export const goalKeys: Array<KeyGroup> = [
   },
 ]
 
+/** A friend's shared expenses (M12). */
+export const friendKeys: Array<KeyGroup> = [
+  {
+    title: '移動',
+    entries: [
+      ['j k', '下一筆、上一筆（方向鍵也可以）'],
+      ['h l', '左右一欄（0 到最左，$ 到最右）'],
+      ['gg G', '第一筆、最後一筆'],
+      ['Ctrl-d Ctrl-u', '往下、往上半頁'],
+    ],
+  },
+  {
+    title: '修改',
+    entries: [
+      [
+        'i a Enter',
+        '修改這一格；誰付、分法打開分攤表單（我的份、往來是算出來的）',
+      ],
+      ['c s', '清空再輸入'],
+      ['o O', '在下面、上面新增一筆（帳戶和類別跟著游標這一筆）'],
+      ['dd', '刪除（:w 才刪；再 dd 取消）；3dd 三筆'],
+      ['yy p P', '複製成新的一筆、貼在下面、上面'],
+      ['u Ctrl-r', '復原、重做'],
+      ['.', '重複上一個 dd 或 p'],
+    ],
+  },
+  {
+    title: '選取多筆',
+    entries: [
+      ['V', '開始選取（Shift-點擊也可以）'],
+      ['y d', '複製、刪除選取的分帳'],
+      ['c', '選取的分帳這一欄都改成同一個值'],
+      ['gv', '選回上一次的範圍'],
+    ],
+  },
+  {
+    title: '分攤表單（在誰付、分法按 i）',
+    entries: [
+      ['j k  Tab', '上一欄、下一欄'],
+      ['h l  1-9', '換選項；數字直接選第幾個'],
+      ['數字', '直接輸入就取代原本的值；Ctrl-a Ctrl-x 加減'],
+      ['Enter Esc', '套用'],
+      ['Ctrl-c', '放棄'],
+      ['V 再 c', '同一套分攤套用到選取的分帳'],
+    ],
+  },
+  {
+    title: '輸入中',
+    entries: [
+      ['Enter Esc', '完成這一格'],
+      ['Tab Shift-Tab', '完成，到下一格、上一格'],
+      ['Ctrl-n Ctrl-p', '選建議'],
+      ['t -1 11/5', '日期欄：今天、昨天、11 月 5 日'],
+      ['Ctrl-c', '放棄這次輸入'],
+    ],
+  },
+  {
+    title: '指令',
+    entries: [
+      [':w', '儲存'],
+      [':settle', '新增一筆還款，金額是目前的往來餘額（結清）'],
+      [':e!', '放棄所有未儲存的變更'],
+      [':q', '回到朋友列表'],
+    ],
+  },
+]
+
+/** The accounts page (ADR-108). */
+export const accountKeys: Array<KeyGroup> = [
+  {
+    title: '移動',
+    entries: [
+      ['j k', '下一個、上一個帳戶（方向鍵也可以）'],
+      ['h l', '左右一欄'],
+      ['gg G', '第一個、最後一個'],
+      ['gx', '打開這個帳戶的明細'],
+    ],
+  },
+  {
+    title: '修改',
+    entries: [
+      [
+        'i a Enter',
+        '名稱直接改；新帳戶的類型、預算、餘額和信用卡的帳單打開表單',
+      ],
+      ['o O', '在下面、上面新增帳戶'],
+      ['x', '關閉或重新開啟（餘額要是 0 才能關閉）'],
+      ['dd', '刪除沒有交易的帳戶（:w 才刪；再 dd 取消）'],
+      ['dd p', '貼到別處：調整順序（ddp 往下一個，ddkP 往上一個）'],
+      ['yy p', '複製設定成新帳戶'],
+      ['u Ctrl-r', '復原、重做'],
+    ],
+  },
+  {
+    title: '表單',
+    entries: [
+      ['j k  Tab', '上一欄、下一欄'],
+      ['h l  1-9', '換選項；數字直接選第幾個'],
+      ['數字、日期', '直接輸入就取代原本的值；日期可以寫 11/5、t、-1'],
+      ['Enter Esc', '套用'],
+      ['Ctrl-c', '放棄'],
+    ],
+  },
+  {
+    title: '指令',
+    entries: [
+      [':w', '儲存'],
+      [':close :reopen', '關閉、重新開啟（選取時作用在選取的帳戶）'],
+      [':loan', '設定貸款的還款條件'],
+      [':open', '打開帳戶明細'],
+      [':e!', '放棄所有未儲存的變更'],
+    ],
+  },
+]
+
 const modeNames: Record<keyof Keymap, string> = {
   normal: '一般',
   visual: '選取',
@@ -405,6 +522,8 @@ const paneNames: Record<Pane, string> = {
   budget: '預算頁',
   schedules: '排程',
   goals: '目標',
+  friends: '分帳',
+  accounts: '帳戶',
   main: '其他頁面',
 }
 

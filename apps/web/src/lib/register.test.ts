@@ -12,6 +12,7 @@ import {
   parseDate,
   plannedId,
   plannedRows,
+  rankCell,
   rowFromTransaction,
   rowStatus,
   rowsFromTransactions,
@@ -513,6 +514,23 @@ assert.deepEqual(
   )
   assert.equal(rowStatus(row, ctx), 'clean')
   assert.equal(saveInput(row, ctx).entries.length, 3)
+}
+
+// A cell opened on its own value offers everything, that value first;
+// typing narrows the list again.
+{
+  const names = ['飲食', '飲食/外食', '交通', '交通/加油', '娛樂']
+  const id = (s: string) => s
+  assert.deepEqual(rankCell(names, '交通', '交通', id), [
+    '交通',
+    '飲食',
+    '飲食/外食',
+    '交通/加油',
+    '娛樂',
+  ])
+  assert.deepEqual(rankCell(names, '交通', null, id), ['交通', '交通/加油'])
+  assert.deepEqual(rankCell(names, '交', '交通', id), ['交通', '交通/加油'])
+  assert.equal(rankCell(names, '交通', '交通', id, 2).length, 2)
 }
 
 console.log('register: ok')

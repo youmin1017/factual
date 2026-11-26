@@ -29,6 +29,7 @@ import {
   problemColumn,
   problemMessages,
   rank,
+  rankCell,
   rowKey,
   rowStatus,
   runningBalances,
@@ -918,13 +919,16 @@ export function RegisterGrid({
 
   function suggestions(): Array<Suggestion> {
     if (mode !== 'insert' || !current) return []
+    // The cell's own text, while nothing has been typed over it: every
+    // option is offered, that one first.
+    const own = bulk ? null : cellText(current, column)
     if (column === 'account') {
       const accounts = openAccounts(null, shown).map((a) => ({
         value: a.name,
         label: a.name,
         hint: a.onBudget ? '預算內' : '追蹤',
       }))
-      return rank(accounts, edit, (a) => a.value)
+      return rankCell(accounts, edit, own, (a) => a.value)
     }
     if (column === 'payee') {
       const transfers = openAccounts(current.accountId).map((a) => ({
@@ -940,19 +944,24 @@ export function RegisterGrid({
           ? ctx.categories.get(p.lastCategoryId)?.path
           : undefined,
       }))
-      return edit ? rank([...named, ...transfers], edit, (s) => s.value) : []
+      return edit
+        ? rankCell([...named, ...transfers], edit, own, (s) => s.value)
+        : []
     }
     if (column === 'category') {
       const usable = [...ctx.categories.values()].filter(
         (c) => !c.isSystem && !c.archived,
       )
-      const found: Array<Suggestion> = rank(usable, edit, (c) => c.path).map(
-        (c) => ({
-          value: c.path,
-          label: c.path,
-          hint: c.kind === 'income' ? '收入' : undefined,
-        }),
-      )
+      const found: Array<Suggestion> = rankCell(
+        usable,
+        edit,
+        own,
+        (c) => c.path,
+      ).map((c) => ({
+        value: c.path,
+        label: c.path,
+        hint: c.kind === 'income' ? '收入' : undefined,
+      }))
       // Splitting is offered last, and first when asked for by name.
       const split: Suggestion = {
         value: SPLIT,

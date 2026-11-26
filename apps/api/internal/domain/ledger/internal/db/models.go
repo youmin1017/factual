@@ -494,6 +494,112 @@ func (e PrepayMode) Valid() bool {
 	return false
 }
 
+type SharedKind string
+
+const (
+	SharedKindExpense    SharedKind = "expense"
+	SharedKindSettlement SharedKind = "settlement"
+)
+
+func (e *SharedKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SharedKind(s)
+	case string:
+		*e = SharedKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SharedKind: %T", src)
+	}
+	return nil
+}
+
+type NullSharedKind struct {
+	SharedKind SharedKind
+	Valid      bool // Valid is true if SharedKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSharedKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.SharedKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SharedKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSharedKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SharedKind), nil
+}
+
+func (e SharedKind) Valid() bool {
+	switch e {
+	case SharedKindExpense,
+		SharedKindSettlement:
+		return true
+	}
+	return false
+}
+
+type SplitMethod string
+
+const (
+	SplitMethodEqual   SplitMethod = "equal"
+	SplitMethodExact   SplitMethod = "exact"
+	SplitMethodPercent SplitMethod = "percent"
+	SplitMethodShares  SplitMethod = "shares"
+)
+
+func (e *SplitMethod) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SplitMethod(s)
+	case string:
+		*e = SplitMethod(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SplitMethod: %T", src)
+	}
+	return nil
+}
+
+type NullSplitMethod struct {
+	SplitMethod SplitMethod
+	Valid       bool // Valid is true if SplitMethod is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSplitMethod) Scan(value interface{}) error {
+	if value == nil {
+		ns.SplitMethod, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SplitMethod.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSplitMethod) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SplitMethod), nil
+}
+
+func (e SplitMethod) Valid() bool {
+	switch e {
+	case SplitMethodEqual,
+		SplitMethodExact,
+		SplitMethodPercent,
+		SplitMethodShares:
+		return true
+	}
+	return false
+}
+
 type CreditCard struct {
 	AccountID        uuid.UUID
 	StatementDay     int16
@@ -505,4 +611,17 @@ type CreditCard struct {
 type ScheduleSkip struct {
 	ScheduleID     uuid.UUID
 	OccurrenceDate time.Time
+}
+
+type SharedExpensePayer struct {
+	ExpenseID uuid.UUID
+	UserID    uuid.UUID
+	Amount    int64
+}
+
+type SharedExpenseShare struct {
+	ExpenseID uuid.UUID
+	UserID    uuid.UUID
+	Amount    int64
+	Weight    pgtype.Numeric
 }

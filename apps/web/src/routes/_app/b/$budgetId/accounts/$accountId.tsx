@@ -134,7 +134,14 @@ function RegisterPage() {
   const refs = new Map<string, AccountRef>(
     accounts.data.map((a) => [
       a.id,
-      { id: a.id, name: a.name, onBudget: a.onBudget, closed: a.closed },
+      {
+        id: a.id,
+        name: a.name,
+        onBudget: a.onBudget,
+        // Friend accounts move only through shared expenses (ADR-106):
+        // shown by name, never offered for an entry.
+        closed: a.closed || a.kind === 'friend',
+      },
     ]),
   )
   const ctx: Context = {

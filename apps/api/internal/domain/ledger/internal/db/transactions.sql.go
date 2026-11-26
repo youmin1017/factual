@@ -45,13 +45,14 @@ func (q *Queries) DeleteTransaction(ctx context.Context, arg DeleteTransactionPa
 }
 
 const getTransactionOwners = `-- name: GetTransactionOwners :many
-select id, budget_id, is_opening from transactions where id = any($1::uuid[])
+select id, budget_id, is_opening, shared_expense_id from transactions where id = any($1::uuid[])
 `
 
 type GetTransactionOwnersRow struct {
-	ID        uuid.UUID
-	BudgetID  uuid.UUID
-	IsOpening bool
+	ID              uuid.UUID
+	BudgetID        uuid.UUID
+	IsOpening       bool
+	SharedExpenseID uuid.NullUUID
 }
 
 // The budget of each existing transaction among the ids.
@@ -64,7 +65,12 @@ func (q *Queries) GetTransactionOwners(ctx context.Context, ids []uuid.UUID) ([]
 	var items []GetTransactionOwnersRow
 	for rows.Next() {
 		var i GetTransactionOwnersRow
-		if err := rows.Scan(&i.ID, &i.BudgetID, &i.IsOpening); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.BudgetID,
+			&i.IsOpening,
+			&i.SharedExpenseID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -76,16 +82,21 @@ func (q *Queries) GetTransactionOwners(ctx context.Context, ids []uuid.UUID) ([]
 }
 
 const listAccountRefs = `-- name: ListAccountRefs :many
-select id, on_budget, (closed_at is not null)::boolean as closed from accounts where budget_id = $1
+select id, on_budget, (closed_at is not null)::boolean as closed,
+       (kind not in ('friend', 'suspense'))::boolean as by_hand
+  from accounts
+ where budget_id = $1
 `
 
 type ListAccountRefsRow struct {
 	ID       uuid.UUID
 	OnBudget bool
 	Closed   bool
+	ByHand   bool
 }
 
-// Every account of the budget, for validating entries.
+// Every account of the budget, for validating entries. Friend and suspense
+// accounts (byHand false) change only through splitting (ADR-106).
 func (q *Queries) ListAccountRefs(ctx context.Context, budgetID uuid.UUID) ([]ListAccountRefsRow, error) {
 	rows, err := q.db.Query(ctx, listAccountRefs, budgetID)
 	if err != nil {
@@ -95,7 +106,12 @@ func (q *Queries) ListAccountRefs(ctx context.Context, budgetID uuid.UUID) ([]Li
 	var items []ListAccountRefsRow
 	for rows.Next() {
 		var i ListAccountRefsRow
-		if err := rows.Scan(&i.ID, &i.OnBudget, &i.Closed); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.OnBudget,
+			&i.Closed,
+			&i.ByHand,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -190,7 +206,7 @@ func (q *Queries) ListRegisterEntries(ctx context.Context, arg ListRegisterEntri
 }
 
 const listRegisterTransactions = `-- name: ListRegisterTransactions :many
-select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening
+select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening, t.shared_expense_id
   from transactions t
   left join payees p on p.id = t.payee_id
  where t.budget_id = $1
@@ -204,13 +220,14 @@ type ListRegisterTransactionsParams struct {
 }
 
 type ListRegisterTransactionsRow struct {
-	ID          uuid.UUID
-	Date        time.Time
-	PayeeID     uuid.NullUUID
-	PayeeName   pgtype.Text
-	Note        string
-	NeedsReview bool
-	IsOpening   bool
+	ID              uuid.UUID
+	Date            time.Time
+	PayeeID         uuid.NullUUID
+	PayeeName       pgtype.Text
+	Note            string
+	NeedsReview     bool
+	IsOpening       bool
+	SharedExpenseID uuid.NullUUID
 }
 
 // Transactions with an entry on the account, oldest first.
@@ -231,6 +248,7 @@ func (q *Queries) ListRegisterTransactions(ctx context.Context, arg ListRegister
 			&i.Note,
 			&i.NeedsReview,
 			&i.IsOpening,
+			&i.SharedExpenseID,
 		); err != nil {
 			return nil, err
 		}
@@ -301,7 +319,7 @@ func (q *Queries) ListScopeEntries(ctx context.Context, arg ListScopeEntriesPara
 }
 
 const listScopeTransactions = `-- name: ListScopeTransactions :many
-select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening
+select t.id, t.date, t.payee_id, p.name as payee_name, t.note, t.needs_review, t.is_opening, t.shared_expense_id
   from transactions t
   left join payees p on p.id = t.payee_id
  where t.budget_id = $1
@@ -319,13 +337,14 @@ type ListScopeTransactionsParams struct {
 }
 
 type ListScopeTransactionsRow struct {
-	ID          uuid.UUID
-	Date        time.Time
-	PayeeID     uuid.NullUUID
-	PayeeName   pgtype.Text
-	Note        string
-	NeedsReview bool
-	IsOpening   bool
+	ID              uuid.UUID
+	Date            time.Time
+	PayeeID         uuid.NullUUID
+	PayeeName       pgtype.Text
+	Note            string
+	NeedsReview     bool
+	IsOpening       bool
+	SharedExpenseID uuid.NullUUID
 }
 
 // Transactions with an entry on an account in the scope (on_budget null:
@@ -347,6 +366,52 @@ func (q *Queries) ListScopeTransactions(ctx context.Context, arg ListScopeTransa
 			&i.Note,
 			&i.NeedsReview,
 			&i.IsOpening,
+			&i.SharedExpenseID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTransactionShapes = `-- name: ListTransactionShapes :many
+select t.id, t.date, t.note, e.account_id, (e.category_id is not null)::boolean as categorized, e.amount
+  from transactions t
+  join entries e on e.transaction_id = t.id
+ where t.id = any($1::uuid[])
+`
+
+type ListTransactionShapesRow struct {
+	ID          uuid.UUID
+	Date        time.Time
+	Note        string
+	AccountID   uuid.UUID
+	Categorized bool
+	Amount      int64
+}
+
+// What a transaction generated from a shared expense says, to tell a register
+// edit that only clears or recategorizes it from one that changes it.
+func (q *Queries) ListTransactionShapes(ctx context.Context, ids []uuid.UUID) ([]ListTransactionShapesRow, error) {
+	rows, err := q.db.Query(ctx, listTransactionShapes, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTransactionShapesRow
+	for rows.Next() {
+		var i ListTransactionShapesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Date,
+			&i.Note,
+			&i.AccountID,
+			&i.Categorized,
+			&i.Amount,
 		); err != nil {
 			return nil, err
 		}

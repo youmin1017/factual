@@ -27,7 +27,7 @@ func createBudget(t *testing.T, b *browser, name string, starter bool) api.Budge
 
 func budgetPath(b api.Budget, rest string) string { return "/api/budgets/" + b.Id.String() + rest }
 
-func accountInput(name string, kind api.AccountKind, onBudget bool, opening int64) api.AccountCreate {
+func accountInput(name string, kind api.NewAccountKind, onBudget bool, opening int64) api.AccountCreate {
 	return api.AccountCreate{
 		Name: name, Kind: kind, OnBudget: onBudget, OpeningBalance: opening,
 		OpeningDate: openapi_types.Date{Time: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)},
@@ -104,7 +104,7 @@ func TestBudgetSetup(t *testing.T) {
 	}
 	// Expense categories share their budget by default; income ones cannot.
 	for _, c := range starter {
-		if !c.IsSystem && c.Pooled != (c.Kind == api.Expense) {
+		if !c.IsSystem && c.Pooled != (c.Kind == api.CategoryKindExpense) {
 			t.Fatalf("starter category %q (%s) pooled = %v", c.Name, c.Kind, c.Pooled)
 		}
 	}
@@ -164,16 +164,16 @@ func TestBudgetAccessByRole(t *testing.T) {
 	for _, role := range []string{"viewer", "editor"} {
 		setRole(role)
 		wantStatus(t, ming.do(http.MethodGet, budgetPath(budget, "/accounts"), nil), http.StatusOK)
-		wantError(t, ming.do(http.MethodPost, budgetPath(budget, "/accounts"), accountInput("x", api.Bank, true, 0)),
+		wantError(t, ming.do(http.MethodPost, budgetPath(budget, "/accounts"), accountInput("x", api.NewAccountKindBank, true, 0)),
 			http.StatusForbidden, "forbidden")
 		wantError(t, ming.do(http.MethodPut, budgetPath(budget, ""), api.BudgetUpdate{Name: "x"}), http.StatusForbidden, "forbidden")
 	}
 	setRole("owner")
-	createAccount(t, ming, budget, accountInput("明的帳戶", api.Bank, true, 0))
+	createAccount(t, ming, budget, accountInput("明的帳戶", api.NewAccountKindBank, true, 0))
 
 	// Ids from another budget are not reachable through this one.
 	other := createBudget(t, admin, "另一本", false)
-	acct := createAccount(t, admin, other, accountInput("外部", api.Bank, true, 0))
+	acct := createAccount(t, admin, other, accountInput("外部", api.NewAccountKindBank, true, 0))
 	wantError(t, admin.do(http.MethodPut, budgetPath(budget, "/accounts/"+acct.Id.String()), api.AccountUpdate{Name: "x"}),
 		http.StatusNotFound, "not_found")
 	wantError(t, admin.do(http.MethodDelete, budgetPath(budget, "/accounts/"+acct.Id.String()), nil), http.StatusNotFound, "not_found")
@@ -184,17 +184,17 @@ func TestAccountsAndOpeningBalances(t *testing.T) {
 	admin := hs.browser().mustLogin(adminName, adminPassword)
 	budget := createBudget(t, admin, "家用", false)
 
-	bank := createAccount(t, admin, budget, accountInput("台新", api.Bank, true, 50000))
+	bank := createAccount(t, admin, budget, accountInput("台新", api.NewAccountKindBank, true, 50000))
 	if bank.Balance != 50000 || bank.ClearedBalance != 50000 || !bank.OnBudget || bank.HasActivity {
 		t.Fatalf("bank = %+v", bank)
 	}
 	// A card is always on budget, a loan never, whatever was asked.
-	card := createAccount(t, admin, budget, accountInput("玉山卡", api.CreditCard, false, -12000))
-	loan := createAccount(t, admin, budget, accountInput("車貸", api.Loan, true, -600000))
+	card := createAccount(t, admin, budget, accountInput("玉山卡", api.NewAccountKindCreditCard, false, -12000))
+	loan := createAccount(t, admin, budget, accountInput("車貸", api.NewAccountKindLoan, true, -600000))
 	if !card.OnBudget || loan.OnBudget {
 		t.Fatalf("on-budget not forced by kind: card=%v loan=%v", card.OnBudget, loan.OnBudget)
 	}
-	cash := createAccount(t, admin, budget, accountInput("錢包", api.Cash, true, 0))
+	cash := createAccount(t, admin, budget, accountInput("錢包", api.NewAccountKindCash, true, 0))
 
 	// Opening balances of budget accounts are income to the pool; with nothing
 	// budgeted or spent, pool and budget accounts are equal (ADR-023).
@@ -203,7 +203,7 @@ func TestAccountsAndOpeningBalances(t *testing.T) {
 		t.Fatalf("summary = %+v", s)
 	}
 
-	wantError(t, admin.do(http.MethodPost, budgetPath(budget, "/accounts"), accountInput("台新", api.Cash, true, 0)),
+	wantError(t, admin.do(http.MethodPost, budgetPath(budget, "/accounts"), accountInput("台新", api.NewAccountKindCash, true, 0)),
 		http.StatusConflict, "duplicate")
 	wantStatus(t, admin.do(http.MethodPost, budgetPath(budget, "/accounts"), accountInput("x", "friend", true, 0)), http.StatusBadRequest)
 
@@ -269,42 +269,42 @@ func TestCategoryTree(t *testing.T) {
 		return out
 	}
 
-	transport := create(nil, "交通", api.Expense)
+	transport := create(nil, "交通", api.CategoryKindExpense)
 	if !transport.Pooled {
 		t.Fatal("a new expense category does not share its budget by default")
 	}
 	// A subcategory takes its parent's kind.
-	fuel := create(&transport.Id, "加油", api.Income)
-	if fuel.Kind != api.Expense || fuel.ParentId == nil || *fuel.ParentId != transport.Id || !fuel.Pooled {
+	fuel := create(&transport.Id, "加油", api.CategoryKindIncome)
+	if fuel.Kind != api.CategoryKindExpense || fuel.ParentId == nil || *fuel.ParentId != transport.Id || !fuel.Pooled {
 		t.Fatalf("subcategory = %+v", fuel)
 	}
 	separate := false
 	rec := admin.do(http.MethodPost, budgetPath(budget, "/categories"),
-		api.CategoryCreate{Name: "各自", Kind: api.Expense, Pooled: &separate})
+		api.CategoryCreate{Name: "各自", Kind: api.CategoryKindExpense, Pooled: &separate})
 	wantStatus(t, rec, http.StatusCreated)
 	var own api.Category
 	decode(t, rec, &own)
 	if own.Pooled {
 		t.Fatal("pooled: false was ignored")
 	}
-	station := create(&fuel.Id, "中油", api.Expense)
-	wantError(t, createCategory(t, admin, budget, &station.Id, "太深", api.Expense), http.StatusBadRequest, "category_too_deep")
-	wantError(t, createCategory(t, admin, budget, nil, "交通/加油", api.Expense), http.StatusBadRequest, "invalid_category_name")
-	wantError(t, createCategory(t, admin, budget, &transport.Id, "加油", api.Expense), http.StatusConflict, "duplicate")
-	wantError(t, createCategory(t, admin, budget, nil, "交通", api.Expense), http.StatusConflict, "duplicate")
+	station := create(&fuel.Id, "中油", api.CategoryKindExpense)
+	wantError(t, createCategory(t, admin, budget, &station.Id, "太深", api.CategoryKindExpense), http.StatusBadRequest, "category_too_deep")
+	wantError(t, createCategory(t, admin, budget, nil, "交通/加油", api.CategoryKindExpense), http.StatusBadRequest, "invalid_category_name")
+	wantError(t, createCategory(t, admin, budget, &transport.Id, "加油", api.CategoryKindExpense), http.StatusConflict, "duplicate")
+	wantError(t, createCategory(t, admin, budget, nil, "交通", api.CategoryKindExpense), http.StatusConflict, "duplicate")
 
 	// The same name is fine under another parent.
-	food := create(nil, "飲食", api.Expense)
-	create(&food.Id, "加油", api.Expense)
+	food := create(nil, "飲食", api.CategoryKindExpense)
+	create(&food.Id, "加油", api.CategoryKindExpense)
 
 	// Only expense categories share an envelope.
-	income := create(nil, "收入", api.Income)
+	income := create(nil, "收入", api.CategoryKindIncome)
 	if income.Pooled {
 		t.Fatal("an income category shares a budget")
 	}
 	pooled := true
 	wantError(t, admin.do(http.MethodPost, budgetPath(budget, "/categories"),
-		api.CategoryCreate{Name: "獎金", Kind: api.Income, Pooled: &pooled}), http.StatusBadRequest, "invalid_pooled")
+		api.CategoryCreate{Name: "獎金", Kind: api.CategoryKindIncome, Pooled: &pooled}), http.StatusBadRequest, "invalid_pooled")
 	wantError(t, admin.do(http.MethodPut, budgetPath(budget, "/categories/"+income.Id.String()),
 		api.CategoryUpdate{Name: "收入", Pooled: true}), http.StatusBadRequest, "invalid_pooled")
 	rec = admin.do(http.MethodPut, budgetPath(budget, "/categories/"+transport.Id.String()),
@@ -327,7 +327,7 @@ func TestCategoryTree(t *testing.T) {
 		api.CategoryUpdate{Name: "x"}), http.StatusBadRequest, "system_category")
 	wantError(t, admin.do(http.MethodDelete, budgetPath(budget, "/categories/"+system.Id.String()), nil),
 		http.StatusBadRequest, "system_category")
-	wantError(t, createCategory(t, admin, budget, &system.Id, "x", api.Income), http.StatusBadRequest, "system_category")
+	wantError(t, createCategory(t, admin, budget, &system.Id, "x", api.CategoryKindIncome), http.StatusBadRequest, "system_category")
 
 	// A category with children or money is archived, not deleted.
 	wantError(t, admin.do(http.MethodDelete, budgetPath(budget, "/categories/"+transport.Id.String()), nil),
@@ -346,7 +346,7 @@ func TestCategoryTree(t *testing.T) {
 	if !updated.Archived {
 		t.Fatal("the category was not archived")
 	}
-	bus := create(&transport.Id, "公車", api.Expense)
+	bus := create(&transport.Id, "公車", api.CategoryKindExpense)
 	wantStatus(t, admin.do(http.MethodDelete, budgetPath(budget, "/categories/"+bus.Id.String()), nil), http.StatusNoContent)
 
 	// Reordering applies to the siblings of the listed categories.

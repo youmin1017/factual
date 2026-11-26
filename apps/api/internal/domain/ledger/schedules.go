@@ -235,6 +235,9 @@ func (h *Handlers) SaveSchedules(ctx context.Context, req api.SaveSchedulesReque
 	onBudget := make(map[uuid.UUID]bool, len(accounts))
 	closed := map[uuid.UUID]bool{}
 	for _, a := range accounts {
+		if !a.ByHand {
+			continue // only splitting moves friend accounts (ADR-106)
+		}
 		onBudget[a.ID] = a.OnBudget
 		closed[a.ID] = a.Closed
 	}

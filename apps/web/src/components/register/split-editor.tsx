@@ -8,7 +8,7 @@ import {
   findCategory,
   formatDate,
   lineCategoryMode,
-  rank,
+  rankCell,
   splitLinesOf,
 } from '#/lib/register'
 import { cn } from '#/lib/utils'
@@ -233,6 +233,9 @@ export function SplitEditor({
 
   function suggestions(): Array<Suggestion> {
     if (mode !== 'insert') return []
+    // The cell's own text, while nothing has been typed over it: every
+    // option is offered, that one first.
+    const own = current ? cellText(current, column) : null
     if (column === 'transfer') {
       const accounts = [...ctx.accounts.values()]
         .filter((a) => a.id !== row.accountId && !a.closed)
@@ -241,13 +244,18 @@ export function SplitEditor({
           label: a.name,
           hint: a.onBudget ? '預算內' : '追蹤',
         }))
-      return rank(accounts, edit.replace(/^@/, ''), (s) => s.value)
+      return rankCell(
+        accounts,
+        edit.replace(/^@/, ''),
+        own?.replace(/^@/, '') ?? null,
+        (s) => s.value,
+      )
     }
     if (column === 'category') {
       const usable = [...ctx.categories.values()].filter(
         (c) => !c.isSystem && !c.archived,
       )
-      return rank(usable, edit, (c) => c.path).map((c) => ({
+      return rankCell(usable, edit, own, (c) => c.path).map((c) => ({
         value: c.path,
         label: c.path,
         hint: c.kind === 'income' ? '收入' : undefined,

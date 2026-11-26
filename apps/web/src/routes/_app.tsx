@@ -123,6 +123,9 @@ function AppLayout() {
                   >
                     目標
                   </Link>
+                  <Link to="/friends" className={navLinkClass}>
+                    分帳
+                  </Link>
                   <Link
                     to="/b/$budgetId/payees"
                     params={{ budgetId: budget.id }}
