@@ -1977,6 +1977,17 @@ export function RegisterGrid({
                       setPick(0)
                       setNavigated(false)
                     }}
+                    calendar={
+                      column === 'date' && !bulk
+                        ? {
+                            value: parseDate(edit, today) ?? '',
+                            onPick: (iso) => {
+                              opened.current = null
+                              if (commitCell(iso)) setMode('normal')
+                            },
+                          }
+                        : undefined
+                    }
                     onKeyDown={(e) =>
                       feed.onInsertKeyDown(e, (n) =>
                         setEdit(eraseBeforeCaret(inputRef.current, edit, n)),

@@ -152,8 +152,9 @@ assert.equal(formText(state(keys(s, 'j', 'j', '2')).form), '每年 2/29')
 
 // i types the rule as text; / goes back to the templates; Ctrl-c drops it.
 s = open('every 2 weeks on fri')
-assert.deepEqual(keys(s, 'i'), { done: 'text', text: '每 2 週五' })
-assert.deepEqual(keys(s, '/'), { done: 'text', text: '/' })
+// The rule is only edited in the form (ADR-107): no keys lead to text.
+assert.ok('state' in ruleFormKey(s, 'i'))
+assert.ok('state' in ruleFormKey(s, '/'))
 assert.deepEqual(keys(s, '<C-c>'), { done: 'cancel' })
 // The start fills in what a rule leaves open.
 assert.equal(formText(open('每週', '2026-11-27').form), '每週五')

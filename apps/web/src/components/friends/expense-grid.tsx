@@ -12,7 +12,13 @@ import {
 } from '#/lib/form'
 import { formatAmount } from '#/lib/money'
 import { movePane, windowDirection } from '#/lib/panes'
-import { findCategory, formatDate, isoDate, rankCell } from '#/lib/register'
+import {
+  findCategory,
+  formatDate,
+  isoDate,
+  parseDate,
+  rankCell,
+} from '#/lib/register'
 import {
   applySplitForm,
   balanceText,
@@ -1406,6 +1412,17 @@ export function ExpenseGrid({
                       setPick(0)
                       setNavigated(false)
                     }}
+                    calendar={
+                      column === 'date' && !bulk
+                        ? {
+                            value: parseDate(edit, now) ?? '',
+                            onPick: (iso) => {
+                              opened.current = null
+                              if (commitCell(iso)) setMode('normal')
+                            },
+                          }
+                        : undefined
+                    }
                     onKeyDown={(e) =>
                       feed.onInsertKeyDown(e, (n) =>
                         setEdit(eraseBeforeCaret(inputRef.current, edit, n)),

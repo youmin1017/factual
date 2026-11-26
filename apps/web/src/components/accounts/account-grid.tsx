@@ -47,7 +47,7 @@ import {
 } from '#/lib/loan-lines'
 import { formatAmount } from '#/lib/money'
 import { movePane, windowDirection } from '#/lib/panes'
-import { categoryRefs, isoDate, rankCell } from '#/lib/register'
+import { categoryRefs, isoDate, parseDate, rankCell } from '#/lib/register'
 import { cn } from '#/lib/utils'
 import { FormPopover } from '../form-popover'
 import { CellEditor, eraseBeforeCaret, nextPick } from '../register/cell-editor'
@@ -1722,6 +1722,20 @@ export function AccountGrid({
                                     setPick(0)
                                     setNavigated(false)
                                   }}
+                                  calendar={
+                                    [
+                                      'start',
+                                      'firstPayment',
+                                      'rateFrom',
+                                    ].includes(active.key)
+                                      ? {
+                                          value: parseDate(edit, now) ?? '',
+                                          onPick: (iso) => {
+                                            if (commitSub(iso)) endSubEdit()
+                                          },
+                                        }
+                                      : undefined
+                                  }
                                   onKeyDown={(e) =>
                                     feed.onInsertKeyDown(e, (n) =>
                                       setEdit(

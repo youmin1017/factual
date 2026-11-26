@@ -76,8 +76,6 @@ export type RuleFormResult =
   /** Enter or Esc: write the rule (shown as `describeRule` writes it). */
   | { done: 'commit'; text: string }
   | { done: 'cancel' }
-  /** `i`: type the rule as text instead, starting from `text`. */
-  | { done: 'text'; text: string }
 
 const dayNames = '一二三四五六日'
 
@@ -655,15 +653,6 @@ export function ruleFormKey(state: RuleFormState, key: string): RuleFormResult {
     }
     case '<C-c>':
       return { done: 'cancel' }
-    case 'i':
-    case 'a':
-    case 'c':
-    case 's':
-      return { done: 'text', text: formText(take(state).form) }
-    case '/':
-      // In a date, `/` is typed (2027/6/30).
-      if (field !== 'until') return { done: 'text', text: '/' }
-      break
   }
 
   if (isText(field)) return editText(state, key) ?? { state }

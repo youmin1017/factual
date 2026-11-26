@@ -30,6 +30,7 @@ import {
   findCategory,
   formatDate,
   isoDate,
+  parseDate,
   problemMessages,
   rankCell,
 } from '#/lib/register'
@@ -654,17 +655,14 @@ export function GoalGrid({
           bulk ? null : goalCellText(current, column, ctx),
           (c) => c.path,
         ).map((c) => ({ value: c.path, label: c.path }))
-      case 'kind': {
-        const labels = Object.values(kindLabels)
-        // The cell's own label (i on the cell) still lists every kind.
-        const typed =
-          edit.trim() === kindLabels[current.kind] ? null : parseKind(edit)
-        // Typing narrows the list to the kind it names (維 → 維持水位).
-        return (typed ? [kindLabels[typed]] : labels).map((label) => ({
-          value: label,
-          label,
-        }))
-      }
+      case 'kind':
+        // Picked from the list (ADR-107); typing narrows it.
+        return rankCell(
+          Object.values(kindLabels),
+          edit,
+          bulk ? null : kindLabels[current.kind],
+          (label) => label,
+        ).map((label) => ({ value: label, label }))
       default:
         return []
     }
@@ -1323,6 +1321,17 @@ export function GoalGrid({
                       setPick(0)
                       setNavigated(false)
                     }}
+                    calendar={
+                      (column === 'date' || column === 'wait') && !bulk
+                        ? {
+                            value: parseDate(edit, now) ?? '',
+                            onPick: (iso) => {
+                              opened.current = null
+                              if (commitCell(iso)) setMode('normal')
+                            },
+                          }
+                        : undefined
+                    }
                     onKeyDown={(e) =>
                       feed.onInsertKeyDown(e, (n) =>
                         setEdit(eraseBeforeCaret(inputRef.current, edit, n)),

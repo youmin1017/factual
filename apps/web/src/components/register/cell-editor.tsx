@@ -1,3 +1,6 @@
+import { zhTW } from 'react-day-picker/locale'
+import { Calendar } from '#/components/ui/calendar'
+import { isoDate } from '#/lib/register'
 import { cn } from '#/lib/utils'
 
 export interface Suggestion {
@@ -21,6 +24,7 @@ export function CellEditor({
   onChange,
   onKeyDown,
   onChoose,
+  calendar,
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>
   value: string
@@ -35,7 +39,14 @@ export function CellEditor({
   onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void
   /** A suggestion clicked with the mouse. */
   onChoose: (index: number) => void
+  /**
+   * A date cell: a calendar under the field, on the date typed so far
+   * (`value`, ISO or ''); a day clicked is taken at once.
+   */
+  calendar?: { value: string; onPick: (iso: string) => void }
 }) {
+  const day = calendar ? fromIso(calendar.value) : undefined
+  const thisYear = new Date().getFullYear()
   return (
     <>
       <input
@@ -52,6 +63,28 @@ export function CellEditor({
           numeric === 'amount' && 'text-right',
         )}
       />
+      {calendar && options.length === 0 && (
+        <div className="mt-1 w-fit rounded-md border bg-popover shadow-md">
+          <Calendar
+            key={calendar.value}
+            mode="single"
+            // Clicking the day already chosen takes it too.
+            required
+            locale={zhTW}
+            captionLayout="dropdown"
+            startMonth={new Date(thisYear - 50, 0)}
+            endMonth={new Date(thisYear + 50, 11)}
+            selected={day}
+            defaultMonth={day}
+            formatters={{
+              formatMonthDropdown: (d) => `${d.getMonth() + 1}月`,
+            }}
+            onSelect={(d) => {
+              calendar.onPick(isoDate(d))
+            }}
+          />
+        </div>
+      )}
       {options.length > 0 && (
         <div
           className="mt-1 min-w-full overflow-hidden rounded-md border bg-popover text-sm shadow-md"
@@ -120,4 +153,10 @@ export function eraseBeforeCaret(
 ): string {
   const caret = input?.selectionStart ?? text.length
   return text.slice(0, Math.max(0, caret - n)) + text.slice(caret)
+}
+
+/** A local date from `YYYY-MM-DD`; undefined when it is not one. */
+function fromIso(iso: string): Date | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : undefined
 }

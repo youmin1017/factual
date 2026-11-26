@@ -268,17 +268,12 @@ export function validateGoal(
 
 /** A typed kind: its label, the start of it, or its code. */
 export function parseKind(text: string): GoalKind | null {
+  // A kind is picked from the completion list by its label (ADR-107).
   const s = text.trim()
-  if (!s) return null
-  for (const [kind, label] of Object.entries(kindLabels)) {
-    if (label.startsWith(s) || kind.toLowerCase() === s.toLowerCase())
-      return kind as GoalKind
-  }
-  if ('期限'.startsWith(s) || s === '日期') return 'targetByDate'
-  if ('金額'.startsWith(s)) return 'target'
-  if ('水位'.startsWith(s) || '備用金'.startsWith(s)) return 'maintain'
-  if ('固定'.startsWith(s)) return 'monthly'
-  return null
+  const hit = Object.entries(kindLabels).find(
+    ([kind, label]) => label === s || kind === s,
+  )
+  return hit ? (hit[0] as GoalKind) : null
 }
 
 function isoToday(today: string): Date {
@@ -318,14 +313,15 @@ export function goalPatch(
     }
     case 'kind': {
       const kind = parseKind(value)
-      if (!kind) return '類型是：目標金額、期限前存到、維持水位、每月固定'
+      if (!kind)
+        return '請從清單選類型：目標金額、期限前存到、維持水位、每月固定'
       return { kind }
     }
     case 'target': {
       if (row.kind === 'maintain') {
         if (!value) return { maintainMonths: null }
-        const n = Number(value.replace(/\s*個?月$/, ''))
-        if (!Number.isInteger(n) || n < 1 || n > 120)
+        const n = Number(value)
+        if (!/^\d+$/.test(value) || n < 1 || n > 120)
           return '維持水位是 1 到 120 個月的平均支出，例如 6'
         return { maintainMonths: n }
       }

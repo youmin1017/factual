@@ -33,6 +33,7 @@ export type ScheduleColumn =
   | 'account'
   | 'outflow'
   | 'inflow'
+  | 'estimate'
   | 'mode'
 
 export const scheduleColumns: Array<ScheduleColumn> = [
@@ -44,6 +45,7 @@ export const scheduleColumns: Array<ScheduleColumn> = [
   'account',
   'outflow',
   'inflow',
+  'estimate',
   'mode',
 ]
 
@@ -56,6 +58,7 @@ export const scheduleLabels: Record<ScheduleColumn, string> = {
   account: '帳戶',
   outflow: '支出',
   inflow: '收入',
+  estimate: '預估',
   mode: '預算方式',
 }
 
@@ -226,7 +229,7 @@ export function nextOf(
   )
 }
 
-/** Amount cell text: the amount, `~` first for an estimate. */
+/** Amount cell text (whether it is an estimate is its own column, ADR-107). */
 export function scheduleAmountText(
   row: ScheduleRow,
   column: 'outflow' | 'inflow',
@@ -239,7 +242,7 @@ export function scheduleAmountText(
   const text = forInput
     ? amountInputValue(abs, minorUnits)
     : formatAmount(abs, minorUnits)
-  return (row.estimate ? '~' : '') + text
+  return text
 }
 
 /** A typed budget mode: its label, the first character of it, or its code. */
@@ -351,15 +354,10 @@ export function schedulePatch(
     }
     case 'outflow':
     case 'inflow': {
-      const estimate = value.startsWith('~') || value.startsWith('～')
-      const amount = evalAmount(
-        estimate ? value.slice(1) : value,
-        ctx.minorUnits,
-      )
-      if (amount === null)
-        return '金額格式不對：可以輸入 1280、~1,200（預估）或 120*3'
+      const amount = evalAmount(value, ctx.minorUnits)
+      if (amount === null) return '金額格式不對：可以輸入 1280 或 120*3'
       if (amount !== 0) {
-        return { amount: column === 'outflow' ? -amount : amount, estimate }
+        return { amount: column === 'outflow' ? -amount : amount }
       }
       const clears =
         (column === 'outflow' && row.amount < 0) ||
@@ -371,6 +369,9 @@ export function schedulePatch(
       if (!mode) return '預算方式是：不納入、到期月全額、平均攤提'
       return { budgetMode: mode }
     }
+    case 'estimate':
+      // Ticked with a key, never typed (ADR-107).
+      return {}
   }
 }
 
@@ -409,6 +410,8 @@ export function scheduleCellText(
       return scheduleAmountText(row, column, ctx.minorUnits, true)
     case 'mode':
       return modeLabels[row.budgetMode]
+    case 'estimate':
+      return ''
   }
 }
 

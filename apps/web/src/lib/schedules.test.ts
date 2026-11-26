@@ -90,14 +90,18 @@ assert.equal(row.categoryId, 'fun')
 assert.equal(validateSchedule(row, ctx), null)
 assert.equal(row.budgetMode, 'full')
 
-// An estimate is typed with ~ and shown with it.
-row = apply(row, 'outflow', '~1,200')
+// An amount is a plain number; whether it is an estimate is its own column.
+row = apply(row, 'outflow', '1,200')
 assert.equal(row.amount, -1200)
-assert.equal(row.estimate, true)
-assert.equal(scheduleAmountText(row, 'outflow', 0), '~1,200')
-assert.equal(scheduleAmountText(row, 'outflow', 0, true), '~1200')
+assert.equal(
+  typeof schedulePatch(row, 'outflow', '~1200', ctx, today),
+  'string',
+)
+row = { ...row, estimate: true }
+assert.equal(scheduleAmountText(row, 'outflow', 0), '1,200')
+assert.equal(scheduleAmountText(row, 'outflow', 0, true), '1200')
 assert.equal(scheduleAmountText(row, 'inflow', 0), '')
-assert.equal(scheduleCellText(row, 'outflow', ctx, null), '~1200')
+assert.equal(scheduleCellText(row, 'outflow', ctx, null), '1200')
 
 // The budget mode by label, its start, or its code.
 assert.equal(parseMode('平均'), 'spread')

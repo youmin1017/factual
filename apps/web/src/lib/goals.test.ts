@@ -94,11 +94,11 @@ function refused(row: GoalRow, col: GoalColumn, text: string): string {
 
 // ---------- typing into cells
 
-assert.equal(parseKind('期限'), 'targetByDate')
-assert.equal(parseKind('維'), 'maintain')
-assert.equal(parseKind('每月'), 'monthly')
-assert.equal(parseKind('目標'), 'target')
+// A kind is picked from the list by its label.
+assert.equal(parseKind('期限前存到'), 'targetByDate')
+assert.equal(parseKind('維持水位'), 'maintain')
 assert.equal(parseKind('monthly'), 'monthly')
+assert.equal(parseKind('維'), null)
 assert.equal(parseKind('x'), null)
 
 let racket = newGoalRow('racket', null)
@@ -122,9 +122,10 @@ assert.equal(apply(racket, 'wait', '').waitUntil, null)
 let fund = apply(
   apply(newGoalRow('fund', 'food'), 'name', '備用金'),
   'kind',
-  '維持',
+  '維持水位',
 )
-fund = apply(fund, 'target', '3 個月')
+fund = apply(fund, 'target', '3')
+assert.match(refused(fund, 'target', '3 個月'), /1 到 120/)
 assert.equal(fund.maintainMonths, 3)
 assert.equal(goalCellText(fund, 'target', ctx), '3')
 assert.match(refused(fund, 'target', '0'), /1 到 120/)

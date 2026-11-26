@@ -1,4 +1,9 @@
-import { ArrowRightLeftIcon, PauseIcon, RedoIcon } from 'lucide-react'
+import {
+  ArrowRightLeftIcon,
+  CheckIcon,
+  PauseIcon,
+  RedoIcon,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '#/lib/api'
 import { errorCodeMessage } from '#/lib/apiError'
@@ -21,12 +26,7 @@ import {
   ruleFormKey,
   ruleOfForm,
 } from '#/lib/rule-form'
-import {
-  nextOccurrences,
-  parseRule,
-  ruleTemplates,
-  writeRRule,
-} from '#/lib/schedule-rule'
+import { nextOccurrences, writeRRule } from '#/lib/schedule-rule'
 import {
   modeLabels,
   newScheduleRow,
@@ -74,6 +74,7 @@ const widths: Record<ScheduleColumn, number> = {
   account: 112,
   outflow: 104,
   inflow: 104,
+  estimate: 56,
   mode: 104,
 }
 const stretch: Partial<Record<ScheduleColumn, number>> = {
@@ -396,11 +397,9 @@ export function ScheduleGrid({
     setPick(0)
     setNavigated(false)
     setBulk(false)
-    setRuleForm(null)
+    setRuleForm(ruleFormOf(null))
     setMode('insert')
-    say(
-      '打 / 選週期範本（/每月、/monthly…），或直接輸入：每月 5 日、每週一三五；Tab 到下一欄',
-    )
+    say('選週期：j k 換欄、h l 換選項、數字直接改；Enter 完成，再到下一欄')
   }
 
   function dropOpened(): boolean {
@@ -504,7 +503,26 @@ export function ScheduleGrid({
     setMode('normal')
   }
 
+  /** Ticks or clears 預估 on lines: estimated amounts post marked for review (ADR-085). */
+  function toggleEstimate(range: Range) {
+    const lines = rows.slice(range.from, range.to + 1).filter((r) => !r.deleted)
+    const on = !lines.every((r) => r.estimate)
+    const n = patchRows(idsIn(range), (r) =>
+      r.deleted ? null : { estimate: on },
+    )
+    if (n > 0)
+      say(
+        on
+          ? `${n} 個排程的金額是預估：入帳時標成待確認（:w 儲存）`
+          : `${n} 個排程的金額不是預估了（:w 儲存）`,
+      )
+  }
+
   function changeSelection(range: Range) {
+    if (column === 'estimate') {
+      endVisual()
+      return toggleEstimate(range)
+    }
     if (column === 'rule' || column === 'next') {
       return say('週期和下次要一個一個改', 'error')
     }
@@ -580,14 +598,20 @@ export function ScheduleGrid({
     if (!row) return say('沒有排程，按 o 新增一個')
     const reason = editable(row, col)
     if (reason) return say(reason, 'error')
-    // A written rule opens in the rule editor; c and s type it afresh.
-    const rule =
-      col === 'rule' && !clear && row.rule
-        ? openRuleForm(ruleText(row), row.start, today)
-        : null
-    setRuleForm(rule)
+    // Whether the amount is an estimate is ticked, not typed (ADR-107).
+    if (col === 'estimate') {
+      setCursor({ row: index, col: colIndex })
+      return toggleEstimate({ from: index, to: index })
+    }
+    // The rule is edited only in the rule editor (ADR-107); c and s start
+    // it over from a monthly rule.
+    if (col === 'rule') {
+      setRuleForm(ruleFormOf(clear ? null : row))
+      setBulk(false)
+      return setMode('insert')
+    }
+    setRuleForm(null)
     setBulk(false)
-    if (rule) return setMode('insert')
     setEdit(
       clear ? '' : scheduleCellText(row, col, ctx, nextOf(row, today, off)),
     )
@@ -595,6 +619,16 @@ export function ScheduleGrid({
     setNavigated(false)
     setBulk(false)
     setMode('insert')
+  }
+
+  /** The rule editor on a line's rule, or on a monthly rule for a new one. */
+  function ruleFormOf(row: ScheduleRow | null) {
+    const day = Number(today.slice(8, 10))
+    const fresh = day > 28 ? '每月最後一天' : `每月 ${day} 日`
+    return (
+      (row?.rule ? openRuleForm(ruleText(row), row.start, today) : null) ??
+      openRuleForm(fresh, row?.start ?? '', today)
+    )
   }
 
   function openAccounts(except: string | null) {
@@ -658,42 +692,9 @@ export function ScheduleGrid({
           value: label,
           label,
         }))
-      case 'rule':
-        // `/monthly`, `/每月`, `/every`: a rule to start from.
-        if (!edit.startsWith('/')) return []
-        {
-          const query = edit.slice(1)
-          const english = /[a-z]/i.test(query)
-          return rank(
-            ruleTemplates(today),
-            query,
-            (t) => `${t.command} ${t.aliases.join(' ')} ${t.text}`,
-          ).map((t) => ({
-            value: t.text,
-            label: `/${english ? t.aliases[0] : t.command}`,
-            hint: t.text,
-          }))
-        }
       default:
         return []
     }
-  }
-
-  /** In the rule cell, `/…` with a template highlighted. */
-  function templating(options: Array<Suggestion>): boolean {
-    return column === 'rule' && edit.startsWith('/') && options.length > 0
-  }
-
-  /** Opens the rule editor on the highlighted template. */
-  function applyTemplate(options: Array<Suggestion>) {
-    const text = options[Math.min(pick, options.length - 1)].value
-    const start = openRuleForm(text, '', today)
-    if (!start) {
-      setEdit(text)
-      return
-    }
-    setRuleForm(start)
-    setMessage(null)
   }
 
   function runForm(k: Key): boolean {
@@ -717,13 +718,6 @@ export function ScheduleGrid({
         setMode('normal')
         say('已取消編輯')
         return true
-      case 'text':
-        setRuleForm(null)
-        setEdit(result.text)
-        setPick(0)
-        setNavigated(false)
-        setMessage(null)
-        return true
     }
   }
 
@@ -732,7 +726,6 @@ export function ScheduleGrid({
     if (options.length === 0) return edit
     const highlighted = options[Math.min(pick, options.length - 1)].value
     if (navigated) return highlighted
-    if (column === 'rule') return edit.startsWith('/') ? highlighted : edit
     if (edit === '') return column === 'account' ? highlighted : edit
     if (column === 'category') {
       return findCategory(edit, ctx.categories.values()) ? edit : highlighted
@@ -1197,20 +1190,17 @@ export function ScheduleGrid({
         setNavigated(true)
         return true
       case '<Tab>':
-        if (templating(options)) applyTemplate(options)
-        else finishCell('next')
+        finishCell('next')
         return true
       case '<S-Tab>':
         finishCell('prev')
         return true
       case '<CR>':
-        // A template goes into the cell first, to be adjusted.
-        if (templating(options)) applyTemplate(options)
-        else finishCell('stay')
+        finishCell('stay')
         return true
       case '<Esc>': {
         if (dropOpened()) return true
-        const text = navigated || templating(options) ? chosenText() : edit
+        const text = navigated ? chosenText() : edit
         if (commitCell(text, true)) setMode('normal')
         return true
       }
@@ -1273,44 +1263,6 @@ export function ScheduleGrid({
 
   const options = suggestions()
   const problem = current ? problems.get(current.id) : undefined
-  /** While a rule is typed: the dates it would give. */
-  const preview = (() => {
-    if (mode !== 'insert' || column !== 'rule' || bulk || !edit.trim())
-      return null
-    if (edit.startsWith('/')) {
-      return options.length > 0
-        ? {
-            text: '選一個範本：Ctrl-n/Ctrl-p 移動，Enter 開啟週期編輯器',
-            tone: 'info' as const,
-          }
-        : {
-            text: '沒有這個範本：/每月、/每週、/monthly、/weekly、/every…',
-            tone: 'error' as const,
-          }
-    }
-    const parsed = parseRule(edit)
-    if ('error' in parsed) return { text: parsed.error, tone: 'error' as const }
-    const dates = nextOccurrences(
-      parsed.rule,
-      today,
-      parsed.shift,
-      today,
-      4,
-      off,
-    )
-    if (dates.length === 0)
-      return { text: '今天之後沒有任何一期', tone: 'error' as const }
-    return {
-      text: `接下來：${dates
-        .map((d) =>
-          d.date === d.nominal
-            ? formatDate(d.date, now)
-            : `${formatDate(d.date, now)}（${formatDate(d.nominal, now)} 遇假日）`,
-        )
-        .join('、')}`,
-      tone: 'info' as const,
-    }
-  })()
   /** The rule editor's dates and the keys it takes. */
   const formDates = (() => {
     if (!form) return ''
@@ -1323,7 +1275,7 @@ export function ScheduleGrid({
     ? form.error
       ? { text: form.error, tone: 'error' as const }
       : (message ?? {
-          text: 'j/k 選欄位 · h/l 或 Ctrl-a/Ctrl-x 改值 · 直接打數字 · Enter 完成 · i 改用打字 · Ctrl-c 取消',
+          text: 'j/k 選欄位 · h/l 或 Ctrl-a/Ctrl-x 改值 · 直接打數字 · Enter 完成 · Ctrl-c 取消',
           tone: 'info' as const,
         })
     : null
@@ -1331,7 +1283,6 @@ export function ScheduleGrid({
     mode === 'command'
       ? null
       : (formLine ??
-        preview ??
         message ??
         (problem ? { text: problem.message, tone: 'error' as const } : null))
 
@@ -1512,6 +1463,17 @@ export function ScheduleGrid({
                       setPick(0)
                       setNavigated(false)
                     }}
+                    calendar={
+                      column === 'next' && !bulk
+                        ? {
+                            value: parseDate(edit, now) ?? '',
+                            onPick: (iso) => {
+                              opened.current = null
+                              if (commitCell(iso)) setMode('normal')
+                            },
+                          }
+                        : undefined
+                    }
                     onKeyDown={(e) =>
                       feed.onInsertKeyDown(e, (n) =>
                         setEdit(eraseBeforeCaret(inputRef.current, edit, n)),
@@ -1705,6 +1667,19 @@ function ScheduleLine({
             title={row.estimate ? '預估金額：入帳後要確認' : undefined}
           >
             {scheduleAmountText(row, c, ctx.minorUnits)}
+          </span>
+        )
+      case 'estimate':
+        return (
+          <span
+            key={c}
+            data-col={col}
+            className={cn(cell, 'justify-center')}
+            title={row.estimate ? '預估金額：入帳後要確認' : undefined}
+          >
+            {row.estimate && (
+              <CheckIcon className="size-3.5 text-kraft" aria-label="預估" />
+            )}
           </span>
         )
       case 'mode':
