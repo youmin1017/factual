@@ -41,7 +41,7 @@ const groups = {
     has: (a: Account) => a.onBudget,
   },
   'off-budget': {
-    title: '追蹤帳戶',
+    title: '預算外帳戶',
     scope: 'offBudget',
     has: (a: Account) => !a.onBudget,
   },
@@ -205,7 +205,7 @@ function RegisterPage() {
             {group
               ? `${members.length} 個帳戶`
               : account &&
-                `${accountKindLabel(account.kind)}・${account.onBudget ? '預算內' : '追蹤'}`}
+                `${accountKindLabel(account.kind)}・${account.onBudget ? '預算內' : '預算外'}`}
           </p>
         </div>
         <dl className="flex gap-8 text-right">

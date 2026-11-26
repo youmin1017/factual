@@ -270,7 +270,7 @@ export function setupFields(values: Record<string, string>): Array<Field> {
       type: 'choice',
       options: [
         { value: 'yes', label: '計入預算' },
-        { value: 'no', label: '只追蹤餘額' },
+        { value: 'no', label: '預算外（只追蹤餘額）' },
       ],
     })
   }

@@ -1891,7 +1891,7 @@ function AccountLine({
       case 'onBudget':
         return (
           <span key={c} data-col={col} className={cn(cell, 'text-xs', muted)}>
-            {row.onBudget ? '計入' : '追蹤'}
+            {row.onBudget ? '預算內' : '預算外'}
           </span>
         )
       case 'balance':

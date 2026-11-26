@@ -650,7 +650,7 @@ export function ScheduleGrid({
           openAccounts(current.transferTo).map((a) => ({
             value: a.name,
             label: a.name,
-            hint: a.onBudget ? '預算內' : '追蹤',
+            hint: a.onBudget ? '預算內' : '預算外',
           })),
           edit,
           own,

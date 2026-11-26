@@ -926,7 +926,7 @@ export function RegisterGrid({
       const accounts = openAccounts(null, shown).map((a) => ({
         value: a.name,
         label: a.name,
-        hint: a.onBudget ? '預算內' : '追蹤',
+        hint: a.onBudget ? '預算內' : '預算外',
       }))
       return rankCell(accounts, edit, own, (a) => a.value)
     }

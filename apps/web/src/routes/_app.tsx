@@ -214,7 +214,7 @@ function AccountsNav({ budget }: { budget: Budget }) {
     },
     {
       id: 'off-budget',
-      label: '追蹤',
+      label: '預算外',
       accounts: open.filter((a) => !a.onBudget),
     },
   ].filter((g) => g.accounts.length > 0)

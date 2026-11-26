@@ -242,7 +242,7 @@ export function SplitEditor({
         .map((a) => ({
           value: a.name,
           label: a.name,
-          hint: a.onBudget ? '預算內' : '追蹤',
+          hint: a.onBudget ? '預算內' : '預算外',
         }))
       return rankCell(
         accounts,

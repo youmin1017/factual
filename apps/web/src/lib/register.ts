@@ -713,7 +713,7 @@ export function validateRow(row: Row, ctx: Context): RowProblem | null {
         return {
           field: 'category',
           message: line.transferTo
-            ? `${at}在預算內和追蹤帳戶之間轉帳，需要選類別`
+            ? `${at}在預算內和預算外帳戶之間轉帳，需要選類別`
             : `${at}需要類別`,
         }
       }
@@ -728,7 +728,7 @@ export function validateRow(row: Row, ctx: Context): RowProblem | null {
     return {
       field: 'category',
       message: row.transferTo
-        ? '在預算內和追蹤帳戶之間轉帳，需要選類別'
+        ? '在預算內和預算外帳戶之間轉帳，需要選類別'
         : '預算內帳戶的交易需要類別',
     }
   }
@@ -738,7 +738,7 @@ export function validateRow(row: Row, ctx: Context): RowProblem | null {
 /** zh-TW messages for the batch endpoint's problem codes. */
 export const problemMessages: Record<string, string> = {
   category_required: '預算內帳戶的交易需要類別',
-  category_not_allowed: '追蹤帳戶的交易不能有類別',
+  category_not_allowed: '預算外帳戶的交易不能有類別',
   unbalanced: '轉帳兩邊的金額不平',
   unknown_account: '帳戶不存在',
   unknown_category: '類別不存在',

@@ -110,7 +110,7 @@ function AccountsPage() {
               budget={budget}
             />
             <Total
-              label="追蹤"
+              label="預算外"
               value={summary.data.offBudgetBalance}
               budget={budget}
             />
