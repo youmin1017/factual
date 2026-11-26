@@ -302,7 +302,7 @@ export function AccountGrid({
 
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLElement>(null)
   const history = useRef<{
     undo: Array<Array<AccountRow>>
     redo: Array<Array<AccountRow>>
@@ -1699,7 +1699,7 @@ export function AccountGrid({
                           key={term.cells
                             .map((c) => `${c.key}${(c as LoanCell).rate ?? ''}`)
                             .join('-')}
-                          className="relative border-b border-rule/40 bg-card/40 text-sm"
+                          className="relative border-b border-rule/40 bg-card/40 text-sm leading-normal"
                           style={{ height: ROW_HEIGHT }}
                           onMouseDown={(e) => {
                             const cell = (
@@ -2044,7 +2044,7 @@ function AccountLine({
       role="row"
       aria-rowindex={index + 1}
       className={cn(
-        'relative grid border-b border-rule/60 text-sm',
+        'relative grid border-b border-rule/60 text-sm leading-normal',
         row.deleted && 'text-muted-foreground line-through',
         row.closed && !row.deleted && 'text-muted-foreground',
       )}

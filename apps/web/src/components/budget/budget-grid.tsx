@@ -194,7 +194,7 @@ export function BudgetGrid({
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLElement>(null)
   // The cursor follows a category, so it stays put across months.
   const [cursorId, setCursorId] = useState<string | null>(
     () => months[0]?.lines.find((l) => l.kind === 'envelope')?.id ?? null,
@@ -1606,7 +1606,7 @@ export function BudgetGrid({
     <div
       key="draft"
       role="row"
-      className="relative grid border-b border-rule/50 bg-accent/50 text-sm"
+      className="relative grid border-b border-rule/50 bg-accent/50 text-sm leading-normal"
       style={{ gridTemplateColumns: columns, height: ROW_HEIGHT }}
     >
       <span
@@ -1914,7 +1914,7 @@ function LineView({
         onPick(col, false, e.shiftKey)
       }}
       className={cn(
-        'group/line relative grid border-b border-rule/50 text-sm',
+        'group/line relative grid border-b border-rule/50 text-sm leading-normal',
         active && 'bg-accent/50',
         (group || section) && 'font-medium',
         section && !active && 'bg-muted/40',

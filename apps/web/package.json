@@ -18,6 +18,7 @@
     "test": "node --experimental-strip-types --no-warnings src/lib/money.test.ts && node --experimental-strip-types --no-warnings src/lib/register.test.ts && node --experimental-strip-types --no-warnings src/lib/keymap.test.ts && node --experimental-strip-types --no-warnings src/lib/budget-month.test.ts && node --experimental-strip-types --no-warnings src/lib/schedule-rule.test.ts && node --experimental-strip-types --no-warnings src/lib/schedules.test.ts && node --experimental-strip-types --no-warnings src/lib/rule-form.test.ts && node --experimental-strip-types --no-warnings src/lib/card.test.ts && node --experimental-strip-types --no-warnings src/lib/goals.test.ts && node --experimental-strip-types --no-warnings src/lib/loan.test.ts && node --experimental-strip-types --no-warnings src/lib/split.test.ts && node --experimental-strip-types --no-warnings src/lib/splitting.test.ts && node --experimental-strip-types --no-warnings src/lib/form.test.ts && node --experimental-strip-types --no-warnings src/lib/accounts.test.ts && node --experimental-strip-types --no-warnings src/lib/budget-buffer.test.ts && node --experimental-strip-types --no-warnings src/lib/loan-lines.test.ts && node --experimental-strip-types --no-warnings src/lib/card-lines.test.ts"
   },
   "dependencies": {
+    "@fontsource-variable/noto-sans-tc": "^5.3.1",
     "@fontsource-variable/recursive": "^5.3.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "0.10.14",

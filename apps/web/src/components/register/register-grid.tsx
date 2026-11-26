@@ -337,7 +337,7 @@ export function RegisterGrid({
 
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLElement>(null)
   const history = useRef<{ undo: Array<Array<Row>>; redo: Array<Array<Row>> }>({
     undo: [],
     redo: [],
@@ -2241,7 +2241,7 @@ function RowView({
       aria-selected={selected || undefined}
       data-row-id={row.key}
       className={cn(
-        'absolute inset-x-0 grid border-b border-rule/60 text-sm',
+        'absolute inset-x-0 grid border-b border-rule/60 text-sm leading-normal',
         row.deleted && 'text-muted-foreground line-through',
         planned && 'text-muted-foreground italic',
       )}

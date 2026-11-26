@@ -247,7 +247,7 @@ export function ScheduleGrid({
 
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLElement>(null)
   const history = useRef<{
     undo: Array<Array<ScheduleRow>>
     redo: Array<Array<ScheduleRow>>
@@ -1706,7 +1706,7 @@ function ScheduleLine({
       role="row"
       aria-rowindex={index + 1}
       className={cn(
-        'absolute inset-x-0 grid border-b border-rule/60 text-sm',
+        'absolute inset-x-0 grid border-b border-rule/60 text-sm leading-normal',
         row.deleted && 'text-muted-foreground line-through',
         row.paused && !row.deleted && 'text-muted-foreground',
       )}

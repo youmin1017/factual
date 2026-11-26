@@ -212,7 +212,7 @@ export function SplittingGrid({
 
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLElement>(null)
   const history = useRef<{
     undo: Array<Array<PartyRow>>
     redo: Array<Array<PartyRow>>
@@ -1201,7 +1201,7 @@ function PartyLine({
       role="row"
       aria-rowindex={index + 1}
       className={cn(
-        'absolute inset-x-0 grid border-b border-rule/60 text-sm',
+        'absolute inset-x-0 grid border-b border-rule/60 text-sm leading-normal',
         first && 'border-t border-t-rule',
         row.deleted && 'text-muted-foreground line-through',
         row.archived && !row.deleted && 'text-muted-foreground',

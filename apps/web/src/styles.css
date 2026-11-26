@@ -1,6 +1,9 @@
 /* Recursive: one variable family with a MONO axis. Proportional for the
-   interface, monospaced for ledger figures and the editor, same letterforms. */
+   interface, monospaced for ledger figures and the editor, same letterforms.
+   Noto Sans TC (variable, split by unicode-range so only the characters on
+   the page are fetched) for Chinese, the same on every system (ADR-118). */
 @import '@fontsource-variable/recursive/mono.css';
+@import '@fontsource-variable/noto-sans-tc';
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
@@ -106,13 +109,14 @@
 }
 
 @theme inline {
-  /* Latin and figures in Recursive; Chinese in the system's Traditional Chinese face. */
+  /* Latin and figures in Recursive; Chinese in the bundled Noto Sans TC
+     (ADR-118), the system's Traditional Chinese face only until it loads. */
   --font-sans:
-    'Recursive Variable', 'PingFang TC', 'Noto Sans TC', 'Noto Sans CJK TC',
-    'Microsoft JhengHei', ui-sans-serif, system-ui, sans-serif;
+    'Recursive Variable', 'Noto Sans TC Variable', 'PingFang TC',
+    'Noto Sans TC', 'Microsoft JhengHei', ui-sans-serif, system-ui, sans-serif;
   --font-mono:
-    'Recursive Variable', 'PingFang TC', 'Noto Sans TC', 'Noto Sans CJK TC',
-    'Microsoft JhengHei', ui-monospace, monospace;
+    'Recursive Variable', 'Noto Sans TC Variable', 'PingFang TC',
+    'Noto Sans TC', 'Microsoft JhengHei', ui-monospace, monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);

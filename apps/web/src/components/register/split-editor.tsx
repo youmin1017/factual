@@ -113,7 +113,7 @@ export function SplitEditor({
   }>({ undo: [], redo: [] })
   const pending = useRef('')
   const boxRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLElement>(null)
 
   const current = lines.at(cursor.line)
   const column = splitColumns[cursor.col]
@@ -607,7 +607,7 @@ export function SplitEditor({
                 key={line.id}
                 role="row"
                 className={cn(
-                  'grid border-b border-rule/60 text-sm',
+                  'grid border-b border-rule/60 text-sm leading-normal',
                   i === cursor.line && 'bg-accent/50',
                 )}
                 style={{ gridTemplateColumns: template, height: LINE_HEIGHT }}

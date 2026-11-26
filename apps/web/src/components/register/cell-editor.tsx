@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react'
 import { zhTW } from 'react-day-picker/locale'
 import { Calendar } from '#/components/ui/calendar'
 import { isoDate } from '#/lib/register'
@@ -11,7 +12,10 @@ export interface Suggestion {
 
 /**
  * The one text field of an editor (ADR-045), laid over the cell being
- * edited, with its completion list.
+ * edited, with its completion list. It is a line of editable text laid out
+ * as the cell's own text is, not an input: an input places a line with
+ * Chinese (a fallback font after Recursive) about a pixel lower than a cell
+ * does, so the text would move when editing starts (ADR-119).
  */
 export function CellEditor({
   inputRef,
@@ -26,7 +30,7 @@ export function CellEditor({
   onChoose,
   calendar,
 }: {
-  inputRef: React.RefObject<HTMLInputElement | null>
+  inputRef: React.RefObject<HTMLElement | null>
   value: string
   label: string
   /** Dates and amounts: monospaced; amounts also right-aligned. */
@@ -36,7 +40,7 @@ export function CellEditor({
   /** The option Enter takes, highlighted; -1 when Enter keeps the text. */
   pick: number
   onChange: (value: string) => void
-  onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void
   /** A suggestion clicked with the mouse. */
   onChoose: (index: number) => void
   /**
@@ -49,19 +53,14 @@ export function CellEditor({
   const thisYear = new Date().getFullYear()
   return (
     <>
-      <input
-        ref={inputRef}
-        autoFocus
+      <TextField
+        fieldRef={inputRef}
         value={value}
-        aria-label={label}
-        aria-autocomplete={options.length > 0 ? 'list' : undefined}
-        onChange={(e) => onChange(e.target.value)}
+        label={label}
+        numeric={numeric}
+        listed={options.length > 0}
+        onChange={onChange}
         onKeyDown={onKeyDown}
-        className={cn(
-          'h-8 w-full border-2 border-positive bg-popover px-2 text-sm outline-none',
-          numeric && 'font-mono',
-          numeric === 'amount' && 'text-right',
-        )}
       />
       {calendar && options.length === 0 && (
         <div className="mt-1 w-fit rounded-md border bg-popover shadow-md">
@@ -147,12 +146,129 @@ export function nextPick(count: number, from: number, step: 1 | -1): number {
 
 /** Removes the n characters before the caret of a cell editor. */
 export function eraseBeforeCaret(
-  input: HTMLInputElement | null,
+  field: HTMLElement | null,
   text: string,
   n: number,
 ): string {
-  const caret = input?.selectionStart ?? text.length
+  const caret = caretOf(field) ?? text.length
   return text.slice(0, Math.max(0, caret - n)) + text.slice(caret)
+}
+
+/** Where the caret is in a cell editor's text, or null when it is not in it. */
+function caretOf(field: HTMLElement | null): number | null {
+  if (!field) return null
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || !field.contains(sel.focusNode))
+    return null
+  const range = document.createRange()
+  range.selectNodeContents(field)
+  range.setEnd(sel.focusNode as Node, sel.focusOffset)
+  return range.toString().length
+}
+
+/** Puts the caret after the text of an editable element. */
+function caretToEnd(el: HTMLElement) {
+  const sel = window.getSelection()
+  if (!sel) return
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+/**
+ * One line of editable plain text in the cell's box, laid out as the cell's
+ * own text is (a flex line, leading-normal), so the text stays where it was
+ * when editing starts, Chinese included. The DOM holds what is typed (input
+ * methods compose in it); `value` is written back only when it changes
+ * from outside (a completion taken, Ctrl-w), with the caret at the end as
+ * an input would put it.
+ */
+function TextField({
+  fieldRef,
+  value,
+  label,
+  numeric,
+  listed,
+  onChange,
+  onKeyDown,
+}: {
+  fieldRef: React.RefObject<HTMLElement | null>
+  value: string
+  label: string
+  numeric?: 'date' | 'amount'
+  listed: boolean
+  onChange: (value: string) => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void
+}) {
+  useLayoutEffect(() => {
+    const el = fieldRef.current
+    if (!el) return
+    if (el.textContent !== value) {
+      el.textContent = value
+      if (document.activeElement === el) caretToEnd(el)
+    }
+  }, [fieldRef, value])
+  useLayoutEffect(() => {
+    const el = fieldRef.current
+    if (!el) return
+    el.focus({ preventScroll: true })
+    caretToEnd(el)
+  }, [fieldRef])
+
+  return (
+    <div
+      className={cn(
+        // The cursor's box, with the line where the cell's text is: px-1.5
+        // and the 2px border make the cell's px-2, pb-px leaves the 31px a
+        // row has above its bottom border.
+        'flex h-8 w-full cursor-text items-center border-2 border-positive bg-popover px-1.5 pb-px text-sm leading-normal',
+        numeric && 'font-mono',
+      )}
+      onMouseDown={(e) => {
+        // A click beside the text still edits it.
+        if (e.target !== fieldRef.current) {
+          e.preventDefault()
+          fieldRef.current?.focus()
+        }
+      }}
+    >
+      <span
+        ref={fieldRef}
+        role="textbox"
+        aria-label={label}
+        aria-autocomplete={listed ? 'list' : undefined}
+        contentEditable="plaintext-only"
+        suppressContentEditableWarning
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="off"
+        className={cn(
+          'min-w-0 flex-1 overflow-x-auto whitespace-pre outline-none [scrollbar-width:none]',
+          numeric === 'amount' && 'text-right',
+        )}
+        onKeyDown={onKeyDown}
+        onBeforeInput={(e) => {
+          // One line: Enter is the editor's, never a line break.
+          const type = e.nativeEvent.inputType
+          if (type === 'insertParagraph' || type === 'insertLineBreak')
+            e.preventDefault()
+        }}
+        onInput={(e) => {
+          const el = e.currentTarget
+          const raw = el.textContent
+          // Pasted line breaks become spaces.
+          const clean = raw.replace(/[\r\n]+/g, ' ')
+          if (clean !== raw) {
+            el.textContent = clean
+            caretToEnd(el)
+          }
+          onChange(clean)
+        }}
+      />
+    </div>
+  )
 }
 
 /** A local date from `YYYY-MM-DD`; undefined when it is not one. */
