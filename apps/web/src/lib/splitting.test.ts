@@ -1,11 +1,12 @@
 // Run with: node --experimental-strip-types src/lib/splitting.test.ts
 import assert from 'node:assert/strict'
 import {
-  applyMemberForm,
+  applyMemberPick,
   deleteBlocked,
+  dropMember,
   insertIndex,
   lockedReason,
-  memberFormFields,
+  memberOptions,
   membersText,
   newPartyRow,
   partyBalanceText,
@@ -13,6 +14,7 @@ import {
   partyRows,
   partyStatus,
   placeByKind,
+  takeMember,
   toBatch,
   validateParty,
 } from './splitting.ts'
@@ -109,17 +111,64 @@ assert.equal(lockedReason(rows[1], 'kind') !== null, true)
 assert.equal(lockedReason(newPartyRow('n', 'friend'), 'kind'), null)
 assert.equal(lockedReason(rows[1], 'members') !== null, true)
 
-// The members form lists friends without an account of their own.
-const fields = memberFormFields(rows[0], rows)
+// The members picker: friends not in the group, found by what is typed,
+// and a new friend when nobody has that name.
+const pick0 = { members: [...rows[0].members], added: [] }
 assert.deepEqual(
-  fields.map((f) => f.key),
-  ['ming', 'hua'],
+  memberOptions(rows, rows[0], { members: ['ming'], added: [] }, '').map(
+    (o) => o.value,
+  ),
+  ['hua'],
 )
-assert.deepEqual(applyMemberForm(rows[0], { ming: 'yes', hua: 'no' }, rows), {
-  members: ['ming'],
+assert.deepEqual(memberOptions(rows, rows[0], pick0, ''), [])
+assert.deepEqual(
+  memberOptions(rows, rows[0], { members: [], added: [] }, '華').map(
+    (o) => o.label,
+  ),
+  ['小華', '新增朋友「華」'],
+)
+assert.deepEqual(
+  memberOptions(rows, rows[0], { members: [], added: [] }, '小華').map(
+    (o) => o.value,
+  ),
+  ['hua'],
+)
+// Joe has an account of his own: not offered until registered users can
+// join, and not added again as a new friend of the same name.
+assert.deepEqual(memberOptions(rows, rows[0], pick0, 'Joe'), [])
+const withMei = takeMember(
+  pick0,
+  { value: 'new:小美', label: '新增朋友「小美」' },
+  () => 'mei',
+)
+assert.deepEqual(withMei, {
+  members: ['ming', 'hua', 'mei'],
+  added: [{ id: 'mei', name: '小美' }],
 })
+// Members who paid or shared stay; others go.
+assert.match(String(dropMember(withMei, rows[0], 'hua', rows)), /不能移除/)
+const fresh = { ...newPartyRow('g', 'group'), name: '室友' }
+assert.deepEqual(
+  dropMember(
+    { members: ['hua', 'mei'], added: withMei.added },
+    fresh,
+    'mei',
+    rows,
+  ),
+  { members: ['hua'], added: [] },
+)
+// Applying sets the members and adds the new friend line after the others.
+const applied = applyMemberPick(rows, 'trip', withMei)
+assert.notEqual(typeof applied, 'string')
+const lines = applied as Array<PartyRow>
+assert.deepEqual(lines[0].members, ['ming', 'hua', 'mei'])
+assert.deepEqual(
+  lines.map((r) => r.id),
+  ['trip', 'ming', 'hua', 'joe', 'mei'],
+)
+assert.equal(lines[4].name, '小美')
 assert.equal(
-  typeof applyMemberForm(rows[0], { ming: 'no', hua: 'no' }, rows),
+  typeof applyMemberPick(rows, 'trip', { members: [], added: [] }),
   'string',
 )
 

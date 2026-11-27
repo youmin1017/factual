@@ -1,3 +1,4 @@
+import { useRouter } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef } from 'react'
 import { NormalMapper, TIMEOUT_MS, forPane, keyOf } from './keymap'
 import type { Key, Keymap, Pane } from './keymap'
@@ -176,6 +177,32 @@ function isVisible(el: HTMLElement): boolean {
   return r.width > 0 && r.height > 0
 }
 
+/** The part of the router's history the jump keys use. */
+export interface Jumps {
+  canGoBack: () => boolean
+  back: () => void
+  forward: () => void
+}
+
+/**
+ * Ctrl-o and Ctrl-i, where the pane has no other use for them: back and
+ * forward through the pages visited, as Vim's go through its jump list
+ * (ADR-124), so a page opened with `gx` is left with Ctrl-o. Ctrl-o never
+ * leaves the app (nor opens the browser's file dialog) when it was the
+ * first page.
+ */
+export function jump(key: Key, history: Jumps): boolean {
+  if (key === '<C-o>') {
+    if (history.canGoBack()) history.back()
+    return true
+  }
+  if (key === '<C-i>') {
+    history.forward()
+    return true
+  }
+  return false
+}
+
 /**
  * Keys in a list of links (the sidebar), through the user's mappings for
  * that pane (`autocmd FileType sidebar nnoremap l <CR>`, ADR-075): j/k and
@@ -191,6 +218,7 @@ export function useListKeys(
     [keymap, pane],
   )
   const state = useRef({ op: '', timer: 0 })
+  const { history } = useRouter()
 
   function items(list: HTMLElement): Array<HTMLElement> {
     return [
@@ -242,7 +270,7 @@ export function useListKeys(
         return true
       }
       default:
-        return false
+        return jump(key, history)
     }
   }
 

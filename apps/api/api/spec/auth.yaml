@@ -407,8 +407,13 @@ schemas:
 
   Preferences:
     type: object
-    required: [editorKeymap]
+    required: [editorKeymap, amountGrouping]
     properties:
+      amountGrouping:
+        type: integer
+        format: int32
+        enum: [3, 4]
+        description: How amounts group their digits (ADR-122) — 3 is 1,000,000, 4 is 100,0000 (萬).
       editorKeymap:
         type: string
         maxLength: 8000

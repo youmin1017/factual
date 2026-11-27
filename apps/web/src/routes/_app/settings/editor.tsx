@@ -8,7 +8,9 @@ import { Textarea } from '#/components/ui/textarea'
 import { $api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
 import { parseKeymap } from '#/lib/keymap'
+import { formatAmount } from '#/lib/money'
 import { preferencesQuery } from '#/lib/preferences'
+import { cn } from '#/lib/utils'
 
 export const Route = createFileRoute('/_app/settings/editor')({
   staticData: { crumb: '編輯器', section: '設定' },
@@ -22,6 +24,7 @@ function EditorSettingsPage() {
   return (
     <div>
       <PageHeader title="編輯器" />
+      <AmountFormat />
       <KeymapForm />
       <Section
         title="寫法"
@@ -44,7 +47,14 @@ function EditorSettingsPage() {
 
 const reference: Array<[string, string]> = [
   ['nnoremap H 0', '一般模式：按 H 等於按 0'],
-  ['inoremap jk <Esc>', '插入模式：一秒內連按 jk 回到一般模式'],
+  [
+    'inoremap jk <Esc>',
+    '插入模式：連按 jk 回到一般模式（兩鍵要在 timeoutlen 內，預設 1 秒）',
+  ],
+  [
+    'set timeoutlen=500',
+    '多鍵對應等下一個鍵的時間（毫秒，100 到 5000，預設 1000）；越短，只打 j 之後越快出現建議清單',
+  ],
   [
     'inoremap <C-j> <C-n>',
     '插入模式：Ctrl-j 選下一個建議。Chrome 不讓網頁攔下 Ctrl-n（會開新視窗），可以這樣換成別的鍵',
@@ -80,6 +90,64 @@ nnoremap <C-l> <C-w>l
 " 在側欄按 l 打開帳戶
 autocmd FileType sidebar nnoremap l <CR>`
 
+/**
+ * How amounts group their digits (ADR-122): by three (1,000,000) or by four
+ * (100,0000, as 萬 counts them), shown everywhere and put in while typing.
+ */
+function AmountFormat() {
+  const queryClient = useQueryClient()
+  const prefs = useQuery(preferencesQuery())
+  const chosen = prefs.data?.amountGrouping ?? 3
+  const save = $api.useMutation('put', '/me/preferences', {
+    onSuccess: (data) => {
+      queryClient.setQueryData(preferencesQuery().queryKey, data)
+      toast.success('金額格式已儲存')
+    },
+    onError: (e) => toast.error(apiErrorMessage(e)),
+  })
+  const options: Array<{ value: 3 | 4; label: string; sample: string }> = [
+    { value: 3, label: '每三位', sample: formatAmount(123456789, 0, 3) },
+    { value: 4, label: '每四位（萬）', sample: formatAmount(123456789, 0, 4) },
+  ]
+  return (
+    <Section
+      title="金額格式"
+      description="金額的逗號怎麼分：顯示時，以及在格子裡輸入金額時自動加上。"
+    >
+      <div
+        role="group"
+        aria-label="金額的分位"
+        className="flex w-fit items-center rounded-md border border-rule text-sm"
+      >
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={chosen === o.value}
+            disabled={prefs.isPending || save.isPending}
+            onClick={() =>
+              chosen !== o.value &&
+              save.mutate({
+                body: {
+                  editorKeymap: prefs.data?.editorKeymap ?? '',
+                  amountGrouping: o.value,
+                },
+              })
+            }
+            className={cn(
+              'flex h-9 items-center gap-3 px-3 text-muted-foreground first:rounded-l-md last:rounded-r-md hover:text-foreground disabled:opacity-60',
+              chosen === o.value && 'bg-accent text-foreground',
+            )}
+          >
+            {o.label}
+            <span className="amount">{o.sample}</span>
+          </button>
+        ))}
+      </div>
+    </Section>
+  )
+}
+
 /** The editors' key mappings, written like a vimrc (ADR-070). */
 function KeymapForm() {
   const queryClient = useQueryClient()
@@ -105,7 +173,12 @@ function KeymapForm() {
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
-    save.mutate({ body: { editorKeymap: text } })
+    save.mutate({
+      body: {
+        editorKeymap: text,
+        amountGrouping: prefs.data?.amountGrouping ?? 3,
+      },
+    })
   }
 
   return (

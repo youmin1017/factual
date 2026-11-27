@@ -28,9 +28,9 @@ import { Wordmark } from '#/components/wordmark'
 import { $api } from '#/lib/api'
 import { meQueryOptions } from '#/lib/auth'
 import { accountsQuery, budgetsQueryOptions, homeBudget } from '#/lib/budget'
-import { formatAmount } from '#/lib/money'
+import { formatAmount, setAmountGrouping } from '#/lib/money'
 import { useListKeys, usePaneNavigation } from '#/lib/panes'
-import { useKeymap } from '#/lib/preferences'
+import { preferencesQuery, useKeymap } from '#/lib/preferences'
 import { cn } from '#/lib/utils'
 import type { CurrentUser } from '#/lib/auth'
 import type { Account, Budget } from '#/lib/budget'
@@ -43,8 +43,11 @@ export const Route = createFileRoute('/_app')({
     if (!user) {
       throw redirect({ to: '/login', search: { redirect: location.href } })
     }
-    const budgets =
-      await context.queryClient.ensureQueryData(budgetsQueryOptions)
+    const [budgets] = await Promise.all([
+      context.queryClient.ensureQueryData(budgetsQueryOptions),
+      // How amounts are grouped is needed before the first amount is drawn.
+      context.queryClient.ensureQueryData(preferencesQuery()),
+    ])
     return { user, budgets }
   },
   component: AppLayout,
@@ -61,11 +64,17 @@ function AppLayout() {
   const wide = useMatches().some((m) => m.staticData.wide)
   const budget = budgets.find((b) => b.id === budgetId) ?? homeBudget(budgets)
   const keymap = useKeymap()
+  // Amounts are formatted with the user's grouping (ADR-122); changing it
+  // draws the whole frame again (`key` below).
+  const grouping = useQuery(preferencesQuery()).data?.amountGrouping ?? 3
+  setAmountGrouping(grouping)
   usePaneNavigation(keymap)
   const onSidebarKeyDown = useListKeys(keymap, 'sidebar')
 
   return (
-    <div className="flex h-dvh flex-col">
+    // Keyed by the grouping so every amount, the sidebar's too, is drawn
+    // again when it changes.
+    <div key={grouping} className="flex h-dvh flex-col">
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <aside
           data-pane="sidebar"

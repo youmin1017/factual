@@ -1314,7 +1314,7 @@ export function GoalGrid({
                           : undefined
                     }
                     width={layout.widths[column]}
-                    options={options}
+                    options={feed.waiting ? [] : options}
                     pick={takenIndex(options)}
                     onChange={(value) => {
                       setEdit(value)

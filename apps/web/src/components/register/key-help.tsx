@@ -6,7 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '#/components/ui/dialog'
-import type { Keymap, Pane } from '#/lib/keymap'
+import type { Keymap, KeymapMode, Pane } from '#/lib/keymap'
 
 /** One line of the reference: the keys, and what they do. */
 type Entry = [keys: string, does: string]
@@ -25,6 +25,7 @@ export const registerKeys: Array<KeyGroup> = [
       ['Ctrl-d Ctrl-u', '往下、往上半頁'],
       ['Ctrl-f Ctrl-b', '往下、往上一頁'],
       ['5j', '數字加移動：往下 5 列'],
+      ['Ctrl-o Ctrl-i', '回到上一頁、再往前（例如 gx 打開後回來）'],
     ],
   },
   {
@@ -380,12 +381,13 @@ export const splittingKeys: Array<KeyGroup> = [
       ['h l', '左右一欄'],
       ['gg G', '第一列、最後一列'],
       ['gx', '打開這位朋友或這個群組的分帳'],
+      ['Ctrl-o Ctrl-i', '回到上一頁、再往前（例如 gx 打開後回來）'],
     ],
   },
   {
     title: '修改',
     entries: [
-      ['i a Enter', '名稱直接改；成員打開表單；新的一列可以把類型改成群組'],
+      ['i a Enter', '名稱直接改；成員一位一位加；新的一列可以把類型改成群組'],
       ['c s', '清空再輸入'],
       ['o O', '在下面、上面新增（跟游標這一列同類型）'],
       ['x', '封存或取消封存群組（封存前要先結清）'],
@@ -395,12 +397,14 @@ export const splittingKeys: Array<KeyGroup> = [
     ],
   },
   {
-    title: '成員表單',
+    title: '成員（在群組的成員欄按 i）',
     entries: [
-      ['j k  Tab', '上一位、下一位朋友'],
-      ['h l', '在群組、不在'],
-      ['Enter Esc', '套用'],
-      ['Ctrl-c', '放棄'],
+      ['打字', '找朋友；沒有這個名字就會出現「新增朋友」'],
+      ['Ctrl-n Ctrl-p ↑↓', '在清單裡上下選'],
+      ['Enter', '加入選到的朋友（什麼都沒打時就是完成）'],
+      ['Backspace', '沒打字時拿掉最後一位（有分帳的成員不能拿掉）'],
+      ['Tab Esc', '完成'],
+      ['Ctrl-c', '放棄這次的修改'],
     ],
   },
   {
@@ -423,6 +427,7 @@ export const friendKeys: Array<KeyGroup> = [
       ['h l', '左右一欄（0 到最左，$ 到最右）'],
       ['gg G', '第一筆、最後一筆'],
       ['Ctrl-d Ctrl-u', '往下、往上半頁'],
+      ['Ctrl-o Ctrl-i', '回到上一頁、再往前（例如 gx 打開後回來）'],
     ],
   },
   {
@@ -493,6 +498,7 @@ export const accountKeys: Array<KeyGroup> = [
       ['h l', '左右一欄'],
       ['gg G', '第一個、最後一個'],
       ['gx', '打開這個帳戶的明細'],
+      ['Ctrl-o Ctrl-i', '回到上一頁、再往前（例如 gx 打開後回來）'],
     ],
   },
   {
@@ -510,7 +516,11 @@ export const accountKeys: Array<KeyGroup> = [
       ],
       ['o dd', '在貸款條件上：加一段利率調整、刪掉這段利率調整'],
       ['dd', '刪除沒有交易的帳戶（:w 才刪；再 dd 取消）'],
-      ['dd p', '貼到別處：調整順序（ddp 往下一個，ddkP 往上一個）'],
+      [
+        'Alt-j Alt-k',
+        '調整順序：往下、往上搬一個（3 Alt-j 搬三個；V 選取幾個一起搬）',
+      ],
+      ['dd p', '也可以剪下再貼到別處調整順序（ddp 往下一個，ddkP 往上一個）'],
       ['yy p', '複製設定成新帳戶'],
       ['u Ctrl-r', '復原、重做'],
     ],
@@ -530,6 +540,7 @@ export const accountKeys: Array<KeyGroup> = [
     entries: [
       [':w', '儲存'],
       [':close :reopen', '關閉、重新開啟（選取時作用在選取的帳戶）'],
+      [':m 3', '搬到第 3 個；:m 0 最上面、:m $ 最下面（選取時搬選取的帳戶）'],
       [':loan', '展開貸款條件並移到第一條（同 zo）'],
       [':open', '打開帳戶明細'],
       [':e!', '放棄所有未儲存的變更'],
@@ -537,7 +548,7 @@ export const accountKeys: Array<KeyGroup> = [
   },
 ]
 
-const modeNames: Record<keyof Keymap, string> = {
+const modeNames: Record<KeymapMode, string> = {
   normal: '一般',
   visual: '選取',
   insert: '插入',
@@ -571,7 +582,7 @@ export function KeyHelp({
   keymap: Keymap
   groups?: Array<KeyGroup>
 }) {
-  const mappings = (Object.keys(modeNames) as Array<keyof Keymap>).flatMap(
+  const mappings = (Object.keys(modeNames) as Array<KeymapMode>).flatMap(
     (mode) =>
       keymap[mode].map((m) => ({
         mode,

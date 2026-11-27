@@ -1,11 +1,11 @@
 import { formatAmount } from './money.ts'
 import type { Schemas } from './api'
-import type { Field } from './form.ts'
 import type { Friend, Group } from './split.ts'
 
 // The 分帳 page (ADR-116): the user's groups and friends as one grid, saved
 // with :w through POST /splitting/batch. Groups come first, then friends,
-// each by name; a group's members are edited in a form listing the friend
+// each by name; a group's members are picked as chips, typing to find a
+// friend or to add a new one (ADR-120), from the friend
 // lines (new ones included). Pure, tested with node.
 
 export type SplittingBatch = Schemas['SplittingBatch']
@@ -360,45 +360,147 @@ export function partyPatch(
   }
 }
 
-// ---------- the members form (ADR-107)
+// ---------- the members picker (ADR-120)
 
-export function memberFormValues(
-  row: PartyRow,
+/** A friend added from the picker by name, saved with the group as a new friend line. */
+export interface AddedFriend {
+  id: string
+  name: string
+}
+
+/** What the picker holds while it is open: the members, in order, and friends it added. */
+export interface MemberPick {
+  members: Array<string>
+  added: Array<AddedFriend>
+}
+
+/** The value of the option that adds a new friend by the name typed. */
+export const NEW_FRIEND = 'new:'
+
+export interface MemberOption {
+  /** A friend's id, or NEW_FRIEND and the name. */
+  value: string
+  label: string
+  hint?: string
+}
+
+/** How a member is called: their line's name, or the saved member's. */
+export function memberName(
   rows: Array<PartyRow>,
-): Record<string, string> {
-  return Object.fromEntries(
-    memberChoices(rows, row).map((f) => [
-      f.id,
-      row.members.includes(f.id) ? 'yes' : 'no',
-    ]),
+  group: PartyRow,
+  id: string,
+  added: Array<AddedFriend> = [],
+): string {
+  return (
+    added.find((a) => a.id === id)?.name ||
+    rows.find((r) => r.id === id)?.name ||
+    groupOf(group)?.members.find((m) => m.userId === id)?.displayName ||
+    '?'
   )
 }
 
-export function memberFormFields(
-  row: PartyRow,
+/**
+ * The friends the picker offers for what is typed: friends not in the group
+ * yet whose name has it (those starting with it first, then by name), and
+ * a new friend of that name when no friend has exactly it.
+ */
+export function memberOptions(
   rows: Array<PartyRow>,
-): Array<Field> {
-  return memberChoices(rows, row).map((f) => ({
-    key: f.id,
+  group: PartyRow,
+  pick: MemberPick,
+  query: string,
+): Array<MemberOption> {
+  const q = query.trim().toLowerCase()
+  const candidates = memberChoices(rows, { ...group, members: pick.members })
+    .filter((f) => !pick.members.includes(f.id))
+    .filter((f) => !q || f.name.toLowerCase().includes(q))
+    .toSorted(
+      (x, y) =>
+        Number(!x.name.toLowerCase().startsWith(q)) -
+          Number(!y.name.toLowerCase().startsWith(q)) ||
+        x.name.localeCompare(y.name, 'zh-Hant'),
+    )
+  const options: Array<MemberOption> = candidates.map((f) => ({
+    value: f.id,
     label: f.name || '（未命名）',
-    type: 'choice' as const,
-    options: [
-      { value: 'yes', label: '在群組' },
-      { value: 'no', label: '不在' },
-    ],
+    hint: f.base ? undefined : '未儲存',
   }))
+  const typed = query.trim()
+  const taken = [
+    ...rows.filter((r) => !r.deleted).map((r) => r.name.trim()),
+    ...pick.added.map((x) => x.name),
+  ]
+  if (typed && !taken.includes(typed))
+    options.push({
+      value: NEW_FRIEND + typed,
+      label: `新增朋友「${typed}」`,
+      hint: '還沒有帳號也可以',
+    })
+  return options
 }
 
-export function applyMemberForm(
-  row: PartyRow,
-  values: Record<string, string>,
+/** The pick with an option taken: a friend joins, or a new one is added and joins. */
+export function takeMember(
+  pick: MemberPick,
+  option: MemberOption,
+  newId: () => string,
+): MemberPick {
+  if (option.value.startsWith(NEW_FRIEND)) {
+    const added = { id: newId(), name: option.value.slice(NEW_FRIEND.length) }
+    return {
+      members: [...pick.members, added.id],
+      added: [...pick.added, added],
+    }
+  }
+  if (pick.members.includes(option.value)) return pick
+  return { ...pick, members: [...pick.members, option.value] }
+}
+
+/** Why a member cannot leave the group: they paid or shared in it. */
+export function memberLocked(
+  group: PartyRow,
+  id: string,
   rows: Array<PartyRow>,
-): Partial<PartyRow> | string {
-  const members = memberChoices(rows, row)
-    .map((f) => f.id)
-    .filter((id) => values[id] === 'yes')
-  if (members.length === 0) return '群組至少要有一位朋友'
-  return { members }
+): string | null {
+  const m = groupOf(group)?.members.find((x) => x.userId === id)
+  if (!m || (m.paid === 0 && m.share === 0)) return null
+  return `${memberName(rows, group, id)} 有群組裡的分帳，不能移除`
+}
+
+/** The pick without a member, or why they stay. */
+export function dropMember(
+  pick: MemberPick,
+  group: PartyRow,
+  id: string,
+  rows: Array<PartyRow>,
+): MemberPick | string {
+  const locked = memberLocked(group, id, rows)
+  if (locked) return locked
+  return {
+    members: pick.members.filter((m) => m !== id),
+    added: pick.added.filter((a) => a.id !== id),
+  }
+}
+
+/**
+ * The lines with the pick applied: the group's members set, and the friends
+ * it added (and kept) as new friend lines after the others; or why not.
+ */
+export function applyMemberPick(
+  rows: Array<PartyRow>,
+  groupId: string,
+  pick: MemberPick,
+): Array<PartyRow> | string {
+  if (pick.members.length === 0) return '群組至少要有一位朋友'
+  let next = rows.map((r) =>
+    r.id === groupId ? { ...r, members: pick.members } : r,
+  )
+  for (const a of pick.added) {
+    if (!pick.members.includes(a.id)) continue
+    const row = { ...newPartyRow(a.id, 'friend'), name: a.name }
+    next = next.toSpliced(insertIndex(next, 'friend', next.length), 0, row)
+  }
+  return next
 }
 
 // ---------- problems from the server

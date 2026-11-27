@@ -105,11 +105,13 @@ func currentUser(u User) api.CurrentUser {
 const maxKeymapLen = 8000
 
 func (h *Handlers) GetPreferences(ctx context.Context, _ api.GetPreferencesRequestObject) (api.GetPreferencesResponseObject, error) {
-	keymap, err := h.s.q.GetPreferences(ctx, reqctx.Caller(ctx).UserID)
+	p, err := h.s.q.GetPreferences(ctx, reqctx.Caller(ctx).UserID)
 	if err != nil {
 		return nil, apperr.FromDB(err)
 	}
-	return api.GetPreferences200JSONResponse{EditorKeymap: keymap}, nil
+	return api.GetPreferences200JSONResponse{
+		EditorKeymap: p.EditorKeymap, AmountGrouping: api.PreferencesAmountGrouping(p.AmountGrouping),
+	}, nil
 }
 
 func (h *Handlers) UpdatePreferences(ctx context.Context, req api.UpdatePreferencesRequestObject) (api.UpdatePreferencesResponseObject, error) {
@@ -117,9 +119,15 @@ func (h *Handlers) UpdatePreferences(ctx context.Context, req api.UpdatePreferen
 	if len(keymap) > maxKeymapLen {
 		return nil, apperr.BadRequest("keymap_too_long", "the key mappings are at most 8000 bytes")
 	}
-	err := h.s.q.UpdatePreferences(ctx, db.UpdatePreferencesParams{ID: reqctx.Caller(ctx).UserID, EditorKeymap: keymap})
+	grouping := req.Body.AmountGrouping
+	if !grouping.Valid() {
+		return nil, apperr.BadRequest("invalid_grouping", "amounts group their digits by 3 or by 4")
+	}
+	err := h.s.q.UpdatePreferences(ctx, db.UpdatePreferencesParams{
+		ID: reqctx.Caller(ctx).UserID, EditorKeymap: keymap, AmountGrouping: int16(grouping),
+	})
 	if err != nil {
 		return nil, err
 	}
-	return api.UpdatePreferences200JSONResponse{EditorKeymap: keymap}, nil
+	return api.UpdatePreferences200JSONResponse{EditorKeymap: keymap, AmountGrouping: grouping}, nil
 }

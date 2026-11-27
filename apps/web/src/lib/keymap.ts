@@ -59,6 +59,8 @@ export interface Keymap {
   /** Visual mode (rows selected with `V`): `vnoremap`, `xnoremap`, `noremap`. */
   visual: Array<Mapping>
   insert: Array<Mapping>
+  /** `set timeoutlen=…`: how long a partly typed mapping waits, in ms (TIMEOUT_MS when not set). */
+  timeoutlen?: number
 }
 
 export interface KeymapError {
@@ -68,8 +70,11 @@ export interface KeymapError {
 
 export const emptyKeymap: Keymap = { normal: [], visual: [], insert: [] }
 
-/** How long a partly typed mapping waits for its next key (Vim's timeoutlen). */
+/** How long a partly typed mapping waits for its next key by default (Vim's timeoutlen). */
 export const TIMEOUT_MS = 1000
+
+/** The bounds of `set timeoutlen`, in ms. */
+export const TIMEOUT_RANGE = { min: 100, max: 5000 }
 
 const named: Record<string, Key> = {
   esc: '<Esc>',
@@ -138,7 +143,9 @@ export function parseKeys(text: string, leader: Key = '\\'): Array<Key> {
   return keys
 }
 
-type Mode = keyof Keymap
+/** The modes a keymap maps keys in. */
+export type KeymapMode = 'normal' | 'visual' | 'insert'
+type Mode = KeymapMode
 
 // As in Vim, `map` and `noremap` apply to normal and visual mode.
 const commands: Record<string, Array<Mode>> = {
@@ -174,6 +181,24 @@ export function parseKeymap(text: string): {
     const line = index + 1
     const src = raw.trim()
     if (!src || src.startsWith('"')) return
+    // `set timeoutlen=500` (or `set tm=500`), as in Vim.
+    const timeout = /^set?\s+(?:timeoutlen|tm)\s*=\s*(\S*)$/.exec(src)
+    if (timeout) {
+      const ms = Number(timeout[1])
+      if (
+        !/^\d+$/.test(timeout[1]) ||
+        ms < TIMEOUT_RANGE.min ||
+        ms > TIMEOUT_RANGE.max
+      ) {
+        errors.push({
+          line,
+          message: `timeoutlen 是 ${TIMEOUT_RANGE.min} 到 ${TIMEOUT_RANGE.max} 的毫秒數，例如 set timeoutlen=500`,
+        })
+      } else {
+        keymap.timeoutlen = ms
+      }
+      return
+    }
     const leaderMatch = /^let\s+(?:g:)?mapleader\s*=\s*(["'])(.*)\1$/.exec(src)
     if (leaderMatch) {
       const value = leaderMatch[2] === '\\<Space>' ? ' ' : leaderMatch[2]
@@ -379,13 +404,20 @@ export class InsertMapper {
   private typed: Array<Key> = []
   private at = 0
   private maps: Array<Mapping>
+  private timeout: number
 
-  constructor(maps: Array<Mapping>) {
+  constructor(maps: Array<Mapping>, timeout = TIMEOUT_MS) {
     this.maps = maps
+    this.timeout = timeout
   }
 
   reset(): void {
     this.typed = []
+  }
+
+  /** Whether the last keys typed start a mapping (it may still complete). */
+  get waiting(): boolean {
+    return this.typed.length > 0
   }
 
   /**
@@ -393,7 +425,7 @@ export class InsertMapper {
    * many characters already typed belong to it, or null to type the key.
    */
   feed(key: Key, now: number): { rhs: Array<Key>; erase: number } | null {
-    if (now - this.at > TIMEOUT_MS) this.typed = []
+    if (now - this.at > this.timeout) this.typed = []
     this.at = now
     const buffer = isPrintable(key) ? [...this.typed, key] : [key]
     for (let i = 0; i < buffer.length; i++) {

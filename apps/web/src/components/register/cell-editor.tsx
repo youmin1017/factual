@@ -1,6 +1,7 @@
-import { useLayoutEffect } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { zhTW } from 'react-day-picker/locale'
 import { Calendar } from '#/components/ui/calendar'
+import { caretAfterGrouping, groupAmountText } from '#/lib/money'
 import { isoDate } from '#/lib/register'
 import { cn } from '#/lib/utils'
 
@@ -29,6 +30,8 @@ export function CellEditor({
   onKeyDown,
   onChoose,
   calendar,
+  chips,
+  enterHint,
 }: {
   inputRef: React.RefObject<HTMLElement | null>
   value: string
@@ -48,6 +51,13 @@ export function CellEditor({
    * (`value`, ISO or ''); a day clicked is taken at once.
    */
   calendar?: { value: string; onPick: (iso: string) => void }
+  /**
+   * Values already picked, drawn in the box before the text (a group's
+   * members, ADR-120); the box grows a line at a time to hold them.
+   */
+  chips?: React.ReactNode
+  /** What Enter does while nothing in the list is highlighted, when not the usual. */
+  enterHint?: string
 }) {
   const day = calendar ? fromIso(calendar.value) : undefined
   const thisYear = new Date().getFullYear()
@@ -59,6 +69,7 @@ export function CellEditor({
         label={label}
         numeric={numeric}
         listed={options.length > 0}
+        chips={chips}
         onChange={onChange}
         onKeyDown={onKeyDown}
       />
@@ -124,8 +135,9 @@ export function CellEditor({
           {/* Nothing highlighted: say what Enter does instead. */}
           {pick < 0 && (
             <p className="border-t px-2 py-1 text-xs text-muted-foreground">
-              {value.trim() === '' ? 'Enter 留空' : 'Enter 用你打的字'} · ↓
-              選建議
+              {enterHint ??
+                (value.trim() === '' ? 'Enter 留空' : 'Enter 用你打的字')}{' '}
+              · ↓ 選建議
             </p>
           )}
         </div>
@@ -166,6 +178,18 @@ function caretOf(field: HTMLElement | null): number | null {
   return range.toString().length
 }
 
+/** Puts the caret `at` characters into the text of an editable element. */
+function caretAt(el: HTMLElement, at: number) {
+  const sel = window.getSelection()
+  const text = el.firstChild
+  if (!sel || !text) return caretToEnd(el)
+  const range = document.createRange()
+  range.setStart(text, Math.min(at, text.textContent?.length ?? 0))
+  range.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
 /** Puts the caret after the text of an editable element. */
 function caretToEnd(el: HTMLElement) {
   const sel = window.getSelection()
@@ -191,6 +215,7 @@ function TextField({
   label,
   numeric,
   listed,
+  chips,
   onChange,
   onKeyDown,
 }: {
@@ -199,22 +224,62 @@ function TextField({
   label: string
   numeric?: 'date' | 'amount'
   listed: boolean
+  chips?: React.ReactNode
   onChange: (value: string) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void
 }) {
+  // An amount shows its digits grouped as the user prefers, while typed too
+  // (ADR-122); the grid's value may come without the commas.
+  const grouped = numeric === 'amount'
+  const shown = grouped ? groupAmountText(value) : value
   useLayoutEffect(() => {
     const el = fieldRef.current
     if (!el) return
-    if (el.textContent !== value) {
-      el.textContent = value
+    if (el.textContent !== shown) {
+      el.textContent = shown
       if (document.activeElement === el) caretToEnd(el)
     }
-  }, [fieldRef, value])
+  }, [fieldRef, shown])
   useLayoutEffect(() => {
     const el = fieldRef.current
     if (!el) return
     el.focus({ preventScroll: true })
     caretToEnd(el)
+  }, [fieldRef])
+  // The native beforeinput (React's onBeforeInput only sees typed text, not
+  // deletions): Enter never makes a line break, and Backspace or Delete on
+  // a grouping comma takes the digit beside it, since the comma itself
+  // would only come back.
+  const latest = useRef({ grouped, onChange })
+  latest.current = { grouped, onChange }
+  useLayoutEffect(() => {
+    const el = fieldRef.current
+    if (!el) return
+    const before = (e: InputEvent) => {
+      const type = e.inputType
+      if (type === 'insertParagraph' || type === 'insertLineBreak') {
+        e.preventDefault()
+        return
+      }
+      const caret = latest.current.grouped ? caretOf(el) : null
+      if (caret === null || !window.getSelection()?.isCollapsed) return
+      const text = el.textContent
+      const at =
+        type === 'deleteContentBackward' && text[caret - 1] === ','
+          ? caret - 2
+          : type === 'deleteContentForward' && text[caret] === ','
+            ? caret + 1
+            : -1
+      if (at < 0 || at >= text.length) return
+      e.preventDefault()
+      const cut = text.slice(0, at) + text.slice(at + 1)
+      const next = groupAmountText(cut)
+      el.textContent = next
+      caretAt(el, caretAfterGrouping(cut, at, next))
+      latest.current.onChange(next)
+    }
+    el.addEventListener('beforeinput', before)
+    return () => el.removeEventListener('beforeinput', before)
   }, [fieldRef])
 
   return (
@@ -223,7 +288,9 @@ function TextField({
         // The cursor's box, with the line where the cell's text is: px-1.5
         // and the 2px border make the cell's px-2, pb-px leaves the 31px a
         // row has above its bottom border.
-        'flex h-8 w-full cursor-text items-center border-2 border-positive bg-popover px-1.5 pb-px text-sm leading-normal',
+        'flex w-full cursor-text items-center border-2 border-positive bg-popover px-1.5 text-sm leading-normal',
+        // With chips the box wraps onto more lines rather than hide them.
+        chips ? 'min-h-8 flex-wrap gap-x-1.5 gap-y-1 pb-px' : 'h-8 pb-px',
         numeric && 'font-mono',
       )}
       onMouseDown={(e) => {
@@ -234,6 +301,7 @@ function TextField({
         }
       }}
     >
+      {chips}
       <span
         ref={fieldRef}
         role="textbox"
@@ -246,15 +314,10 @@ function TextField({
         autoCapitalize="off"
         className={cn(
           'min-w-0 flex-1 overflow-x-auto whitespace-pre outline-none [scrollbar-width:none]',
+          chips && 'min-w-16',
           numeric === 'amount' && 'text-right',
         )}
         onKeyDown={onKeyDown}
-        onBeforeInput={(e) => {
-          // One line: Enter is the editor's, never a line break.
-          const type = e.nativeEvent.inputType
-          if (type === 'insertParagraph' || type === 'insertLineBreak')
-            e.preventDefault()
-        }}
         onInput={(e) => {
           const el = e.currentTarget
           const raw = el.textContent
@@ -264,7 +327,15 @@ function TextField({
             el.textContent = clean
             caretToEnd(el)
           }
-          onChange(clean)
+          // Commas follow the digits as they are typed, the caret staying
+          // after the same digit.
+          const text = grouped ? groupAmountText(clean) : clean
+          if (text !== clean) {
+            const caret = caretOf(el) ?? clean.length
+            el.textContent = text
+            caretAt(el, caretAfterGrouping(clean, caret, text))
+          }
+          onChange(text)
         }}
       />
     </div>

@@ -109,17 +109,20 @@ func TestPreferences(t *testing.T) {
 	wantStatus(t, rec, http.StatusOK)
 	var p api.Preferences
 	decode(t, rec, &p)
-	if p.EditorKeymap != "" {
-		t.Fatalf("default keymap = %q", p.EditorKeymap)
+	if p.EditorKeymap != "" || p.AmountGrouping != api.N3 {
+		t.Fatalf("default preferences = %+v", p)
 	}
 
-	rec = admin.do(http.MethodPut, "/api/me/preferences", api.Preferences{EditorKeymap: "inoremap jk <Esc>\r\nnnoremap H 0\n"})
+	rec = admin.do(http.MethodPut, "/api/me/preferences", api.Preferences{AmountGrouping: api.N4, EditorKeymap: "inoremap jk <Esc>\r\nnnoremap H 0\n"})
 	wantStatus(t, rec, http.StatusOK)
 	rec = admin.do(http.MethodGet, "/api/me/preferences", nil)
 	decode(t, rec, &p)
-	if p.EditorKeymap != "inoremap jk <Esc>\nnnoremap H 0\n" {
-		t.Fatalf("keymap = %q", p.EditorKeymap)
+	if p.EditorKeymap != "inoremap jk <Esc>\nnnoremap H 0\n" || p.AmountGrouping != api.N4 {
+		t.Fatalf("preferences = %+v", p)
 	}
+	// Digits group by 3 or by 4 only.
+	wantStatus(t, admin.do(http.MethodPut, "/api/me/preferences", map[string]any{"editorKeymap": "", "amountGrouping": 5}),
+		http.StatusBadRequest)
 
 	// Each user has their own.
 	hs.addUser("ming", "ming-password")

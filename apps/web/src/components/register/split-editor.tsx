@@ -671,7 +671,7 @@ export function SplitEditor({
                                 : undefined
                             }
                             width={widths[c]}
-                            options={options}
+                            options={feed.waiting ? [] : options}
                             pick={takenIndex(options)}
                             onChange={(v) => {
                               setEdit(v)

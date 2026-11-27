@@ -1553,6 +1553,12 @@ export interface components {
     }
     Preferences: {
       /**
+       * Format: int32
+       * @description How amounts group their digits (ADR-122) — 3 is 1,000,000, 4 is 100,0000 (萬).
+       * @enum {integer}
+       */
+      amountGrouping: 3 | 4
+      /**
        * @description Key mappings for the editors in vimrc form (`inoremap jk <Esc>`,
        *     `nnoremap H 0`, `let mapleader = ","`). Parsed by the web app;
        *     the server only stores it.

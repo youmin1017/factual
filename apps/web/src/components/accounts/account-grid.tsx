@@ -576,7 +576,7 @@ export function AccountGrid({
     const used = marked.filter((t) => t.base?.hasActivity).length
     say(
       marked.length > 0
-        ? `已標記刪除 ${marked.length} 個帳戶，移到最下面（:w 才刪除）；p 貼回別處就是調整順序${
+        ? `已標記刪除 ${marked.length} 個帳戶，移到最下面（:w 才刪除）；p 貼回別處就是調整順序，只是要搬的話用 Alt-j / Alt-k 比較快${
             used > 0 ? `。其中 ${used} 個有交易不能刪，請改用 :close` : ''
           }`
         : `已移除 ${targets.length} 個未儲存的帳戶，u 可以復原`,
@@ -624,6 +624,28 @@ export function AccountGrid({
       yanked.current = yanked.current.map((r) => ({ ...r, base: null }))
       say(`已調整 ${moving.size} 個帳戶的順序（:w 儲存）`)
     }
+  }
+
+  /**
+   * Alt-j / Alt-k (and :m): moves the cursor's account, or the selected
+   * ones, among the accounts kept, `to` saying where the first of them
+   * goes (an index among the others). The cursor and the selection follow.
+   */
+  function moveLines(range: Range, to: (from: number, kept: number) => number) {
+    const block = rows.slice(range.from, range.to + 1)
+    if (block.length === 0) return
+    if (block.some((r) => r.deleted))
+      return say('標記刪除的帳戶不能搬：先 dd 取消刪除', 'error')
+    const rest = rows.filter((r) => !block.includes(r))
+    const kept = rest.filter((r) => !r.deleted).length
+    const at = Math.max(0, Math.min(kept, to(range.from, kept)))
+    if (at === range.from) return
+    change(rest.toSpliced(at, 0, ...block))
+    const shift = at - range.from
+    setSub(null)
+    setCursor((c) => ({ ...c, row: c.row + shift }))
+    if (mode === 'visual') setAnchor((a) => a + shift)
+    say(`已搬到第 ${at + 1} 個（:w 儲存順序）`)
   }
 
   function repeat() {
@@ -1174,6 +1196,13 @@ export function AccountGrid({
       discard()
     } else if (cmd === 'close' || cmd === 'reopen') {
       setClosed(range, cmd === 'close')
+    } else if (/^m(ove)?\s*(\d+|\$)$/.test(cmd)) {
+      // :m 3 puts the account (or the selected ones) third; :m 0 at the
+      // top, :m $ at the bottom.
+      const target = cmd.replace(/^m(ove)?\s*/, '')
+      moveLines(range, (_, kept) =>
+        target === '$' ? kept : Math.max(0, Number(target) - 1),
+      )
     } else if (cmd === 'loan') {
       if (current) toggleDetails(current.id, true, true)
     } else if (cmd === 'open') {
@@ -1284,6 +1313,27 @@ export function AccountGrid({
         return done(() => moveTo(cursor.row + half, cursor.col))
       case '<C-u>':
         return done(() => moveTo(cursor.row - half, cursor.col))
+      // Moving accounts, as editors move lines: Alt-j down, Alt-k up.
+      case '<M-j>':
+      case '<M-Down>':
+        return done(() =>
+          moveLines(
+            visual && selection
+              ? selection
+              : { from: cursor.row, to: cursor.row },
+            (from) => from + count,
+          ),
+        )
+      case '<M-k>':
+      case '<M-Up>':
+        return done(() =>
+          moveLines(
+            visual && selection
+              ? selection
+              : { from: cursor.row, to: cursor.row },
+            (from) => from - count,
+          ),
+        )
       case 'g':
       case 'z':
       case '<C-w>':
@@ -1791,7 +1841,7 @@ export function AccountGrid({
                                     d.numeric(active) ? 'date' : undefined
                                   }
                                   width={valueWidth}
-                                  options={subOptions()}
+                                  options={feed.waiting ? [] : subOptions()}
                                   pick={subTaken(subOptions())}
                                   onChange={(value) => {
                                     setEdit(value)

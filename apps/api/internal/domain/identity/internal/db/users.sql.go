@@ -54,14 +54,19 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (uuid.UU
 }
 
 const getPreferences = `-- name: GetPreferences :one
-select editor_keymap from users where id = $1
+select editor_keymap, amount_grouping from users where id = $1
 `
 
-func (q *Queries) GetPreferences(ctx context.Context, id uuid.UUID) (string, error) {
+type GetPreferencesRow struct {
+	EditorKeymap   string
+	AmountGrouping int16
+}
+
+func (q *Queries) GetPreferences(ctx context.Context, id uuid.UUID) (GetPreferencesRow, error) {
 	row := q.db.QueryRow(ctx, getPreferences, id)
-	var editor_keymap string
-	err := row.Scan(&editor_keymap)
-	return editor_keymap, err
+	var i GetPreferencesRow
+	err := row.Scan(&i.EditorKeymap, &i.AmountGrouping)
+	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
@@ -153,16 +158,18 @@ func (q *Queries) SetUserLastLogin(ctx context.Context, arg SetUserLastLoginPara
 }
 
 const updatePreferences = `-- name: UpdatePreferences :exec
-update users set editor_keymap = $1 where id = $2
+update users set editor_keymap = $1, amount_grouping = $2
+ where id = $3
 `
 
 type UpdatePreferencesParams struct {
-	EditorKeymap string
-	ID           uuid.UUID
+	EditorKeymap   string
+	AmountGrouping int16
+	ID             uuid.UUID
 }
 
 func (q *Queries) UpdatePreferences(ctx context.Context, arg UpdatePreferencesParams) error {
-	_, err := q.db.Exec(ctx, updatePreferences, arg.EditorKeymap, arg.ID)
+	_, err := q.db.Exec(ctx, updatePreferences, arg.EditorKeymap, arg.AmountGrouping, arg.ID)
 	return err
 }
 

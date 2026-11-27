@@ -153,4 +153,23 @@ assert.deepEqual(parseKeymap('nnoremap <C-h> <C-w>h').keymap.normal[0], {
   rhs: ['<C-w>', 'h'],
 })
 
+// `set timeoutlen`: how long `jk` may take, as in Vim.
+const quick = parseKeymap('set timeoutlen=300\ninoremap jk <Esc>')
+assert.equal(quick.keymap.timeoutlen, 300)
+assert.deepEqual(quick.errors, [])
+assert.equal(parseKeymap('set tm=800').keymap.timeoutlen, 800)
+assert.equal(parseKeymap('nnoremap H 0').keymap.timeoutlen, undefined)
+for (const bad of ['set timeoutlen=50', 'set timeoutlen=9000', 'set tm=abc']) {
+  const parsed = parseKeymap(bad)
+  assert.equal(parsed.errors.length, 1, bad)
+  assert.equal(parsed.keymap.timeoutlen, undefined)
+}
+const fast = new InsertMapper(quick.keymap.insert, quick.keymap.timeoutlen)
+assert.equal(fast.feed('j', 0), null)
+assert.equal(fast.waiting, true)
+// k after the timeout is just a k.
+assert.equal(fast.feed('k', 400), null)
+assert.equal(fast.feed('j', 1000), null)
+assert.deepEqual(fast.feed('k', 1200), { rhs: ['<Esc>'], erase: 1 })
+
 console.log('keymap: ok')

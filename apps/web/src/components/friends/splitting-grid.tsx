@@ -1,27 +1,22 @@
-import { useNavigate } from '@tanstack/react-router'
-import { CheckIcon } from 'lucide-react'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { ArrowUpRightIcon, CheckIcon, LockIcon, XIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '#/lib/api'
 import { errorCodeMessage } from '#/lib/apiError'
 import { setEditorStatus } from '#/lib/editorStatus'
-import {
-  focusField,
-  formKey,
-  openForm,
-  settleForm,
-  takeTyped,
-} from '#/lib/form'
 import { movePane, windowDirection } from '#/lib/panes'
 import { rankCell } from '#/lib/register'
 import {
-  applyMemberForm,
+  applyMemberPick,
   deleteBlocked,
+  dropMember,
   expenseCount,
   insertIndex,
   kindLabels,
   lockedReason,
-  memberFormFields,
-  memberFormValues,
+  memberLocked,
+  memberName,
+  memberOptions,
   membersText,
   newPartyRow,
   partyBalanceText,
@@ -35,18 +30,18 @@ import {
   partyStatus,
   placeByKind,
   registered,
+  takeMember,
   toBatch,
   validateParty,
 } from '#/lib/splitting'
 import { cn } from '#/lib/utils'
-import { FormPopover } from '../form-popover'
 import { CellEditor, eraseBeforeCaret, nextPick } from '../register/cell-editor'
 import { KeyHelp, splittingKeys } from '../register/key-help'
 import { useKeyFeed } from '../register/use-key-feed'
-import type { FormState } from '#/lib/form'
 import type { Key, Keymap } from '#/lib/keymap'
 import type { Friend, Group } from '#/lib/split'
 import type {
+  MemberPick,
   PartyColumn,
   PartyKind,
   PartyProblem,
@@ -101,7 +96,7 @@ function layoutOf(room: number): Layout {
   }
 }
 
-type Mode = 'normal' | 'visual' | 'insert' | 'form' | 'command'
+type Mode = 'normal' | 'visual' | 'insert' | 'command'
 
 interface Message {
   text: string
@@ -180,6 +175,12 @@ interface Props {
   reload: () => Promise<{ groups: Array<Group>; friends: Array<Friend> }>
 }
 
+/**
+ * The line and column the cursor was on, kept while the app runs so that
+ * coming back (Ctrl-o after gx, ADR-124) finds it where it was.
+ */
+let lastSpot: { id: string; col: number } | null = null
+
 export function SplittingGrid({
   me,
   groups,
@@ -195,7 +196,10 @@ export function SplittingGrid({
   const [rows, setRows] = useState<Array<PartyRow>>(() =>
     initialRows(partyRows(groups, friends, me), readDraft()),
   )
-  const [cursor, setCursor] = useState({ row: 0, col: 0 })
+  const [cursor, setCursor] = useState(() => {
+    const row = rows.findIndex((r) => r.id === lastSpot?.id)
+    return row < 0 ? { row: 0, col: 0 } : { row, col: lastSpot?.col ?? 0 }
+  })
   const [mode, setMode] = useState<Mode>('normal')
   const [edit, setEdit] = useState('')
   const [pick, setPick] = useState(0)
@@ -208,7 +212,8 @@ export function SplittingGrid({
   const [saving, setSaving] = useState(false)
   const [anchor, setAnchor] = useState(0)
   const [help, setHelp] = useState(false)
-  const [form, setForm] = useState<FormState | null>(null)
+  /** The members picker (ADR-120), while a group's 成員 cell is edited. */
+  const [picker, setPicker] = useState<MemberPick | null>(null)
 
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -233,9 +238,13 @@ export function SplittingGrid({
       : null
 
   useEffect(() => {
-    setEditorStatus({ mode: mode === 'form' ? 'insert' : mode, dirty })
+    setEditorStatus({ mode, dirty })
   }, [mode, dirty])
   useEffect(() => () => setEditorStatus(null), [])
+  const spotId = current?.id
+  useEffect(() => {
+    lastSpot = spotId ? { id: spotId, col: cursor.col } : null
+  }, [spotId, cursor.col])
   useEffect(() => {
     writeDraft(rows.some((r) => partyStatus(r, me) !== 'clean') ? rows : null)
   }, [rows, me])
@@ -413,41 +422,127 @@ export function SplittingGrid({
     setMode('insert')
   }
 
+  /**
+   * The members picker (ADR-120): the members as chips with a field after
+   * them; typing finds friends not in the group (or offers a new one of
+   * that name), Enter adds the highlighted one, Backspace on an empty field
+   * takes the last member off, Tab or Esc applies, Ctrl-c leaves it as it
+   * was.
+   */
   function openMembers(row: PartyRow) {
-    const fields = memberFormFields(row, rows)
-    if (fields.length === 0)
-      return say('還沒有可以加入的朋友：先在下面新增朋友（o）', 'error')
-    setForm(openForm(memberFormValues(row, rows), fields))
-    setMode('form')
+    setPicker({ members: [...row.members], added: [] })
+    setEdit('')
+    setPick(0)
+    setNavigated(false)
+    setMode('insert')
+    say(
+      '輸入名字找朋友，Enter 加入；沒有這個人就會新增；Backspace 拿掉最後一位；Tab 或 Esc 完成',
+    )
+  }
+
+  function memberChoicesNow(): ReturnType<typeof memberOptions> {
+    if (!picker || !current) return []
+    return memberOptions(rows, current, picker, edit)
+  }
+
+  function addMember(index: number) {
+    const options = memberChoicesNow()
+    const option = options.at(index)
+    if (!picker || !option) return
+    setPicker(takeMember(picker, option, () => crypto.randomUUID()))
+    setEdit('')
+    setPick(0)
+    setNavigated(false)
+  }
+
+  function removeMember(id: string) {
+    if (!picker || !current) return
+    const next = dropMember(picker, current, id, rows)
+    if (typeof next === 'string') return say(next, 'error')
+    setPicker(next)
     setMessage(null)
   }
 
-  function runForm(k: Key): boolean {
-    if (!form || !current) return false
-    const fields = memberFormFields(current, rows)
-    const result = formKey(form, fields, k, new Date())
-    if (!('done' in result)) {
-      setForm(settleForm(result.state, fields))
-      return true
+  /** Applies the picker to the group; false while it cannot be (no members). */
+  function applyMembers(): boolean {
+    if (!picker || !current) return true
+    const next = applyMemberPick(rows, current.id, picker)
+    if (typeof next === 'string') {
+      say(next, 'error')
+      return false
     }
-    if (result.done === 'cancel') {
-      setForm(null)
-      setMode('normal')
-      say('已取消編輯')
-      return true
+    if (JSON.stringify(next) !== JSON.stringify(rows)) {
+      change(next)
+      clearProblem(current.id)
     }
-    const patch = applyMemberForm(current, result.state.values, rows)
-    if (typeof patch === 'string') {
-      setForm({ ...result.state, error: patch })
-      return true
-    }
-    patchRow(current.id, patch)
-    setForm(null)
-    setMode('normal')
+    setPicker(null)
+    setEdit('')
+    const added = picker.added.filter((a) => picker.members.includes(a.id))
+    say(
+      added.length > 0
+        ? `已加入新朋友 ${added.map((a) => a.name).join('、')}（:w 和群組一起儲存）`
+        : '',
+    )
+    if (added.length === 0) setMessage(null)
     return true
   }
 
+  function runMembers(k: Key): boolean {
+    const options = memberChoicesNow()
+    // Enter takes the highlighted option once something is typed or picked.
+    const choosing = options.length > 0 && (edit.trim() !== '' || navigated)
+    switch (k) {
+      case '<C-n>':
+      case '<Down>':
+        setPick(nextPick(options.length, choosing ? pick : -1, 1))
+        setNavigated(true)
+        return true
+      case '<C-p>':
+      case '<Up>':
+        setPick(nextPick(options.length, choosing ? pick : -1, -1))
+        setNavigated(true)
+        return true
+      case '<CR>':
+        if (choosing) addMember(Math.min(pick, options.length - 1))
+        else if (edit.trim() !== '') say('沒有符合的朋友', 'error')
+        else if (applyMembers()) setMode('normal')
+        return true
+      case '<Tab>':
+      case '<S-Tab>':
+      case '<Esc>':
+        if (applyMembers()) setMode('normal')
+        return true
+      case '<C-c>':
+        setPicker(null)
+        setEdit('')
+        setMode('normal')
+        say('已取消編輯成員')
+        return true
+      case '<BS>':
+        if (edit !== '' || !picker) return false
+        if (picker.members.length > 0)
+          removeMember(picker.members[picker.members.length - 1])
+        return true
+      case '<C-s>':
+      case '<D-s>':
+        if (applyMembers()) {
+          setMode('normal')
+          void save()
+        }
+        return true
+      default:
+        if ([...k].length === 1) {
+          setEdit((e) => e + k)
+          setPick(0)
+          setNavigated(false)
+          return true
+        }
+        return false
+    }
+  }
+
   function suggestions(): Array<Suggestion> {
+    if (picker) return memberChoicesNow()
     if (mode !== 'insert' || !current || column !== 'kind') return []
     return rankCell(
       (Object.keys(kindLabels) as Array<PartyKind>).map((k) => ({
@@ -751,6 +846,7 @@ export function SplittingGrid({
   }
 
   function runInsert(k: Key): boolean {
+    if (picker) return runMembers(k)
     const options = suggestions()
     switch (k) {
       case '<C-n>':
@@ -825,7 +921,6 @@ export function SplittingGrid({
   }
 
   const feed = useKeyFeed(keymap, 'friends', (k) => {
-    if (mode === 'form') return runForm(k)
     if (mode === 'insert') return runInsert(k)
     if (mode === 'command') return runCommandKey(k)
     return runNormal(k)
@@ -942,58 +1037,16 @@ export function SplittingGrid({
                   minorUnits={minorUnits}
                   first={index > 0 && rows[index - 1].kind !== row.kind}
                   onPick={(col, enter) => {
-                    if (mode === 'insert' && !commitCell(chosenText())) return
-                    if (mode === 'visual' || mode === 'form') setForm(null)
+                    if (mode === 'insert') {
+                      if (picker ? !applyMembers() : !commitCell(chosenText()))
+                        return
+                    }
                     setMode('normal')
                     setCursor({ row: index, col })
                     if (enter) startInsertAt(index, col)
                   }}
                 />
               ))}
-
-              {mode === 'form' && form && current && (
-                <div
-                  className="absolute z-30"
-                  style={{
-                    top: (cursor.row + 1) * ROW_HEIGHT,
-                    left: layout.lefts.members,
-                  }}
-                >
-                  <FormPopover
-                    title={`「${current.name || '新群組'}」的成員`}
-                    fields={memberFormFields(current, rows)}
-                    state={form}
-                    preview={(() => {
-                      const patch = applyMemberForm(current, form.values, rows)
-                      return typeof patch === 'string'
-                        ? patch
-                        : `我、${membersText({ ...current, ...patch }, rows)}`
-                    })()}
-                    width={Math.max(280, layout.widths.members)}
-                    onKeyDown={feed.onNormalKeyDown}
-                    onField={(field) => {
-                      const fields = memberFormFields(current, rows)
-                      setForm(
-                        focusField(
-                          takeTyped(form, fields, new Date()),
-                          fields,
-                          field,
-                        ),
-                      )
-                    }}
-                    onChoose={(field, value) => {
-                      const next = {
-                        ...form,
-                        values: { ...form.values, [field]: value },
-                        field,
-                        typed: null,
-                        error: null,
-                      }
-                      setForm(settleForm(next, memberFormFields(current, rows)))
-                    }}
-                  />
-                </div>
-              )}
 
               {mode === 'insert' && current && (
                 <div
@@ -1007,10 +1060,32 @@ export function SplittingGrid({
                   <CellEditor
                     inputRef={inputRef}
                     value={edit}
-                    label={partyLabels[column]}
+                    label={picker ? '找朋友或輸入新名字' : partyLabels[column]}
+                    enterHint={picker ? 'Enter 完成' : undefined}
                     width={layout.widths[column]}
-                    options={options}
-                    pick={takenIndex(options)}
+                    options={feed.waiting ? [] : options}
+                    pick={
+                      picker
+                        ? options.length > 0 &&
+                          (edit.trim() !== '' || navigated)
+                          ? Math.min(pick, options.length - 1)
+                          : -1
+                        : takenIndex(options)
+                    }
+                    chips={
+                      picker
+                        ? picker.members.map((id) => (
+                            <MemberChip
+                              key={id}
+                              name={memberName(rows, current, id, picker.added)}
+                              locked={memberLocked(current, id, rows)}
+                              onRemove={() => removeMember(id)}
+                              // The text typed after them is the next one.
+                              comma
+                            />
+                          ))
+                        : undefined
+                    }
                     onChange={(value) => {
                       setEdit(value)
                       setPick(0)
@@ -1022,6 +1097,7 @@ export function SplittingGrid({
                       )
                     }
                     onChoose={(i) => {
+                      if (picker) return addMember(i)
                       opened.current = null
                       setEdit(options[i].value)
                       setPick(i)
@@ -1122,7 +1198,29 @@ function PartyLine({
           <span key={c} data-col={col} className={cn(cell, bad)}>
             <span className="truncate">{row.name}</span>
             {registered(row) && (
-              <span className="ml-2 text-xs text-muted-foreground">有帳號</span>
+              <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+                有帳號
+              </span>
+            )}
+            {/* The mouse's way to the expenses, as gx is the keyboard's. */}
+            {row.base && !row.deleted && (
+              <Link
+                {...(row.kind === 'friend'
+                  ? { to: '/friends/$friendId', params: { friendId: row.id } }
+                  : { to: '/groups/$groupId', params: { groupId: row.id } })}
+                tabIndex={-1}
+                aria-label={`打開「${row.name}」的分帳`}
+                title="打開分帳（gx）"
+                className="ml-auto flex shrink-0 items-center gap-0.5 pl-2 text-xs text-muted-foreground opacity-60 group-hover/row:opacity-100 hover:text-kraft"
+                onMouseDown={(e) => {
+                  // The cursor goes to the line, where Ctrl-o comes back to.
+                  e.stopPropagation()
+                  onPick(col, false)
+                }}
+              >
+                分帳
+                <ArrowUpRightIcon className="size-3.5" />
+              </Link>
             )}
           </span>
         )
@@ -1134,10 +1232,24 @@ function PartyLine({
         )
       case 'members':
         return (
-          <span key={c} data-col={col} className={cn(cell, muted, bad)}>
-            <span className="truncate">
-              {row.kind === 'group' ? membersText(row, rows) : '—'}
-            </span>
+          <span
+            key={c}
+            data-col={col}
+            className={cn(cell, 'gap-1.5', bad)}
+            title={row.kind === 'group' ? membersText(row, rows) : undefined}
+          >
+            {row.kind === 'group' ? (
+              row.members.map((id, i) => (
+                <MemberChip
+                  key={id}
+                  name={memberName(rows, row, id)}
+                  locked={memberLocked(row, id, rows)}
+                  comma={i < row.members.length - 1}
+                />
+              ))
+            ) : (
+              <span className={muted}>—</span>
+            )}
           </span>
         )
       case 'count':
@@ -1201,7 +1313,7 @@ function PartyLine({
       role="row"
       aria-rowindex={index + 1}
       className={cn(
-        'absolute inset-x-0 grid border-b border-rule/60 text-sm leading-normal',
+        'group/row absolute inset-x-0 grid border-b border-rule/60 text-sm leading-normal',
         first && 'border-t border-t-rule',
         row.deleted && 'text-muted-foreground line-through',
         row.archived && !row.deleted && 'text-muted-foreground',
@@ -1231,5 +1343,55 @@ function PartyLine({
       </span>
       {partyColumns.map((c, col) => content(c, col))}
     </div>
+  )
+}
+
+/**
+ * A group's member as the 成員 cell shows them, in normal mode and in the
+ * picker alike (ADR-120): their name as plain text, a lock when expenses
+ * keep them in the group, in the picker a button to take them off, and a
+ * comma before the next.
+ */
+function MemberChip({
+  name,
+  locked,
+  onRemove,
+  comma,
+}: {
+  name: string
+  locked: string | null
+  onRemove?: () => void
+  comma?: boolean
+}) {
+  return (
+    <span
+      title={locked ?? undefined}
+      className="flex h-6 shrink-0 items-center gap-1 text-sm text-foreground"
+    >
+      {name}
+      {locked ? (
+        <LockIcon
+          aria-label="有分帳，不能移除"
+          className="size-3 text-muted-foreground"
+        />
+      ) : (
+        onRemove && (
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={`移除${name}`}
+            className="text-muted-foreground hover:text-destructive"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onRemove()
+            }}
+          >
+            <XIcon className="size-3" />
+          </button>
+        )
+      )}
+      {comma && <span className="-ml-0.5 text-muted-foreground">,</span>}
+    </span>
   )
 }
