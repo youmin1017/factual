@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Factual">
+  <!--
+    色票取自 apps/web/src/styles.css(深色主題):
+      ink    #101B2A → #070F1A   底板(card → sidebar)
+      kraft  #DEB369             主色 primary / kraft(F)
+      paper  #EBE7DF             foreground(金幣)
+      deep   #A7751F             ring 的深色牛皮紙(金幣內圈)
+  -->
+  <defs>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14202F"/>
+      <stop offset="1" stop-color="#070F1A"/>
+    </linearGradient>
+  </defs>
+  <!-- 底板:藍黑墨水 -->
+  <rect width="512" height="512" rx="116" fill="url(#ink)"/>
+  <!-- F:帳本的三條列,牛皮紙色 -->
+  <g fill="#DEB369">
+    <rect x="142" y="120" width="64" height="272" rx="20"/>
+    <rect x="142" y="120" width="228" height="64" rx="20"/>
+    <rect x="142" y="224" width="170" height="64" rx="20"/>
+  </g>
+  <!-- 金幣(同時像 Vim 的游標),帳本紙色 -->
+  <circle cx="324" cy="352" r="48" fill="#EBE7DF"/>
+  <circle cx="324" cy="352" r="26" fill="none" stroke="#A7751F" stroke-width="10" stroke-opacity=".55"/>
+</svg>

@@ -14,6 +14,7 @@ import {
   PlusIcon,
   SettingsIcon,
 } from 'lucide-react'
+import { Logo } from '#/components/logo'
 import { Statusline } from '#/components/statusline'
 import { ThemeMenuItems } from '#/components/theme'
 import {
@@ -82,7 +83,8 @@ function AppLayout() {
           onKeyDown={onSidebarKeyDown}
           className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-sidebar px-4 pt-2 md:w-60 md:flex-col md:flex-nowrap md:items-stretch md:gap-6 md:border-r md:border-b-0 md:px-3 md:py-4"
         >
-          <Link to="/" className="px-2 text-lg md:pt-1">
+          <Link to="/" className="flex items-center gap-2 px-2 text-lg md:pt-1">
+            <Logo />
             <Wordmark />
           </Link>
 

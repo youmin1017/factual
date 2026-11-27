@@ -3,6 +3,7 @@ import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { CircleAlertIcon } from 'lucide-react'
 import { useState } from 'react'
 import { BrandIcon } from '#/components/brand-icon'
+import { Logo } from '#/components/logo'
 import { ThemeToggle } from '#/components/theme'
 import { Alert, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
@@ -72,7 +73,8 @@ function LoginPage() {
     <main className="relative flex min-h-dvh flex-col md:flex-row">
       {/* A page of the ledger: ruled paper, the margin line, a few entries. */}
       <div className="ledger-paper flex flex-col justify-center px-10 pt-16 pb-8 [--ledger-margin:1.5rem] sm:px-20 sm:[--ledger-margin:4rem] md:flex-1 md:py-16">
-        <h1 className="text-5xl leading-[4rem] sm:text-6xl">
+        <h1 className="flex items-center gap-4 text-5xl leading-[4rem] sm:text-6xl">
+          <Logo className="size-12 sm:size-14" />
           <Wordmark blink />
         </h1>
         <p className="leading-8 text-muted-foreground">
