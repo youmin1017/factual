@@ -2213,6 +2213,16 @@ export interface components {
        * @description New accounts only.
        */
       openingDate: string
+      /**
+       * Format: int64
+       * @description A new credit card only (ADR-137): the part of `openingBalance`
+       *     already billed in the card's latest statement (本期帳單, negative
+       *     when owed, as the balance is), which needs `card`. It is billed in
+       *     a closed statement ending on the last statement day before
+       *     `openingDate`; the rest of the balance (未出帳金額) is billed at
+       *     the next closing. Absent or 0: the whole balance is unbilled.
+       */
+      openingBilled?: number
       closed: boolean
       /** Format: int32 */
       sortOrder: number

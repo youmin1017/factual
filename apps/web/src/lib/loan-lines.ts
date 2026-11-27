@@ -146,10 +146,13 @@ export function loanCellText(
   }
 }
 
-/** Whether a cell holds a number or a date (shown in the mono face). */
-export function loanCellNumeric(cell: LoanCell): boolean {
+/**
+ * How a cell's value is typed and shown: an amount (digits grouped as the
+ * user prefers, ADR-122), a number or a date (the mono face), or text.
+ */
+export function loanCellNumeric(cell: LoanCell): 'amount' | 'number' | null {
+  if (cell.key === 'principal') return 'amount'
   return [
-    'principal',
     'months',
     'start',
     'firstPayment',
@@ -157,6 +160,8 @@ export function loanCellNumeric(cell: LoanCell): boolean {
     'rateFrom',
     'rate',
   ].includes(cell.key)
+    ? 'number'
+    : null
 }
 
 /** The options of a choice, picked from the completion list; null for typed values. */

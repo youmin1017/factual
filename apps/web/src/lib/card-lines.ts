@@ -89,8 +89,13 @@ export function cardCellPlaceholder(cell: CardCell): string {
   return cell.key === 'limit' ? '不填' : cell.key === 'autopay' ? '' : '1–31'
 }
 
-export function cardCellNumeric(cell: CardCell): boolean {
-  return cell.key !== 'autopay'
+/**
+ * How a cell's value is typed and shown: an amount (digits grouped as the
+ * user prefers, ADR-122), a plain number, or text.
+ */
+export function cardCellNumeric(cell: CardCell): 'amount' | 'number' | null {
+  if (cell.key === 'limit') return 'amount'
+  return cell.key === 'autopay' ? null : 'number'
 }
 
 /** The options of a choice, picked from the completion list; null for typed values. */

@@ -85,6 +85,34 @@ func (q *Queries) CloseStatement(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const createClosedStatement = `-- name: CreateClosedStatement :one
+insert into statements (budget_id, account_id, period_start, period_end, due_date, closed_at)
+values ($1, $2, $3, $4, $5, now())
+returning id
+`
+
+type CreateClosedStatementParams struct {
+	BudgetID    uuid.UUID
+	AccountID   uuid.UUID
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+	DueDate     time.Time
+}
+
+// A statement already closed: the latest bill of a new card (ADR-137).
+func (q *Queries) CreateClosedStatement(ctx context.Context, arg CreateClosedStatementParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, createClosedStatement,
+		arg.BudgetID,
+		arg.AccountID,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.DueDate,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createStatement = `-- name: CreateStatement :exec
 insert into statements (budget_id, account_id, period_start, period_end, due_date)
 values ($1, $2, $3, $4, $5)

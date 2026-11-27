@@ -68,6 +68,8 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 	}
 	var off func(time.Time) bool
 	terms := map[uuid.UUID]loanTerms{}
+	// The calendars for the due dates of new cards' latest bills (ADR-137).
+	billOff := map[uuid.UUID]func(time.Time) bool{}
 	for _, u := range b.Upserts {
 		if seen[u.Id] {
 			probs.add(u.Id, "", "duplicate_id", "the account appears twice in the batch")
@@ -121,6 +123,16 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 				if off, err = h.s.cardDaysOff(ctx); err != nil {
 					return nil, err
 				}
+			}
+		}
+		if billed := u.OpeningBilled; billed != nil && *billed != 0 {
+			if exists || u.Kind != api.NewAccountKindCreditCard || u.Card == nil {
+				probs.add(u.Id, "balance", "invalid_opening_bill", "only a new credit card with statement settings has an opening bill")
+				continue
+			}
+			end := closingBefore(u.OpeningDate.Time, int(u.Card.StatementDay))
+			if billOff[u.Id], err = h.s.daysOff(ctx, end, end.Add(dueWindow)); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -212,7 +224,17 @@ func (h *Handlers) SaveAccounts(ctx context.Context, req api.SaveAccountsRequest
 				}
 				// A loan with terms starts owing what they leave owed (ADR-098).
 				if _, withTerms := terms[u.Id]; !withTerms {
-					if err := createOpening(ctx, q, budgetID, u.Id, onBudget, u.OpeningBalance, u.OpeningDate.Time, caller); err != nil {
+					// A card's latest bill is billed apart from the rest (ADR-137).
+					var billed int64
+					if u.OpeningBilled != nil && u.Card != nil {
+						billed = *u.OpeningBilled
+					}
+					if billed != 0 {
+						if err := openingBill(ctx, q, budgetID, u.Id, *u.Card, u.OpeningDate.Time, billed, caller, billOff[u.Id]); err != nil {
+							return err
+						}
+					}
+					if err := createOpening(ctx, q, budgetID, u.Id, onBudget, u.OpeningBalance-billed, u.OpeningDate.Time, caller); err != nil {
 						return err
 					}
 				}

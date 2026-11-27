@@ -1,15 +1,18 @@
 import { cardFromValues } from './card-lines.ts'
 import { parseLoanFields } from './loan.ts'
-import { amountInputValue, formatAmount, parseAmount } from './money.ts'
+import { amountInputValue } from './money.ts'
+import { evalAmount, parseDate } from './register.ts'
 import type { Schemas } from './api'
 import type { CardValues } from './card-lines.ts'
-import type { Field, Option } from './form.ts'
+import type { Option } from './form.ts'
 import type { LoanFieldValues } from './loan.ts'
 
 // The accounts page (ADR-108): its lines, edited as the goals page's are
-// and saved with :w; what an account is set up with is edited in a form
-// under the cell (ADR-107), a loan's terms and a card's settings in lines
-// under the account's (ADR-110, ADR-117). Pure, tested with node.
+// and saved with :w. A new line's kind is picked from the completion list,
+// its balance typed in its cell and whether it is on budget ticked; the
+// day of that balance, and a new card's latest bill, are lines under it
+// (ADR-137), as a loan's terms and a card's settings are (ADR-110,
+// ADR-117). Pure, tested with node.
 
 export type Account = Schemas['Account']
 export type AccountInput = Schemas['AccountInput']
@@ -75,6 +78,11 @@ export interface AccountRow {
   onBudget: boolean
   /** New accounts: the balance on the opening date (negative for debts). */
   openingBalance: number
+  /**
+   * New cards: the part of `openingBalance` already billed in the latest
+   * statement (本期帳單, ADR-137); the rest is 未出帳金額.
+   */
+  openingBilled: number
   /** ISO date. */
   openingDate: string
   closed: boolean
@@ -107,6 +115,7 @@ export function rowFromAccount(a: Account): AccountRow {
     kind: a.kind === 'friend' ? 'bank' : a.kind,
     onBudget: a.onBudget,
     openingBalance: 0,
+    openingBilled: 0,
     openingDate: '',
     closed: a.closed,
     card: a.card ?? null,
@@ -124,6 +133,7 @@ export function newAccountRow(id: string, today: string): AccountRow {
     kind: 'bank',
     onBudget: true,
     openingBalance: 0,
+    openingBilled: 0,
     openingDate: today,
     closed: false,
     card: null,
@@ -156,7 +166,12 @@ export function toAccountInput(
     sortOrder,
   }
   const card = row.kind === 'credit_card' ? cardOf(row, minorUnits) : null
-  if (card && typeof card === 'object') input.card = { ...card }
+  if (card && typeof card === 'object') {
+    input.card = { ...card }
+    // A new card's latest bill is billed apart (ADR-137).
+    if (!row.base && row.openingBilled !== 0)
+      input.openingBilled = row.openingBilled
+  }
   if (row.kind === 'loan' && row.loan) {
     const terms = parseLoanFields(row.loan, minorUnits)
     if (!('field' in terms)) input.loan = terms
@@ -217,17 +232,180 @@ export function validateAccount(
         field: 'card',
         message: '已經有的帳單設定不能清空：結帳日和繳款截止日都要填',
       }
+    if (card === null && !row.base && row.openingBilled !== 0)
+      return {
+        field: 'card',
+        message: '有本期帳單就要填結帳日和繳款截止日（才知道是哪一期的帳單）',
+      }
   }
   return null
 }
 
 // ---------- cells
 
+/** 0 for -0 too, so that a balance never reads -0. */
+function neg(n: number): number {
+  return n === 0 ? 0 : -n
+}
+
+/** An amount of a new line as typed: a debt's as what is owed; '' for 0. */
+function owedText(
+  amount: number,
+  kind: NewAccountKind,
+  minorUnits: number,
+): string {
+  if (amount === 0) return ''
+  return amountInputValue(isDebt(kind) ? neg(amount) : amount, minorUnits)
+}
+
+/** What a cell's editing starts from. */
 export function accountCellText(
   row: AccountRow,
   column: AccountColumn,
+  minorUnits = 0,
 ): string {
-  return column === 'name' ? row.name : ''
+  switch (column) {
+    case 'name':
+      return row.name
+    case 'kind':
+      return kindLabel(row.kind)
+    case 'balance':
+      return owedText(row.openingBalance, row.kind, minorUnits)
+    default:
+      return ''
+  }
+}
+
+/** What the balance cell of a new line is called while typed. */
+export function balanceLabel(kind: NewAccountKind): string {
+  return isDebt(kind) ? '目前欠款' : '目前餘額'
+}
+
+/**
+ * A new line's kind, picked by its label from the completion list (ADR-137).
+ * What was typed as the balance keeps its amount: a debt's is what is owed.
+ */
+export function kindPatch(
+  row: AccountRow,
+  text: string,
+): Partial<AccountRow> | string {
+  const typed = text.trim()
+  const kind = kindOptions.find(
+    (k) => k.label === typed || k.value === typed,
+  )?.value
+  if (!kind)
+    return `沒有「${typed}」這種帳戶：${kindOptions.map((k) => k.label).join('、')}`
+  if (kind === row.kind) return {}
+  const chosen =
+    row.kind === 'bank' || row.kind === 'cash' ? row.onBudget : true
+  return {
+    kind,
+    onBudget: onBudgetOf(kind, chosen),
+    openingBalance:
+      isDebt(kind) === isDebt(row.kind)
+        ? row.openingBalance
+        : neg(row.openingBalance),
+    openingBilled: 0,
+  }
+}
+
+/** The balance typed on a new line (sums allowed): a debt's is what is owed. */
+export function balancePatch(
+  row: AccountRow,
+  text: string,
+  minorUnits: number,
+): Partial<AccountRow> | string {
+  const amount = evalAmount(text, minorUnits)
+  if (amount === null)
+    return minorUnits === 0
+      ? '餘額請輸入整數，例如 12000'
+      : `餘額最多 ${minorUnits} 位小數`
+  return { openingBalance: isDebt(row.kind) ? neg(amount) : amount }
+}
+
+// ---------- a new account's opening, as lines under it (ADR-137)
+
+export type OpeningCellKey = 'openingBilled' | 'openingUnbilled' | 'openingDate'
+
+export interface OpeningCell {
+  key: OpeningCellKey
+  label: string
+  /** Tells these cells from a loan's or a card's. */
+  opening: true
+}
+
+/**
+ * The lines under a new account about where it starts: the day of its
+ * balance, and for a card the balance split into its latest bill and what
+ * is not billed yet. None once the account is saved.
+ */
+export function openingLines(
+  row: AccountRow,
+): Array<{ cells: Array<OpeningCell> }> {
+  if (row.base) return []
+  const date = {
+    cells: [{ key: 'openingDate', label: '餘額日期', opening: true } as const],
+  }
+  if (row.kind !== 'credit_card') return [date]
+  return [
+    {
+      cells: [
+        { key: 'openingBilled', label: '本期帳單', opening: true },
+        { key: 'openingUnbilled', label: '未出帳金額', opening: true },
+      ],
+    },
+    date,
+  ]
+}
+
+export function openingCellText(
+  row: AccountRow,
+  cell: OpeningCell,
+  minorUnits: number,
+): string {
+  switch (cell.key) {
+    case 'openingBilled':
+      return owedText(row.openingBilled, row.kind, minorUnits)
+    case 'openingUnbilled':
+      return owedText(
+        row.openingBalance - row.openingBilled,
+        row.kind,
+        minorUnits,
+      )
+    case 'openingDate':
+      return row.openingDate.replaceAll('-', '/')
+  }
+}
+
+/** How a cell's value is typed and shown (as `cardCellNumeric`). */
+export function openingCellNumeric(cell: OpeningCell): 'amount' | 'number' {
+  return cell.key === 'openingDate' ? 'number' : 'amount'
+}
+
+/** The change a value typed into an opening line makes, or why it cannot. */
+export function openingCellPatch(
+  row: AccountRow,
+  cell: OpeningCell,
+  text: string,
+  minorUnits: number,
+  today: Date,
+): Partial<AccountRow> | string {
+  if (cell.key === 'openingDate') {
+    if (text.trim() === '') return '請輸入餘額是哪一天的'
+    const date = parseDate(text, today)
+    return date ? { openingDate: date } : '日期看不懂，例如 11/20 或 t（今天）'
+  }
+  const amount = evalAmount(text, minorUnits)
+  if (amount === null)
+    return minorUnits === 0
+      ? '金額請輸入整數，例如 12000'
+      : `金額最多 ${minorUnits} 位小數`
+  const signed = isDebt(row.kind) ? neg(amount) : amount
+  if (cell.key === 'openingBilled') {
+    const unbilled = row.openingBalance - row.openingBilled
+    return { openingBilled: signed, openingBalance: unbilled + signed }
+  }
+  return { openingBalance: row.openingBilled + signed }
 }
 
 export function kindLabel(kind: NewAccountKind): string {
@@ -240,14 +418,7 @@ export function cardText(card: CardSettings | null | string): string {
   return card ? `${card.statementDay} 結 · ${card.dueDay} 繳` : ''
 }
 
-// ---------- the forms (ADR-107)
-
-/** The columns edited in a form: what a new account is. */
-export function formOf(row: AccountRow, column: AccountColumn): 'setup' | null {
-  if (column === 'kind' || column === 'onBudget' || column === 'balance')
-    return row.base ? null : 'setup'
-  return null
-}
+// ---------- what can be edited
 
 /** Why a cell cannot be edited, or null. */
 export function lockedReason(
@@ -257,10 +428,16 @@ export function lockedReason(
   if (row.deleted) return '這個帳戶已標記刪除，按 u 復原或 dd 取消'
   switch (column) {
     case 'kind':
-    case 'onBudget':
       return row.base
         ? '帳戶建立後不能改類型和是否計入預算（有交易時會破壞預算的平衡）'
         : null
+    case 'onBudget':
+      if (row.base)
+        return '帳戶建立後不能改類型和是否計入預算（有交易時會破壞預算的平衡）'
+      if (row.kind === 'credit_card') return '信用卡一定計入預算'
+      if (row.kind === 'loan' || row.kind === 'investment')
+        return '貸款和投資帳戶在預算外'
+      return null
     case 'balance':
       return row.base ? '餘額由交易決定：到帳戶明細記一筆，或對帳調整' : null
     case 'cleared':
@@ -272,81 +449,4 @@ export function lockedReason(
     default:
       return null
   }
-}
-
-export function setupValues(
-  row: AccountRow,
-  minorUnits: number,
-): Record<string, string> {
-  const owed = isDebt(row.kind) ? -row.openingBalance : row.openingBalance
-  return {
-    kind: row.kind,
-    onBudget: row.onBudget ? 'yes' : 'no',
-    balance: row.openingBalance === 0 ? '' : amountInputValue(owed, minorUnits),
-    date: row.openingDate,
-  }
-}
-
-export function setupFields(values: Record<string, string>): Array<Field> {
-  const kind = values.kind as NewAccountKind
-  const fields: Array<Field> = [
-    { key: 'kind', label: '類型', type: 'choice', options: kindOptions },
-  ]
-  if (kind === 'bank' || kind === 'cash') {
-    fields.push({
-      key: 'onBudget',
-      label: '預算',
-      type: 'choice',
-      options: [
-        { value: 'yes', label: '計入預算' },
-        { value: 'no', label: '預算外（只追蹤餘額）' },
-      ],
-    })
-  }
-  fields.push(
-    {
-      key: 'balance',
-      label: isDebt(kind) ? '目前欠款' : '目前餘額',
-      type: 'amount',
-      placeholder: '0',
-    },
-    { key: 'date', label: '那天是', type: 'date' },
-  )
-  return fields
-}
-
-export function applySetup(
-  values: Record<string, string>,
-  minorUnits: number,
-): Partial<AccountRow> | string {
-  const kind = values.kind as NewAccountKind
-  const amount = parseAmount(values.balance, minorUnits)
-  if (amount === null)
-    return minorUnits === 0
-      ? '餘額請輸入整數，例如 12000'
-      : `餘額最多 ${minorUnits} 位小數`
-  if (!values.date) return '請輸入餘額是哪一天的'
-  return {
-    kind,
-    onBudget: onBudgetOf(kind, values.onBudget !== 'no'),
-    // Debts are typed as the amount owed and kept as a negative balance.
-    openingBalance: isDebt(kind) ? -amount : amount,
-    openingDate: values.date,
-  }
-}
-
-/** What the setup form's values come to, in a sentence. */
-export function setupPreview(
-  values: Record<string, string>,
-  minorUnits: number,
-): string {
-  const patch = applySetup(values, minorUnits)
-  if (typeof patch === 'string') return patch
-  const kind = patch.kind ?? 'bank'
-  const where = patch.onBudget ? '計入預算' : '不計入預算'
-  const amount = formatAmount(Math.abs(patch.openingBalance ?? 0), minorUnits)
-  const what = isDebt(kind) ? `欠 ${amount}` : `有 ${amount}`
-  return kind === 'loan'
-    ? `${where}；${what}（填了貸款條件就照條件算）。條件在這一列底下（za 展開）`
-    : `${where}；${(patch.openingDate ?? '').replaceAll('-', '/')} ${what}`
 }

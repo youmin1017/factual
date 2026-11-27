@@ -51,6 +51,8 @@ const messages: Record<string, string> = {
   last_login_method: '這是你唯一的登入方式，請先設定密碼或連結其他帳號',
   invalid_name: '請輸入名稱',
   not_a_card: '只有信用卡有結帳日和繳款日',
+  invalid_opening_bill:
+    '只有新的信用卡能填本期帳單，而且要填結帳日和繳款截止日',
   invalid_card: '結帳日和繳款截止日是 1 到 31，信用額度不能是負的',
   invalid_autopay: '自動扣繳要從預算內的現金或銀行帳戶扣，而且不能是這張卡自己',
   invalid_amount: '金額不能是負的',

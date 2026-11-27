@@ -159,3 +159,56 @@ func TestSaveAccounts(t *testing.T) {
 		t.Fatalf("a stranger = %d", code)
 	}
 }
+
+// A new card is set up with what its latest bill asks and what is not
+// billed yet (ADR-137).
+func TestSaveAccountsOpeningBill(t *testing.T) {
+	hs := newHarness(t)
+	admin := hs.browser().mustLogin(adminName, adminPassword)
+	f := newLedgerFixture(t, admin)
+
+	billed := int64(-3000)
+	card := api.AccountInput{
+		Id: uuid.New(), Name: "國泰 CUBE", Kind: api.NewAccountKindCreditCard,
+		OpeningBalance: -5000, OpeningBilled: &billed, OpeningDate: date(2026, 11, 20), SortOrder: 9,
+		Card: &api.CardSettings{StatementDay: 5, DueDay: 25},
+	}
+	bank := api.AccountInput{
+		Id: uuid.New(), Name: "郵局", Kind: api.NewAccountKindBank, OnBudget: true,
+		OpeningBalance: -100, OpeningBilled: &billed, OpeningDate: date(2026, 11, 20), SortOrder: 10,
+	}
+	bare := card
+	bare.Id, bare.Name, bare.Card = uuid.New(), "沒設定的卡", nil
+	code, probs := saveAccounts(t, admin, f.budget, []api.AccountInput{card, bank, bare})
+	if code != http.StatusUnprocessableEntity || len(probs) != 2 ||
+		probs[bank.Id].Code != "invalid_opening_bill" || probs[bare.Id].Code != "invalid_opening_bill" {
+		t.Fatalf("bills on a bank account and a card without settings = %d %+v", code, probs)
+	}
+
+	if code, probs := saveAccounts(t, admin, f.budget, []api.AccountInput{card}); code != http.StatusOK {
+		t.Fatalf("save = %d %+v", code, probs)
+	}
+	var saved api.Account
+	for _, a := range listAccounts(t, admin, f.budget) {
+		if a.Id == card.Id {
+			saved = a
+		}
+	}
+	if saved.Balance != -5000 {
+		t.Fatalf("balance = %d", saved.Balance)
+	}
+	// Today is 11/20: the bill closed on 11/05 asks 3,000 by 11/25; the
+	// other 2,000 is billed at the 12/05 closing.
+	got := statements(t, admin, f.budget, saved)
+	if len(got.Statements) != 1 {
+		t.Fatalf("statements = %+v", got.Statements)
+	}
+	st := got.Statements[0]
+	if st.PeriodStart.String() != "2026-10-06" || st.PeriodEnd.String() != "2026-11-05" || st.DueDate.String() != "2026-11-25" ||
+		st.AmountDue != 3000 || st.Remaining != 3000 || st.State != api.Due {
+		t.Fatalf("latest bill = %+v", st)
+	}
+	if got.Open == nil || got.Open.PeriodStart.String() != "2026-11-06" || got.Open.PeriodEnd.String() != "2026-12-05" || got.Open.Charges != 2000 {
+		t.Fatalf("open statement = %+v", got.Open)
+	}
+}

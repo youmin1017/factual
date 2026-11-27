@@ -96,6 +96,42 @@ func (s *Service) ensureOpenStatement(ctx context.Context, q *db.Queries, budget
 	})
 }
 
+// closingBefore is the last closing day before d: the latest statement a
+// bill can already have been issued for on d.
+func closingBefore(d time.Time, statementDay int) time.Time {
+	c := closingDay(d.Year(), d.Month(), statementDay)
+	if c.Before(d) {
+		return c
+	}
+	return closingDay(d.Year(), d.Month()-1, statementDay)
+}
+
+// openingBill records what a new card's latest bill asks (本期帳單,
+// ADR-137): an opening transaction dated on the bill's closing day, billed
+// in a statement closed already, so the card's open statement starts the
+// day after it and the rest of its balance waits for the next closing.
+// Call it before the card's settings are saved (saveCard opens the next
+// statement after the last closed one).
+func openingBill(ctx context.Context, q *db.Queries, budgetID, card uuid.UUID, c api.CardSettings, opening time.Time, amount int64, caller uuid.NullUUID, off func(time.Time) bool) error {
+	sd := int(c.StatementDay)
+	end := closingBefore(opening, sd)
+	start := closingDay(end.Year(), end.Month()-1, sd).AddDate(0, 0, 1)
+	if err := createOpening(ctx, q, budgetID, card, true, amount, end, caller); err != nil {
+		return err
+	}
+	id, err := q.CreateClosedStatement(ctx, db.CreateClosedStatementParams{
+		BudgetID: budgetID, AccountID: card, PeriodStart: start, PeriodEnd: end,
+		DueDate: dueFor(end, sd, int(c.DueDay), off),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = q.BillEntries(ctx, db.BillEntriesParams{
+		StatementID: uuid.NullUUID{UUID: id, Valid: true}, BudgetID: budgetID, AccountID: card, PeriodEnd: end,
+	})
+	return err
+}
+
 func later(a, b time.Time) time.Time {
 	if a.After(b) {
 		return a

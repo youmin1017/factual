@@ -34,6 +34,12 @@ select period_end
 insert into statements (budget_id, account_id, period_start, period_end, due_date)
 values ($1, $2, $3, $4, $5);
 
+-- name: CreateClosedStatement :one
+-- A statement already closed: the latest bill of a new card (ADR-137).
+insert into statements (budget_id, account_id, period_start, period_end, due_date, closed_at)
+values ($1, $2, $3, $4, $5, now())
+returning id;
+
 -- name: UpdateOpenStatement :exec
 update statements
    set period_end = $3, due_date = $4

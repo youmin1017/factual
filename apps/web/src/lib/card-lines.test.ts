@@ -1,6 +1,7 @@
 // Run with: node --experimental-strip-types src/lib/card-lines.test.ts
 import assert from 'node:assert/strict'
 import {
+  cardCellNumeric,
   cardCellOptions,
   cardCellPatch,
   cardCellText,
@@ -67,6 +68,10 @@ assert.deepEqual(
   ['不扣繳', '台新'],
 )
 assert.equal(cardCellOptions(cell('limit'), refs), null)
+// The limit is an amount: typed and shown with the user's grouping (ADR-122).
+assert.equal(cardCellNumeric(cell('limit')), 'amount')
+assert.equal(cardCellNumeric(cell('dueDay')), 'number')
+assert.equal(cardCellNumeric(cell('autopay')), null)
 
 // Nothing filled in is no settings; half filled in is not complete.
 assert.equal(cardFromValues(cardValuesOf(null, 0), 0), null)

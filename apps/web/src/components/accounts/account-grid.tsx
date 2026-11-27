@@ -7,17 +7,20 @@ import {
   accountColumns,
   accountLabels,
   accountStatus,
-  applySetup,
+  balanceLabel,
+  balancePatch,
   cardOf,
   cardText,
-  formOf,
   kindLabel,
+  kindOptions,
+  kindPatch,
   lockedReason,
   newAccountRow,
+  openingCellNumeric,
+  openingCellPatch,
+  openingCellText,
+  openingLines,
   rowFromAccount,
-  setupFields,
-  setupPreview,
-  setupValues,
   toAccountInput,
   validateAccount,
 } from '#/lib/accounts'
@@ -34,13 +37,6 @@ import {
   cardValuesOf,
 } from '#/lib/card-lines'
 import { setEditorStatus } from '#/lib/editorStatus'
-import {
-  focusField,
-  formKey,
-  openForm,
-  settleForm,
-  takeTyped,
-} from '#/lib/form'
 import { loanFieldValues } from '#/lib/loan'
 import {
   addRate,
@@ -52,11 +48,10 @@ import {
   loanLines,
   removeRate,
 } from '#/lib/loan-lines'
-import { formatAmount } from '#/lib/money'
+import { formatAmount, groupAmountText } from '#/lib/money'
 import { movePane, windowDirection } from '#/lib/panes'
 import { categoryRefs, isoDate, parseDate, rankCell } from '#/lib/register'
 import { cn } from '#/lib/utils'
-import { FormPopover } from '../form-popover'
 import { CellEditor, eraseBeforeCaret, nextPick } from '../register/cell-editor'
 import { KeyHelp, accountKeys } from '../register/key-help'
 import { useKeyFeed } from '../register/use-key-feed'
@@ -67,10 +62,11 @@ import type {
   AccountProblem,
   AccountRow,
   AccountRowStatus,
+  OpeningCell,
 } from '#/lib/accounts'
 import type { Category } from '#/lib/budget'
 import type { CardCell, CardRefs } from '#/lib/card-lines'
-import type { FormState, Option } from '#/lib/form'
+import type { Option } from '#/lib/form'
 import type { Key, Keymap } from '#/lib/keymap'
 import type { LoanFieldValues } from '#/lib/loan'
 import type { LoanCell, LoanRefs } from '#/lib/loan-lines'
@@ -78,12 +74,23 @@ import type { Suggestion } from '../register/cell-editor'
 
 // The accounts page (ADR-108): a grid edited as the goals page is, whose
 // line order is the accounts' order; saved with :w through the batch
-// endpoint, drafts kept locally (ADR-043). What a new account is, is edited
-// in a form under the cell (ADR-107); a loan's terms and a card's settings
-// are lines under the account's line (ADR-110, ADR-117).
+// endpoint, drafts kept locally (ADR-043). A new account's kind is picked
+// from the completion list and its balance typed in its cell; the day of
+// that balance and a new card's latest bill, a loan's terms and a card's
+// settings are lines under the account's line (ADR-110, ADR-117, ADR-137).
 
-/** A cell of the lines under an account: a loan's term or a card's setting. */
-type DetailCell = LoanCell | CardCell
+/**
+ * A cell of the lines under an account: a loan's term, a card's setting or
+ * where a new account starts.
+ */
+type DetailCell = LoanCell | CardCell | OpeningCell
+
+function isOpening(cell: DetailCell): cell is OpeningCell {
+  return 'opening' in cell
+}
+
+/** The columns a new line's cells are typed into. */
+type TypedColumn = 'name' | 'kind' | 'balance'
 
 /**
  * What the grid needs of the lines under an account, whichever they are:
@@ -94,7 +101,8 @@ interface Details {
   text: (cell: DetailCell) => string
   /** What an empty cell says, muted. */
   placeholder: (cell: DetailCell) => string
-  numeric: (cell: DetailCell) => boolean
+  /** An amount (grouped as the user prefers, ADR-122), a number or a date, or text. */
+  numeric: (cell: DetailCell) => 'amount' | 'number' | null
   options: (cell: DetailCell) => Array<Option> | null
   locked: (cell: DetailCell) => string | null
   /** The change to the account for a value ({} when it is as it was), or why not. */
@@ -144,7 +152,7 @@ function layoutOf(room: number): Layout {
   }
 }
 
-type Mode = 'normal' | 'visual' | 'insert' | 'form' | 'command'
+type Mode = 'normal' | 'visual' | 'insert' | 'command'
 
 interface Message {
   text: string
@@ -231,7 +239,9 @@ function initialRows(
   const fresh: Array<AccountRow> = []
   for (const d of draft.rows) {
     if (!d.base) {
-      fresh.push(d)
+      // Drafts written before a card's opening bill (ADR-137) lack it.
+      const old: Partial<AccountRow> = d
+      fresh.push({ ...d, openingBilled: old.openingBilled ?? 0 })
       continue
     }
     const i = at.get(d.id)
@@ -295,10 +305,8 @@ export function AccountGrid({
   const [subEdit, setSubEdit] = useState(false)
   const [pick, setPick] = useState(0)
   const [navigated, setNavigated] = useState(false)
-  const [form, setForm] = useState<{
-    kind: 'setup'
-    state: FormState
-  } | null>(null)
+  /** The cell of the account's own line insert mode edits. */
+  const [cellEdit, setCellEdit] = useState<TypedColumn>('name')
 
   const gridRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -376,8 +384,47 @@ export function AccountGrid({
 
   const cardRefs: CardRefs = { payers: refs.payers, minorUnits }
 
-  /** The lines under an account and how they are edited; null for accounts without any (or terms not read yet). */
+  /**
+   * The lines under an account and how they are edited: its own (a loan's
+   * terms, a card's settings), then where a new account starts; null for
+   * accounts without any (or terms not read yet).
+   */
   function detailsFor(row: AccountRow): Details | null {
+    const own = ownDetails(row)
+    const opening = openingLines(row)
+    if (opening.length === 0) return own
+    if (row.kind === 'loan' && !own) return null
+    const mine = (c: DetailCell) => c as OpeningCell
+    return {
+      lines: [...(own?.lines ?? []), ...opening],
+      text: (c) =>
+        isOpening(c)
+          ? openingCellText(row, c, minorUnits)
+          : (own?.text(c) ?? ''),
+      placeholder: (c) =>
+        isOpening(c)
+          ? mine(c).key === 'openingDate'
+            ? ''
+            : '0'
+          : (own?.placeholder(c) ?? ''),
+      numeric: (c) =>
+        isOpening(c) ? openingCellNumeric(c) : (own?.numeric(c) ?? null),
+      options: (c) => (isOpening(c) ? null : (own?.options(c) ?? null)),
+      locked: (c) => (isOpening(c) ? null : (own?.locked(c) ?? null)),
+      patch: (c, text) => {
+        if (!isOpening(c)) return own ? own.patch(c, text) : {}
+        const patch = openingCellPatch(row, c, text, minorUnits, now)
+        if (typeof patch === 'string') return patch
+        const same = (Object.keys(patch) as Array<keyof AccountRow>).every(
+          (k) => patch[k] === row[k],
+        )
+        return same ? {} : patch
+      },
+    }
+  }
+
+  /** A loan's terms or a card's settings, as `detailsFor` gives them. */
+  function ownDetails(row: AccountRow): Details | null {
     if (row.kind === 'loan') {
       const v = loanOf(row)
       if (!v) return null
@@ -421,6 +468,11 @@ export function AccountGrid({
     return null
   }
 
+  /** Whether a line has lines under it: a loan, a card, or an account not saved yet. */
+  function foldable(row: AccountRow): boolean {
+    return row.kind === 'loan' || row.kind === 'credit_card' || !row.base
+  }
+
   /** The lines shown under an account: its details when they are open. */
   function linesOf(row: AccountRow | undefined): Details['lines'] {
     if (!row || !expanded.has(row.id)) return []
@@ -428,10 +480,7 @@ export function AccountGrid({
   }
 
   useEffect(() => {
-    setEditorStatus({
-      mode: mode === 'form' ? 'insert' : mode,
-      dirty,
-    })
+    setEditorStatus({ mode, dirty })
   }, [mode, dirty])
   useEffect(() => () => setEditorStatus(null), [])
   useEffect(() => {
@@ -531,6 +580,8 @@ export function AccountGrid({
     change(rows.toSpliced(index, 0, row))
     opened.current = { id: row.id, from: cursor }
     setCursor({ row: index, col: columns.indexOf('name') })
+    setCellEdit('name')
+    setSubEdit(false)
     setEdit('')
     setMode('insert')
     say('輸入帳戶名稱，例如：台新活存；Tab 到類型和期初餘額')
@@ -610,6 +661,7 @@ export function AccountGrid({
         deleted: false,
         name: `${r.name}（複製）`,
         openingBalance: 0,
+        openingBilled: 0,
         openingDate: today,
       }
     })
@@ -686,8 +738,8 @@ export function AccountGrid({
    */
   function toggleDetails(id: string, enter: boolean, open?: boolean) {
     const row = rows.find((r) => r.id === id)
-    if (row?.kind !== 'loan' && row?.kind !== 'credit_card')
-      return say('只有貸款和信用卡有展開的設定', 'error')
+    if (!row || !foldable(row))
+      return say('只有貸款、信用卡和還沒儲存的帳戶有展開的設定', 'error')
     const next = new Set(expanded)
     const show = open ?? !next.has(id)
     if (show) next.add(id)
@@ -696,7 +748,7 @@ export function AccountGrid({
     setSub(show && enter ? { line: 0, cell: 0 } : null)
     if (show)
       say(
-        `${row.kind === 'loan' ? '貸款條件' : '帳單設定'}在這一列底下：j k 移動、i 修改，:w 和帳戶一起儲存`,
+        `${row.kind === 'loan' ? '貸款條件' : row.kind === 'credit_card' ? '帳單設定' : '餘額日期'}在這一列底下：j k 移動、i 修改，:w 和帳戶一起儲存`,
       )
   }
 
@@ -768,7 +820,7 @@ export function AccountGrid({
     if (target) {
       const row = rows.at(target.row)
       const d = row ? detailsFor(row) : null
-      const line = linesOf(row).at(target.line)
+      const line = d?.lines.at(target.line)
       const cell = line?.cells.at(target.cell)
       at = d && line && cell ? { d, line, cell } : null
     }
@@ -786,9 +838,20 @@ export function AccountGrid({
     setMode('insert')
   }
 
-  function subOptions(): Array<Suggestion> {
+  /** The completion list of the cell being edited: a new line's kind, or a choice in the lines under it. */
+  function editOptions(): Array<Suggestion> {
+    if (mode !== 'insert') return []
+    if (!subEdit) {
+      if (cellEdit !== 'kind' || !current) return []
+      return rankCell(
+        kindOptions.map((o) => ({ value: o.label, label: o.label })),
+        edit,
+        kindLabel(current.kind),
+        (o) => o.value,
+      )
+    }
     const at = subLine()
-    if (!at || !subEdit || mode !== 'insert') return []
+    if (!at) return []
     const options = at.d.options(at.cell)
     if (!options) return []
     return rankCell(
@@ -799,8 +862,8 @@ export function AccountGrid({
     )
   }
 
-  function subChosen(): string {
-    const options = subOptions()
+  function chosen(): string {
+    const options = editOptions()
     if (options.length === 0) return edit
     const highlighted = options[Math.min(pick, options.length - 1)].value
     if (navigated) return highlighted
@@ -827,21 +890,14 @@ export function AccountGrid({
    * would (a form under a cell is left as it was); false when it cannot.
    */
   function finishEditing(): boolean {
-    if (mode === 'form') {
-      setForm(null)
-      setMode('normal')
-      return true
-    }
     if (mode !== 'insert') return true
     if (subEdit) {
-      if (
-        !commitSub(navigated ? subChosen() : edit === '' ? edit : subChosen())
-      )
+      if (!commitSub(navigated ? chosen() : edit === '' ? edit : chosen()))
         return false
       endSubEdit()
       return true
     }
-    if (!commitName(edit)) return false
+    if (!commitCell(chosen())) return false
     setMode('normal')
     return true
   }
@@ -852,20 +908,20 @@ export function AccountGrid({
   }
 
   function runSubInsert(k: Key): boolean {
-    const options = subOptions()
+    const options = editOptions()
     switch (k) {
       case '<C-n>':
       case '<Down>':
-        setPick(nextPick(options.length, subTaken(options), 1))
+        setPick(nextPick(options.length, taken(options), 1))
         setNavigated(true)
         return true
       case '<C-p>':
       case '<Up>':
-        setPick(nextPick(options.length, subTaken(options), -1))
+        setPick(nextPick(options.length, taken(options), -1))
         setNavigated(true)
         return true
       case '<Tab>': {
-        const next = commitSub(subChosen())
+        const next = commitSub(chosen())
         const d = next ? detailsFor(next) : null
         if (!d || !sub) return true
         // On to the next cell: across the line, then down the lines.
@@ -890,9 +946,7 @@ export function AccountGrid({
       }
       case '<CR>':
       case '<Esc>':
-        if (
-          commitSub(navigated ? subChosen() : edit === '' ? edit : subChosen())
-        )
+        if (commitSub(navigated ? chosen() : edit === '' ? edit : chosen()))
           endSubEdit()
         return true
       case '<C-c>':
@@ -901,7 +955,7 @@ export function AccountGrid({
         return true
       case '<C-s>':
       case '<D-s>':
-        if (commitSub(subChosen())) {
+        if (commitSub(chosen())) {
           endSubEdit()
           void save()
         }
@@ -917,10 +971,10 @@ export function AccountGrid({
     }
   }
 
-  function subTaken(options: Array<Suggestion>): number {
+  function taken(options: Array<Suggestion>): number {
     if (options.length === 0) return -1
     if (!navigated && edit === '') return -1
-    return options.findIndex((o) => o.value === subChosen())
+    return options.findIndex((o) => o.value === chosen())
   }
 
   /** `o` and `dd` on the terms: rate changes come and go. */
@@ -978,11 +1032,7 @@ export function AccountGrid({
     setMode('normal')
   }
 
-  // ---------- cells and forms
-
-  function formFields(values: Record<string, string>) {
-    return setupFields(values)
-  }
+  // ---------- cells
 
   function startEdit(index: number, colIndex: number, clear = false) {
     const row = rows.at(index)
@@ -994,31 +1044,107 @@ export function AccountGrid({
       setCursor({ row: index, col: colIndex })
       return setClosed({ from: index, to: index }, !row.closed)
     }
+    // Whether a new bank or cash account is on budget is ticked (ADR-137).
+    if (col === 'onBudget') {
+      setCursor({ row: index, col: colIndex })
+      patchRows([row.id], (r) => ({ onBudget: !r.onBudget }))
+      return say(
+        row.onBudget
+          ? '改成預算外：只追蹤餘額，不能分到預算（:w 儲存）'
+          : '改成計入預算（:w 儲存）',
+      )
+    }
     // A card's settings are the lines under it (ADR-117).
     if (col === 'card') {
       setCursor({ row: index, col: colIndex })
       return toggleDetails(row.id, true, true)
     }
-    const which = formOf(row, col)
-    if (which) {
-      const values = setupValues(row, minorUnits)
-      const at =
-        col === 'balance'
-          ? 'balance'
-          : col === 'onBudget'
-            ? 'onBudget'
-            : undefined
-      setForm({
-        kind: which,
-        state: openForm(values, formFields(values), at),
-      })
-      setMode('form')
-      setMessage(null)
-      return
+    // A new card's balance is its latest bill and what is not billed yet,
+    // typed in the lines under it (ADR-137).
+    if (col === 'balance' && row.kind === 'credit_card') {
+      const line =
+        detailsFor(row)?.lines.findIndex((l) =>
+          l.cells.some((c) => c.key === 'openingBilled'),
+        ) ?? -1
+      if (line < 0) return
+      setCursor({ row: index, col: colIndex })
+      setExpanded(new Set(expanded).add(row.id))
+      startSubEdit(clear, { row: index, line, cell: 0 })
+      return say('信用卡的餘額分成本期帳單和未出帳金額，Tab 到下一格')
     }
-    if (col !== 'name') return say('這一欄是算出來的', 'error')
-    setEdit(clear ? '' : accountCellText(row, col))
+    if (col !== 'name' && col !== 'kind' && col !== 'balance')
+      return say('這一欄是算出來的', 'error')
+    startCell(row, col, clear)
+  }
+
+  /** Insert mode in a cell of the account's own line. */
+  function startCell(row: AccountRow, col: TypedColumn, clear = false) {
+    setCursor((c) => ({ ...c, col: columns.indexOf(col) }))
+    setCellEdit(col)
+    setEdit(clear ? '' : accountCellText(row, col, minorUnits))
+    setPick(0)
+    setNavigated(false)
+    setSubEdit(false)
     setMode('insert')
+  }
+
+  /** Writes what was typed into the cell edited; the account as it then is, or null when refused. */
+  function commitCell(text: string): AccountRow | null {
+    if (!current) return null
+    if (cellEdit === 'name') return commitName(text)
+    const patch =
+      cellEdit === 'kind'
+        ? kindPatch(current, text)
+        : balancePatch(current, text, minorUnits)
+    if (typeof patch === 'string') {
+      say(patch, 'error')
+      return null
+    }
+    opened.current = null
+    if (Object.keys(patch).length > 0) patchRows([current.id], () => patch)
+    setMessage(null)
+    return { ...current, ...patch }
+  }
+
+  /**
+   * After a new line's kind is chosen: a loan's terms and a card's settings
+   * open under it, with the cursor on the first.
+   */
+  function afterKind(row: AccountRow) {
+    if (row.base) return
+    if (row.kind !== 'loan' && row.kind !== 'credit_card') return
+    if (row.kind === 'loan')
+      setRows((list) =>
+        list.map((r) =>
+          r.id === row.id
+            ? { ...r, loan: r.loan ?? loanFieldValues(null, minorUnits, today) }
+            : r,
+        ),
+      )
+    setExpanded(new Set(expanded).add(row.id))
+    setSub({ line: 0, cell: 0 })
+    say(
+      row.kind === 'loan'
+        ? '填貸款條件：j k 移動、i 修改；不填就只記目前欠款'
+        : '填結帳日、繳款截止日，和本期帳單、未出帳金額：j k 移動、i 修改',
+    )
+  }
+
+  /** Tab in a cell of a new line: name, kind, then the balance. */
+  function tabFrom(row: AccountRow) {
+    if (row.base) return setMode('normal')
+    if (cellEdit === 'name') return startCell(row, 'kind')
+    if (cellEdit === 'kind') {
+      if (row.kind === 'loan' || row.kind === 'credit_card') {
+        setMode('normal')
+        return afterKind(row)
+      }
+      return startCell(row, 'balance')
+    }
+    setMode('normal')
+    say(
+      `餘額是 ${row.openingDate.replaceAll('-', '/')} 的；別天的話 za 展開改餘額日期`,
+    )
   }
 
   function commitName(text: string): AccountRow | null {
@@ -1036,53 +1162,6 @@ export function AccountGrid({
     }
     setMessage(null)
     return next
-  }
-
-  function runForm(k: Key): boolean {
-    if (!form || !current) return false
-    const fields = formFields(form.state.values)
-    const result = formKey(form.state, fields, k, now)
-    if (!('done' in result)) {
-      setForm({
-        ...form,
-        state: settleForm(result.state, formFields(result.state.values)),
-      })
-      return true
-    }
-    if (result.done === 'cancel') {
-      setForm(null)
-      if (!dropOpened()) setMode('normal')
-      say('已取消編輯')
-      return true
-    }
-    const patch = applySetup(result.state.values, minorUnits)
-    if (typeof patch === 'string') {
-      setForm({ ...form, state: { ...result.state, error: patch } })
-      return true
-    }
-    opened.current = null
-    patchRows([current.id], () => patch)
-    setForm(null)
-    setMode('normal')
-    // A new loan goes on to its terms, under its line.
-    if (patch.kind === 'loan' && !current.base) {
-      setRows((list) =>
-        list.map((r) =>
-          r.id === current.id
-            ? { ...r, loan: r.loan ?? loanFieldValues(null, minorUnits, today) }
-            : r,
-        ),
-      )
-      setExpanded(new Set(expanded).add(current.id))
-      setSub({ line: 0, cell: 0 })
-      say('填貸款條件：j k 移動、i 修改；不填就只記目前欠款')
-    }
-    return true
-  }
-
-  function formPreview(): string | undefined {
-    if (!form) return undefined
-    return setupPreview(form.state.values, minorUnits)
   }
 
   // ---------- saving
@@ -1450,23 +1529,37 @@ export function AccountGrid({
 
   function runInsert(k: Key): boolean {
     if (subEdit) return runSubInsert(k)
+    const options = editOptions()
     switch (k) {
+      case '<C-n>':
+      case '<Down>':
+      case '<C-p>':
+      case '<Up>':
+        if (options.length === 0) return false
+        setPick(
+          nextPick(
+            options.length,
+            taken(options),
+            k === '<C-n>' || k === '<Down>' ? 1 : -1,
+          ),
+        )
+        setNavigated(true)
+        return true
       case '<Tab>': {
-        const row = commitName(edit)
-        if (!row) return true
+        const row = commitCell(chosen())
         // A new account goes on to what it is; a saved one is done.
-        if (!row.base) {
-          const col = columns.indexOf('kind')
-          setCursor((c) => ({ ...c, col }))
-          startEditRow(row, col)
-        } else setMode('normal')
+        if (row) tabFrom(row)
         return true
       }
       case '<CR>':
-      case '<Esc>':
+      case '<Esc>': {
         if (k === '<Esc>' && dropOpened()) return true
-        if (commitName(edit)) setMode('normal')
+        const row = commitCell(chosen())
+        if (!row) return true
+        setMode('normal')
+        if (cellEdit === 'kind') afterKind(row)
         return true
+      }
       case '<C-c>':
         if (dropOpened()) return true
         setMode('normal')
@@ -1474,7 +1567,7 @@ export function AccountGrid({
         return true
       case '<C-s>':
       case '<D-s>':
-        if (commitName(edit)) {
+        if (commitCell(chosen())) {
           setMode('normal')
           void save()
         }
@@ -1482,21 +1575,12 @@ export function AccountGrid({
       default:
         if ([...k].length === 1) {
           setEdit((e) => e + k)
+          setPick(0)
+          setNavigated(false)
           return true
         }
         return false
     }
-  }
-
-  /** Opens the setup form of a line just named (it is not in `rows` yet). */
-  function startEditRow(row: AccountRow, colIndex: number) {
-    const values = setupValues(row, minorUnits)
-    setForm({
-      kind: 'setup',
-      state: openForm(values, setupFields(values)),
-    })
-    setCursor((c) => ({ ...c, col: colIndex }))
-    setMode('form')
   }
 
   function runCommandKey(k: Key): boolean {
@@ -1525,7 +1609,6 @@ export function AccountGrid({
   }
 
   const feed = useKeyFeed(keymap, 'accounts', (k) => {
-    if (mode === 'form') return runForm(k)
     if (mode === 'insert') return runInsert(k)
     if (mode === 'command') return runCommandKey(k)
     return runNormal(k)
@@ -1539,7 +1622,6 @@ export function AccountGrid({
       ? null
       : (message ??
         (problem ? { text: problem.message, tone: 'error' as const } : null))
-  const formList = form ? formFields(form.state.values) : []
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -1633,6 +1715,7 @@ export function AccountGrid({
                       problem={problems.get(row.id)}
                       minorUnits={minorUnits}
                       open={expanded.has(row.id)}
+                      foldable={foldable(row)}
                       onToggle={() => toggleDetails(row.id, false)}
                       onPick={(col, enter, extend) => {
                         if (!finishEditing()) return
@@ -1651,64 +1734,33 @@ export function AccountGrid({
                       }}
                     />
 
-                    {at && mode === 'form' && form && (
-                      <div
-                        className="absolute z-30"
-                        style={{ top: ROW_HEIGHT, left: layout.lefts[column] }}
-                      >
-                        <FormPopover
-                          title="帳戶設定"
-                          fields={formList}
-                          state={form.state}
-                          preview={formPreview()}
-                          width={layout.widths[column] * 2}
-                          onKeyDown={feed.onNormalKeyDown}
-                          onField={(field) =>
-                            setForm({
-                              ...form,
-                              state: focusField(
-                                takeTyped(form.state, formList, now),
-                                formList,
-                                field,
-                              ),
-                            })
-                          }
-                          onChoose={(field, value) => {
-                            const state = {
-                              ...form.state,
-                              values: { ...form.state.values, [field]: value },
-                              field,
-                              typed: null,
-                              error: null,
-                            }
-                            setForm({
-                              ...form,
-                              state: settleForm(
-                                state,
-                                formFields(state.values),
-                              ),
-                            })
-                          }}
-                        />
-                      </div>
-                    )}
-
                     {at && mode === 'insert' && !subEdit && (
                       <div
                         className="absolute top-0 z-30"
                         style={{
-                          left: layout.lefts.name,
-                          width: layout.widths.name,
+                          left: layout.lefts[cellEdit],
+                          width: Math.max(layout.widths[cellEdit], 120),
                         }}
                       >
                         <CellEditor
                           inputRef={inputRef}
                           value={edit}
-                          label={accountLabels.name}
-                          width={layout.widths.name}
-                          options={[]}
-                          pick={-1}
-                          onChange={setEdit}
+                          label={
+                            cellEdit === 'balance'
+                              ? balanceLabel(row.kind)
+                              : accountLabels[cellEdit]
+                          }
+                          numeric={
+                            cellEdit === 'balance' ? 'amount' : undefined
+                          }
+                          width={Math.max(layout.widths[cellEdit], 120)}
+                          options={feed.waiting ? [] : editOptions()}
+                          pick={taken(editOptions())}
+                          onChange={(value) => {
+                            setEdit(value)
+                            setPick(0)
+                            setNavigated(false)
+                          }}
                           onKeyDown={(e) =>
                             feed.onInsertKeyDown(e, (n) =>
                               setEdit(
@@ -1716,7 +1768,11 @@ export function AccountGrid({
                               ),
                             )
                           }
-                          onChoose={() => {}}
+                          onChoose={(i) => {
+                            setEdit(editOptions()[i].value)
+                            setPick(i)
+                            setNavigated(true)
+                          }}
                         />
                       </div>
                     )}
@@ -1804,7 +1860,9 @@ export function AccountGrid({
                                 )}
                               >
                                 <span className="truncate">
-                                  {d.text(cell) || (
+                                  {(d.numeric(cell) === 'amount'
+                                    ? groupAmountText(d.text(cell))
+                                    : d.text(cell)) || (
                                     <span className="text-muted-foreground/60">
                                       {d.placeholder(cell)}
                                     </span>
@@ -1838,11 +1896,15 @@ export function AccountGrid({
                                   value={edit}
                                   label={active.label}
                                   numeric={
-                                    d.numeric(active) ? 'date' : undefined
+                                    d.numeric(active) === 'amount'
+                                      ? 'amount'
+                                      : d.numeric(active)
+                                        ? 'date'
+                                        : undefined
                                   }
                                   width={valueWidth}
-                                  options={feed.waiting ? [] : subOptions()}
-                                  pick={subTaken(subOptions())}
+                                  options={feed.waiting ? [] : editOptions()}
+                                  pick={taken(editOptions())}
                                   onChange={(value) => {
                                     setEdit(value)
                                     setPick(0)
@@ -1853,6 +1915,7 @@ export function AccountGrid({
                                       'start',
                                       'firstPayment',
                                       'rateFrom',
+                                      'openingDate',
                                     ].includes(active.key)
                                       ? {
                                           value: parseDate(edit, now) ?? '',
@@ -1874,7 +1937,7 @@ export function AccountGrid({
                                     )
                                   }
                                   onChoose={(i) => {
-                                    setEdit(subOptions()[i].value)
+                                    setEdit(editOptions()[i].value)
                                     setPick(i)
                                     setNavigated(true)
                                   }}
@@ -1956,6 +2019,7 @@ function AccountLine({
   problem,
   minorUnits,
   open,
+  foldable,
   onToggle,
   onPick,
 }: {
@@ -1967,6 +2031,8 @@ function AccountLine({
   minorUnits: number
   /** Whether the line's details are shown under it. */
   open: boolean
+  /** Whether the line has details to show. */
+  foldable: boolean
   onToggle: () => void
   onPick: (col: number, enter: boolean, extend: boolean) => void
 }) {
@@ -1984,19 +2050,17 @@ function AccountLine({
       case 'name':
         return (
           <span key={c} data-col={col} className={cn(cell, 'gap-1', bad)}>
-            {(row.kind === 'loan' || row.kind === 'credit_card') && (
+            {foldable && (
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label={
+                aria-label={`${open ? '收起' : '展開'}${
                   row.kind === 'loan'
-                    ? open
-                      ? '收起貸款條件'
-                      : '展開貸款條件'
-                    : open
-                      ? '收起帳單設定'
-                      : '展開帳單設定'
-                }
+                    ? '貸款條件'
+                    : row.kind === 'credit_card'
+                      ? '帳單設定'
+                      : '餘額日期'
+                }`}
                 aria-expanded={open}
                 onMouseDown={(e) => {
                   e.preventDefault()
@@ -2044,7 +2108,13 @@ function AccountLine({
               balance < 0 && 'amount-negative',
               bad,
             )}
-            title={row.base ? undefined : `期初 ${row.openingDate}`}
+            title={
+              row.base
+                ? undefined
+                : row.kind === 'credit_card'
+                  ? `本期帳單 ${money(-row.openingBilled)} · 未出帳 ${money(row.openingBilled - row.openingBalance)}（${row.openingDate}）`
+                  : `期初 ${row.openingDate}`
+            }
           >
             {money(balance)}
           </span>
