@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,8 +24,9 @@ import (
 // OpenID Connect login and account linking.
 //
 // Providers are configured in the web app by issuer URL (discovery), so any
-// standards-compliant IdP works. The flow is the authorization code flow with
-// PKCE, state and nonce. Its state lives in a short-lived, encrypted cookie,
+// standards-compliant IdP works; GitHub and Discord, which only speak OAuth2,
+// are kinds of their own (oauth_sites.go, ADR-125). The flow is the
+// authorization code flow with PKCE, state and nonce. Its state lives in a short-lived, encrypted cookie,
 // not in the database. An identity only logs in after its owner linked it
 // from their profile; unknown identities are rejected (no auto-provisioning).
 // Identities are matched by (provider, subject), never by email.
@@ -146,8 +146,11 @@ func (o *OIDC) Start(ctx context.Context, code, mode string, userID uuid.UUID, r
 	if err != nil {
 		return "", "", err
 	}
-	authURL := cfg.AuthCodeURL(f.State, oidc.Nonce(f.Nonce), oauth2.S256ChallengeOption(f.Verifier))
-	return authURL, sealed, nil
+	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(f.Verifier)}
+	if p.Kind == KindOIDC {
+		opts = append(opts, oidc.Nonce(f.Nonce))
+	}
+	return cfg.AuthCodeURL(f.State, opts...), sealed, nil
 }
 
 // Identity is a verified external identity at the end of a flow.
@@ -173,7 +176,8 @@ func (o *OIDC) FlowInfo(sealed string) (mode, redirect string, ok bool) {
 }
 
 // Finish completes a flow: it checks state against the flow cookie, redeems
-// the code (with the PKCE verifier) and verifies the ID token and nonce.
+// the code (with the PKCE verifier) and verifies the ID token and nonce, or
+// for GitHub and Discord reads the user with the access token.
 func (o *OIDC) Finish(ctx context.Context, sealed, state, code string) (Identity, error) {
 	f, err := o.openFlow(sealed)
 	if err != nil {
@@ -199,6 +203,14 @@ func (o *OIDC) Finish(ctx context.Context, sealed, state, code string) (Identity
 	if err != nil {
 		return Identity{}, fmt.Errorf("redeem code: %w", err)
 	}
+	id := Identity{ProviderID: p.ID, ProviderCode: p.Code, Mode: f.Mode, UserID: f.UserID, Redirect: f.Redirect}
+	if s, ok := sites[p.Kind]; ok {
+		id.Subject, id.Email, err = s.user(ctx, cfg.Client(ctx, tok), siteBase(p))
+		if err != nil {
+			return Identity{}, fmt.Errorf("read %s user: %w", p.Kind, err)
+		}
+		return id, nil
+	}
 	rawID, ok := tok.Extra("id_token").(string)
 	if !ok {
 		return Identity{}, errors.New("token response has no id_token")
@@ -216,10 +228,8 @@ func (o *OIDC) Finish(ctx context.Context, sealed, state, code string) (Identity
 	if err := idTok.Claims(&claims); err != nil {
 		return Identity{}, err
 	}
-	return Identity{
-		ProviderID: p.ID, ProviderCode: p.Code, Subject: idTok.Subject, Email: claims.Email,
-		Mode: f.Mode, UserID: f.UserID, Redirect: f.Redirect,
-	}, nil
+	id.Subject, id.Email = idTok.Subject, claims.Email
+	return id, nil
 }
 
 // LinkedUser returns the active user an identity is linked to.
@@ -265,9 +275,38 @@ func (o *OIDC) openFlow(sealed string) (flow, error) {
 	return f, nil
 }
 
-// config returns the provider's discovered endpoints and OAuth2 settings.
-// Discovery is cached until the provider row changes.
+// siteBase is a GitHub or Discord provider's address, without a final slash.
+func siteBase(p db.OidcProvider) string {
+	if p.Issuer == "" {
+		return DefaultSiteURL(p.Kind)
+	}
+	return strings.TrimRight(p.Issuer, "/")
+}
+
+// config returns the provider's OAuth2 settings and, for OIDC, its
+// discovered endpoints. Discovery is cached until the provider row changes.
 func (o *OIDC) config(ctx context.Context, p db.OidcProvider) (*oauth2.Config, *oidc.Provider, error) {
+	var secret string
+	if p.ClientSecret != "" {
+		raw, err := o.box.Open(p.ClientSecret, secretAAD)
+		if err != nil {
+			return nil, nil, fmt.Errorf("client secret of %s: %w", p.Code, err)
+		}
+		secret = string(raw)
+	}
+	cfg := &oauth2.Config{
+		ClientID: p.ClientID, ClientSecret: secret, RedirectURL: o.callback,
+		Scopes: scopesFor(p.Kind, p.Scopes),
+	}
+	if s, ok := sites[p.Kind]; ok {
+		base := siteBase(p)
+		cfg.Endpoint = oauth2.Endpoint{AuthURL: base + s.authPath, TokenURL: base + s.tokenPath}
+		return cfg, nil, nil
+	}
+	if p.Kind != KindOIDC {
+		return nil, nil, fmt.Errorf("provider %s has unknown kind %q", p.Code, p.Kind)
+	}
+
 	o.mu.Lock()
 	cached, ok := o.cache[p.ID]
 	o.mu.Unlock()
@@ -282,21 +321,6 @@ func (o *OIDC) config(ctx context.Context, p db.OidcProvider) (*oauth2.Config, *
 		o.cache[p.ID] = cachedProvider{updatedAt: p.UpdatedAt, provider: provider}
 		o.mu.Unlock()
 	}
-
-	var secret string
-	if p.ClientSecret != "" {
-		raw, err := o.box.Open(p.ClientSecret, secretAAD)
-		if err != nil {
-			return nil, nil, fmt.Errorf("client secret of %s: %w", p.Code, err)
-		}
-		secret = string(raw)
-	}
-	scopes := strings.Fields(p.Scopes)
-	if !slices.Contains(scopes, oidc.ScopeOpenID) {
-		scopes = append([]string{oidc.ScopeOpenID}, scopes...)
-	}
-	return &oauth2.Config{
-		ClientID: p.ClientID, ClientSecret: secret, Endpoint: provider.Endpoint(),
-		RedirectURL: o.callback, Scopes: scopes,
-	}, provider, nil
+	cfg.Endpoint = provider.Endpoint()
+	return cfg, provider, nil
 }

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -24,9 +23,8 @@ import (
 // carrying ?error=<code> instead of JSON errors.
 
 const (
-	defaultScopes = "openid email profile"
-	loginPage     = "/login"
-	profilePage   = "/profile"
+	loginPage   = "/login"
+	profilePage = "/profile"
 )
 
 // redirectResponse is a 302 that can also set cookies; it serves every
@@ -186,7 +184,7 @@ func (h *Handlers) ListLoginProviders(ctx context.Context, _ api.ListLoginProvid
 		return nil, err
 	}
 	for _, p := range rows {
-		out = append(out, api.LoginProvider{Code: p.Code, Name: p.Name})
+		out = append(out, api.LoginProvider{Code: p.Code, Name: p.Name, Icon: p.Icon})
 	}
 	return out, nil
 }
@@ -210,78 +208,6 @@ func (h *Handlers) ListOidcProviders(ctx context.Context, _ api.ListOidcProvider
 	return out, nil
 }
 
-func (h *Handlers) CreateOidcProvider(ctx context.Context, req api.CreateOidcProviderRequestObject) (api.CreateOidcProviderResponseObject, error) {
-	b := req.Body
-	if err := h.checkIssuer(ctx, b.Issuer); err != nil {
-		return nil, err
-	}
-	secret, err := h.sealClientSecret(b.ClientSecret)
-	if err != nil {
-		return nil, err
-	}
-	p, err := h.s.q.CreateOIDCProvider(ctx, db.CreateOIDCProviderParams{
-		Code: b.Code, Name: b.Name, Issuer: b.Issuer, ClientID: b.ClientId, ClientSecret: secret,
-		Scopes: scopesOrDefault(b.Scopes), Sort: b.Sort, Enabled: b.Enabled, Remark: b.Remark,
-		CreatedBy: callerID(ctx),
-	})
-	if err != nil {
-		return nil, apperr.FromDB(err)
-	}
-	return api.CreateOidcProvider201JSONResponse(oidcProviderResponse(p)), nil
-}
-
-func (h *Handlers) UpdateOidcProvider(ctx context.Context, req api.UpdateOidcProviderRequestObject) (api.UpdateOidcProviderResponseObject, error) {
-	b := req.Body
-	cur, err := h.s.q.GetOIDCProvider(ctx, req.Id)
-	if err != nil {
-		return nil, apperr.FromDB(err)
-	}
-	if b.Issuer != cur.Issuer {
-		if err := h.checkIssuer(ctx, b.Issuer); err != nil {
-			return nil, err
-		}
-	}
-	secret := cur.ClientSecret
-	if b.ClientSecret != "" {
-		if secret, err = h.sealClientSecret(b.ClientSecret); err != nil {
-			return nil, err
-		}
-	}
-	p, err := h.s.q.UpdateOIDCProvider(ctx, db.UpdateOIDCProviderParams{
-		ID: req.Id, Code: b.Code, Name: b.Name, Issuer: b.Issuer, ClientID: b.ClientId, ClientSecret: secret,
-		Scopes: scopesOrDefault(b.Scopes), Sort: b.Sort, Enabled: b.Enabled, Remark: b.Remark,
-		UpdatedBy: callerID(ctx),
-	})
-	if err != nil {
-		return nil, apperr.FromDB(err)
-	}
-	return api.UpdateOidcProvider200JSONResponse(oidcProviderResponse(p)), nil
-}
-
-func (h *Handlers) DeleteOidcProvider(ctx context.Context, req api.DeleteOidcProviderRequestObject) (api.DeleteOidcProviderResponseObject, error) {
-	n, err := h.s.q.DeleteOIDCProvider(ctx, req.Id)
-	if err != nil {
-		return nil, err
-	}
-	if n == 0 {
-		return nil, apperr.New(http.StatusNotFound, "not_found", "not found")
-	}
-	return api.DeleteOidcProvider204Response{}, nil
-}
-
-func (h *Handlers) checkIssuer(ctx context.Context, issuer string) error {
-	if !h.s.oidcOn() {
-		return apperr.BadRequest("oidc_unavailable", "OIDC login is not available on this server")
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := h.s.oidc.Discover(ctx, issuer); err != nil {
-		slog.Warn("oidc discovery", "issuer", issuer, "err", err)
-		return apperr.BadRequest("invalid_issuer", "the issuer does not serve a valid OpenID Connect discovery document")
-	}
-	return nil
-}
-
 func (h *Handlers) sealClientSecret(secret string) (string, error) {
 	sealed, err := h.s.oidc.SealSecret(secret)
 	if errors.Is(err, secretbox.ErrNoKey) {
@@ -290,22 +216,19 @@ func (h *Handlers) sealClientSecret(secret string) (string, error) {
 	return sealed, err
 }
 
-func scopesOrDefault(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return defaultScopes
-	}
-	return s
-}
-
 func callerID(ctx context.Context) pgtype.UUID {
 	return pgtype.UUID{Bytes: reqctx.Caller(ctx).UserID, Valid: true}
 }
 
 func oidcProviderResponse(p db.OidcProvider) api.OidcProvider {
+	scopes := p.Scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
 	return api.OidcProvider{
-		Id: p.ID, Code: p.Code, Name: p.Name, Issuer: p.Issuer, ClientId: p.ClientID, HasSecret: p.ClientSecret != "",
-		Scopes: p.Scopes, Sort: p.Sort, Enabled: p.Enabled, Remark: p.Remark,
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		Id: p.ID, Code: p.Code, Name: p.Name, Kind: api.OidcProviderKind(p.Kind), Issuer: p.Issuer,
+		ClientId: p.ClientID, HasSecret: p.ClientSecret != "", Scopes: scopes, Icon: p.Icon,
+		Sort: p.Sort, Enabled: p.Enabled, Remark: p.Remark, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 
@@ -319,7 +242,8 @@ func (h *Handlers) ListMyIdentities(ctx context.Context, _ api.ListMyIdentitiesR
 	out := make(api.ListMyIdentities200JSONResponse, 0, len(rows))
 	for _, r := range rows {
 		item := api.LinkedIdentity{
-			Id: r.ID, ProviderCode: r.ProviderCode, ProviderName: r.ProviderName, Email: r.Email, CreatedAt: r.CreatedAt,
+			Id: r.ID, ProviderCode: r.ProviderCode, ProviderName: r.ProviderName, ProviderIcon: r.ProviderIcon,
+			Email: r.Email, CreatedAt: r.CreatedAt,
 		}
 		if r.LastLoginAt.Valid {
 			item.LastLoginAt = &r.LastLoginAt.Time

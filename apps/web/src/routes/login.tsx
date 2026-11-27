@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
-import { CircleAlertIcon, KeyRoundIcon } from 'lucide-react'
+import { CircleAlertIcon } from 'lucide-react'
 import { useState } from 'react'
+import { BrandIcon } from '#/components/brand-icon'
 import { ThemeToggle } from '#/components/theme'
 import { Alert, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
@@ -140,7 +141,7 @@ function LoginPage() {
                   className="w-full justify-start"
                 >
                   <a href={oidcLoginUrl(p.code, target)}>
-                    <KeyRoundIcon />
+                    <BrandIcon slug={p.icon} />
                     使用 {p.name} 登入
                   </a>
                 </Button>

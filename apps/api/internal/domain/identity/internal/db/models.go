@@ -18,7 +18,7 @@ type OidcProvider struct {
 	Issuer       string
 	ClientID     string
 	ClientSecret string
-	Scopes       string
+	Scopes       []string
 	Sort         int32
 	Enabled      bool
 	Remark       string
@@ -26,4 +26,6 @@ type OidcProvider struct {
 	UpdatedAt    time.Time
 	CreatedBy    pgtype.UUID
 	UpdatedBy    pgtype.UUID
+	Kind         string
+	Icon         string
 }

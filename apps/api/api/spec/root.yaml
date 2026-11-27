@@ -44,8 +44,8 @@ paths:
     $ref: './auth.yaml#/paths/oidcCallback'
   /oidc-providers:
     $ref: './auth.yaml#/paths/oidcProviders'
-  /oidc-providers/{id}:
-    $ref: './auth.yaml#/paths/oidcProvider'
+  /oidc-providers/batch:
+    $ref: './auth.yaml#/paths/oidcProvidersBatch'
   /me:
     $ref: './auth.yaml#/paths/me'
   /me/password:

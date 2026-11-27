@@ -157,29 +157,34 @@ export interface paths {
     /** Identity providers (client secrets are never returned) */
     get: operations['listOidcProviders']
     put?: never
-    /** Add an identity provider (the issuer must serve OIDC discovery) */
-    post: operations['createOidcProvider']
+    post?: never
     delete?: never
     options?: never
     head?: never
     patch?: never
     trace?: never
   }
-  '/oidc-providers/{id}': {
+  '/oidc-providers/batch': {
     parameters: {
       query?: never
       header?: never
-      path: {
-        id: components['parameters']['Id']
-      }
+      path?: never
       cookie?: never
     }
     get?: never
-    /** Update an identity provider (an empty clientSecret keeps the stored one) */
-    put: operations['updateOidcProvider']
-    post?: never
-    /** Delete an identity provider (its linked identities are removed) */
-    delete: operations['deleteOidcProvider']
+    put?: never
+    /**
+     * Apply the identity providers page's buffer in one database transaction (:w)
+     * @description Providers are keyed by ids the client chose for new ones; `sort` is
+     *     their place on the login page. An OpenID Connect provider's issuer
+     *     must serve discovery (checked when it is new or changed); GitHub's
+     *     and Discord's issuer is the site's address. A provider's kind is
+     *     fixed once created. An empty clientSecret keeps the stored one.
+     *     Deleting a provider removes the identities linked to it. All or
+     *     nothing, with problems reported per provider (ADR-044, ADR-126).
+     */
+    post: operations['saveOidcProviders']
+    delete?: never
     options?: never
     head?: never
     patch?: never
@@ -1490,17 +1495,29 @@ export interface components {
     LoginProvider: {
       code: string
       name: string
+      /** @description A Simple Icons slug, or empty for the default. */
+      icon: string
     }
+    /**
+     * @description `oidc`: any OpenID Connect provider, by discovery. `github` and
+     *     `discord`: OAuth2, the user read from their user API (ADR-125).
+     * @enum {string}
+     */
+    OidcProviderKind: 'oidc' | 'github' | 'discord'
     OidcProvider: {
       /** Format: uuid */
       id: string
       code: string
       name: string
+      kind: components['schemas']['OidcProviderKind']
+      /** @description The OIDC issuer, or GitHub's or Discord's address. */
       issuer: string
       clientId: string
       /** @description Whether a client secret is stored (it is never returned). */
       hasSecret: boolean
-      scopes: string
+      scopes: string[]
+      /** @description A Simple Icons slug, or empty for the default. */
+      icon: string
       /** Format: int32 */
       sort: number
       enabled: boolean
@@ -1517,19 +1534,52 @@ export interface components {
       /** @description Whether FACTUAL_ENCRYPTION_KEY is set; OIDC login needs it. */
       encryptionConfigured: boolean
     }
-    OidcProviderInput: {
-      /** @description Used in URLs, e.g. `google`. */
+    OidcProviderUpsert: {
+      /**
+       * Format: uuid
+       * @description The provider's id; chosen by the client for a new one.
+       */
+      id: string
+      /** @description Used in URLs, e.g. `google`; 2 to 32 of a-z, 0-9, _ and -, starting with a letter. */
       code: string
+      /** @description Shown on the login button, 1 to 64 characters. */
       name: string
+      kind: components['schemas']['OidcProviderKind']
       issuer: string
       clientId: string
-      /** @description Empty on update keeps the stored secret. */
+      /** @description Empty keeps the stored secret. */
       clientSecret: string
-      scopes: string
+      /** @description Empty for the kind's defaults; `openid` is always asked of an OIDC provider. */
+      scopes: string[]
+      /** @description A Simple Icons slug, or empty. */
+      icon: string
       /** Format: int32 */
       sort: number
       enabled: boolean
       remark: string
+    }
+    OidcProviderBatch: {
+      upserts: components['schemas']['OidcProviderUpsert'][]
+      deletes: string[]
+    }
+    OidcProviderBatchSaved: {
+      upserted: number
+      deleted: number
+    }
+    BatchProblem: {
+      /**
+       * Format: uuid
+       * @description The transaction the problem belongs to.
+       */
+      id: string
+      /** @description Which part is wrong (date, payee, note, category, amount, account, entries), or empty. */
+      field: string
+      /** @description Stable code, e.g. category_required. */
+      code: string
+      message: string
+    }
+    BatchErrors: {
+      errors: components['schemas']['BatchProblem'][]
     }
     ProfileUpdate: {
       username: string
@@ -1545,6 +1595,7 @@ export interface components {
       id: string
       providerCode: string
       providerName: string
+      providerIcon: string
       email: string
       /** Format: date-time */
       createdAt: string
@@ -1780,21 +1831,6 @@ export interface components {
       upserted: number
       /** Format: int32 */
       deleted: number
-    }
-    BatchProblem: {
-      /**
-       * Format: uuid
-       * @description The transaction the problem belongs to.
-       */
-      id: string
-      /** @description Which part is wrong (date, payee, note, category, amount, account, entries), or empty. */
-      field: string
-      /** @description Stable code, e.g. category_required. */
-      code: string
-      message: string
-    }
-    BatchErrors: {
-      errors: components['schemas']['BatchProblem'][]
     }
     /**
      * @description `friend` accounts hold what a friend owes (ADR-036); they are created
@@ -3131,7 +3167,7 @@ export interface operations {
       403: components['responses']['Forbidden']
     }
   }
-  createOidcProvider: {
+  saveOidcProviders: {
     parameters: {
       query?: never
       header?: never
@@ -3140,71 +3176,32 @@ export interface operations {
     }
     requestBody: {
       content: {
-        'application/json': components['schemas']['OidcProviderInput']
+        'application/json': components['schemas']['OidcProviderBatch']
       }
     }
     responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown
-        }
-        content: {
-          'application/json': components['schemas']['OidcProvider']
-        }
-      }
-      400: components['responses']['BadRequest']
-      409: components['responses']['Conflict']
-    }
-  }
-  updateOidcProvider: {
-    parameters: {
-      query?: never
-      header?: never
-      path: {
-        id: components['parameters']['Id']
-      }
-      cookie?: never
-    }
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['OidcProviderInput']
-      }
-    }
-    responses: {
-      /** @description Updated */
+      /** @description Saved */
       200: {
         headers: {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['OidcProvider']
+          'application/json': components['schemas']['OidcProviderBatchSaved']
         }
       }
       400: components['responses']['BadRequest']
-      404: components['responses']['NotFound']
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
       409: components['responses']['Conflict']
-    }
-  }
-  deleteOidcProvider: {
-    parameters: {
-      query?: never
-      header?: never
-      path: {
-        id: components['parameters']['Id']
-      }
-      cookie?: never
-    }
-    requestBody?: never
-    responses: {
-      /** @description Deleted */
-      204: {
+      /** @description Nothing was saved; the providers listed have problems */
+      422: {
         headers: {
           [name: string]: unknown
         }
-        content?: never
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
       }
-      404: components['responses']['NotFound']
     }
   }
   getCurrentUser: {

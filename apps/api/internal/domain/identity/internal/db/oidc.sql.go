@@ -49,68 +49,55 @@ func (q *Queries) CreateIdentity(ctx context.Context, arg CreateIdentityParams) 
 	return err
 }
 
-const createOIDCProvider = `-- name: CreateOIDCProvider :one
-insert into oidc_providers (code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_by, updated_by)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
-returning id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by
+const createOIDCProvider = `-- name: CreateOIDCProvider :exec
+insert into oidc_providers (id, code, name, kind, issuer, client_id, client_secret, scopes, icon, sort, enabled, remark, created_by, updated_by)
+values ($1, $2, $3, $4, $5, $6,
+        $7, $8::text[], $9, $10, $11,
+        $12, $13, $13)
 `
 
 type CreateOIDCProviderParams struct {
+	ID           uuid.UUID
 	Code         string
 	Name         string
+	Kind         string
 	Issuer       string
 	ClientID     string
 	ClientSecret string
-	Scopes       string
+	Scopes       []string
+	Icon         string
 	Sort         int32
 	Enabled      bool
 	Remark       string
 	CreatedBy    pgtype.UUID
 }
 
-func (q *Queries) CreateOIDCProvider(ctx context.Context, arg CreateOIDCProviderParams) (OidcProvider, error) {
-	row := q.db.QueryRow(ctx, createOIDCProvider,
+func (q *Queries) CreateOIDCProvider(ctx context.Context, arg CreateOIDCProviderParams) error {
+	_, err := q.db.Exec(ctx, createOIDCProvider,
+		arg.ID,
 		arg.Code,
 		arg.Name,
+		arg.Kind,
 		arg.Issuer,
 		arg.ClientID,
 		arg.ClientSecret,
 		arg.Scopes,
+		arg.Icon,
 		arg.Sort,
 		arg.Enabled,
 		arg.Remark,
 		arg.CreatedBy,
 	)
-	var i OidcProvider
-	err := row.Scan(
-		&i.ID,
-		&i.Code,
-		&i.Name,
-		&i.Issuer,
-		&i.ClientID,
-		&i.ClientSecret,
-		&i.Scopes,
-		&i.Sort,
-		&i.Enabled,
-		&i.Remark,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CreatedBy,
-		&i.UpdatedBy,
-	)
-	return i, err
+	return err
 }
 
-const deleteOIDCProvider = `-- name: DeleteOIDCProvider :execrows
+const deleteOIDCProvider = `-- name: DeleteOIDCProvider :exec
 delete from oidc_providers where id = $1
 `
 
-func (q *Queries) DeleteOIDCProvider(ctx context.Context, id uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteOIDCProvider, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+func (q *Queries) DeleteOIDCProvider(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteOIDCProvider, id)
+	return err
 }
 
 const deleteUserIdentity = `-- name: DeleteUserIdentity :execrows
@@ -131,7 +118,7 @@ func (q *Queries) DeleteUserIdentity(ctx context.Context, arg DeleteUserIdentity
 }
 
 const getEnabledOIDCProviderByCode = `-- name: GetEnabledOIDCProviderByCode :one
-select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by from oidc_providers where code = $1 and enabled
+select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by, kind, icon from oidc_providers where code = $1 and enabled
 `
 
 func (q *Queries) GetEnabledOIDCProviderByCode(ctx context.Context, code string) (OidcProvider, error) {
@@ -152,6 +139,8 @@ func (q *Queries) GetEnabledOIDCProviderByCode(ctx context.Context, code string)
 		&i.UpdatedAt,
 		&i.CreatedBy,
 		&i.UpdatedBy,
+		&i.Kind,
+		&i.Icon,
 	)
 	return i, err
 }
@@ -191,7 +180,7 @@ func (q *Queries) GetIdentityUser(ctx context.Context, arg GetIdentityUserParams
 }
 
 const getOIDCProvider = `-- name: GetOIDCProvider :one
-select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by from oidc_providers where id = $1
+select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by, kind, icon from oidc_providers where id = $1
 `
 
 func (q *Queries) GetOIDCProvider(ctx context.Context, id uuid.UUID) (OidcProvider, error) {
@@ -212,12 +201,14 @@ func (q *Queries) GetOIDCProvider(ctx context.Context, id uuid.UUID) (OidcProvid
 		&i.UpdatedAt,
 		&i.CreatedBy,
 		&i.UpdatedBy,
+		&i.Kind,
+		&i.Icon,
 	)
 	return i, err
 }
 
 const listEnabledOIDCProviders = `-- name: ListEnabledOIDCProviders :many
-select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by from oidc_providers where enabled order by sort, name
+select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by, kind, icon from oidc_providers where enabled order by sort, name
 `
 
 func (q *Queries) ListEnabledOIDCProviders(ctx context.Context) ([]OidcProvider, error) {
@@ -244,6 +235,8 @@ func (q *Queries) ListEnabledOIDCProviders(ctx context.Context) ([]OidcProvider,
 			&i.UpdatedAt,
 			&i.CreatedBy,
 			&i.UpdatedBy,
+			&i.Kind,
+			&i.Icon,
 		); err != nil {
 			return nil, err
 		}
@@ -256,7 +249,7 @@ func (q *Queries) ListEnabledOIDCProviders(ctx context.Context) ([]OidcProvider,
 }
 
 const listOIDCProviders = `-- name: ListOIDCProviders :many
-select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by from oidc_providers order by sort, name
+select id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by, kind, icon from oidc_providers order by sort, name
 `
 
 func (q *Queries) ListOIDCProviders(ctx context.Context) ([]OidcProvider, error) {
@@ -283,6 +276,8 @@ func (q *Queries) ListOIDCProviders(ctx context.Context) ([]OidcProvider, error)
 			&i.UpdatedAt,
 			&i.CreatedBy,
 			&i.UpdatedBy,
+			&i.Kind,
+			&i.Icon,
 		); err != nil {
 			return nil, err
 		}
@@ -295,7 +290,8 @@ func (q *Queries) ListOIDCProviders(ctx context.Context) ([]OidcProvider, error)
 }
 
 const listUserIdentities = `-- name: ListUserIdentities :many
-select i.id, i.email, i.created_at, i.last_login_at, p.code as provider_code, p.name as provider_name
+select i.id, i.email, i.created_at, i.last_login_at, p.code as provider_code, p.name as provider_name,
+       p.icon as provider_icon
   from user_identities i
   join oidc_providers p on p.id = i.provider_id
  where i.user_id = $1
@@ -309,6 +305,7 @@ type ListUserIdentitiesRow struct {
 	LastLoginAt  pgtype.Timestamptz
 	ProviderCode string
 	ProviderName string
+	ProviderIcon string
 }
 
 func (q *Queries) ListUserIdentities(ctx context.Context, userID uuid.UUID) ([]ListUserIdentitiesRow, error) {
@@ -327,10 +324,36 @@ func (q *Queries) ListUserIdentities(ctx context.Context, userID uuid.UUID) ([]L
 			&i.LastLoginAt,
 			&i.ProviderCode,
 			&i.ProviderName,
+			&i.ProviderIcon,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const oIDCProvidersExist = `-- name: OIDCProvidersExist :many
+select id from oidc_providers where id = any($1::uuid[])
+`
+
+// Which of the ids are taken by a provider (for ids a batch chose for new ones).
+func (q *Queries) OIDCProvidersExist(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, oIDCProvidersExist, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -352,58 +375,44 @@ func (q *Queries) TouchIdentityLogin(ctx context.Context, arg TouchIdentityLogin
 	return err
 }
 
-const updateOIDCProvider = `-- name: UpdateOIDCProvider :one
+const updateOIDCProvider = `-- name: UpdateOIDCProvider :exec
 update oidc_providers
-   set code = $2, name = $3, issuer = $4, client_id = $5, client_secret = $6, scopes = $7,
-       sort = $8, enabled = $9, remark = $10, updated_by = $11, updated_at = now()
- where id = $1
-returning id, code, name, issuer, client_id, client_secret, scopes, sort, enabled, remark, created_at, updated_at, created_by, updated_by
+   set code = $1, name = $2, issuer = $3, client_id = $4,
+       client_secret = $5, scopes = $6::text[], icon = $7,
+       sort = $8, enabled = $9, remark = $10,
+       updated_by = $11, updated_at = now()
+ where id = $12
 `
 
 type UpdateOIDCProviderParams struct {
-	ID           uuid.UUID
 	Code         string
 	Name         string
 	Issuer       string
 	ClientID     string
 	ClientSecret string
-	Scopes       string
+	Scopes       []string
+	Icon         string
 	Sort         int32
 	Enabled      bool
 	Remark       string
 	UpdatedBy    pgtype.UUID
+	ID           uuid.UUID
 }
 
-func (q *Queries) UpdateOIDCProvider(ctx context.Context, arg UpdateOIDCProviderParams) (OidcProvider, error) {
-	row := q.db.QueryRow(ctx, updateOIDCProvider,
-		arg.ID,
+func (q *Queries) UpdateOIDCProvider(ctx context.Context, arg UpdateOIDCProviderParams) error {
+	_, err := q.db.Exec(ctx, updateOIDCProvider,
 		arg.Code,
 		arg.Name,
 		arg.Issuer,
 		arg.ClientID,
 		arg.ClientSecret,
 		arg.Scopes,
+		arg.Icon,
 		arg.Sort,
 		arg.Enabled,
 		arg.Remark,
 		arg.UpdatedBy,
+		arg.ID,
 	)
-	var i OidcProvider
-	err := row.Scan(
-		&i.ID,
-		&i.Code,
-		&i.Name,
-		&i.Issuer,
-		&i.ClientID,
-		&i.ClientSecret,
-		&i.Scopes,
-		&i.Sort,
-		&i.Enabled,
-		&i.Remark,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CreatedBy,
-		&i.UpdatedBy,
-	)
-	return i, err
+	return err
 }

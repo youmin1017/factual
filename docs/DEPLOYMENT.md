@@ -46,7 +46,7 @@ App 用 `X-Forwarded-For` 中最後一個不是內網位址的項目當作用戶
 
 ### 第三方登入（OIDC）
 
-在身分提供者登記的回呼網址是 `<FACTUAL_PUBLIC_URL>/api/auth/oidc/callback`。提供者本身在網頁的「第三方登入」頁設定，不需要重新啟動。
+在身分提供者登記的回呼網址是 `<FACTUAL_PUBLIC_URL>/api/auth/oidc/callback`。提供者本身在網頁的「第三方登入」頁設定，不需要重新啟動：任何 OpenID Connect 服務（Google、Authentik、Keycloak…）之外，也支援只有 OAuth2 的 GitHub（含 GitHub Enterprise Server）和 Discord。伺服器要連得到提供者（OIDC 的 discovery、換 token；GitHub、Discord 還有它們的使用者 API）。
 
 ## 環境變數
 

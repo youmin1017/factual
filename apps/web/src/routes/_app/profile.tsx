@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { BrandIcon } from '#/components/brand-icon'
 import { PageHeader, Section } from '#/components/section'
 import {
   AlertDialog,
@@ -184,6 +185,7 @@ function LinkedIdentities({ hasPassword }: { hasPassword: boolean }) {
     ...(providers.data ?? []).map((p) => ({
       code: p.code,
       name: p.name,
+      icon: p.icon,
       enabled: true,
       identity: mine.find((i) => i.providerCode === p.code),
     })),
@@ -192,6 +194,7 @@ function LinkedIdentities({ hasPassword }: { hasPassword: boolean }) {
       .map((i) => ({
         code: i.providerCode,
         name: i.providerName,
+        icon: i.providerIcon,
         enabled: false,
         identity: i,
       })),
@@ -222,7 +225,8 @@ function LinkedIdentities({ hasPassword }: { hasPassword: boolean }) {
               data-testid={`identity-${row.code}`}
             >
               <div className="min-w-0">
-                <p className="font-medium">
+                <p className="flex items-center gap-2 font-medium">
+                  <BrandIcon slug={row.icon} />
                   {row.name}
                   {!row.enabled && (
                     <span className="ml-2 text-xs text-muted-foreground">

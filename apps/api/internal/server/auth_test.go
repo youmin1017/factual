@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"factual/apps/api/internal/api"
@@ -336,15 +337,42 @@ func TestProviderSettingsAreAdminOnly(t *testing.T) {
 	ming := hs.browser().mustLogin("ming", "ming-password")
 
 	wantError(t, ming.do(http.MethodGet, "/api/oidc-providers", nil), http.StatusForbidden, "forbidden")
-	wantError(t, ming.do(http.MethodPost, "/api/oidc-providers", providerInput("corp", "https://idp.invalid", "s")),
+	wantError(t, saveProviders(ming, []api.OidcProviderUpsert{providerUpsert("corp", "https://idp.invalid", "s")}),
 		http.StatusForbidden, "forbidden")
 	wantError(t, hs.browser().do(http.MethodGet, "/api/oidc-providers", nil), http.StatusUnauthorized, "unauthorized")
 }
 
-func providerInput(code, issuer, secret string) api.OidcProviderInput {
-	return api.OidcProviderInput{
-		Code: code, Name: "Company " + code, Issuer: issuer, ClientId: "factual", ClientSecret: secret,
-		Scopes: "", Sort: 0, Enabled: true, Remark: "",
+func providerUpsert(code, issuer, secret string) api.OidcProviderUpsert {
+	return api.OidcProviderUpsert{
+		Id: uuid.New(), Code: code, Name: "Company " + code, Kind: api.Oidc, Issuer: issuer, ClientId: "factual",
+		ClientSecret: secret, Scopes: []string{}, Enabled: true,
+	}
+}
+
+// saveProviders posts the identity providers page's batch.
+func saveProviders(b *browser, upserts []api.OidcProviderUpsert, deletes ...uuid.UUID) *httptest.ResponseRecorder {
+	b.hs.t.Helper()
+	return b.do(http.MethodPost, "/api/oidc-providers/batch", api.OidcProviderBatch{
+		Upserts: append([]api.OidcProviderUpsert{}, upserts...), Deletes: append([]uuid.UUID{}, deletes...),
+	})
+}
+
+// listProviders returns the providers as the settings page reads them.
+func listProviders(t *testing.T, b *browser) api.OidcProviderList {
+	t.Helper()
+	rec := b.do(http.MethodGet, "/api/oidc-providers", nil)
+	wantStatus(t, rec, http.StatusOK)
+	var list api.OidcProviderList
+	decode(t, rec, &list)
+	return list
+}
+
+// wantProblem checks a 422 naming the line, field and code.
+func wantProblem(t *testing.T, rec *httptest.ResponseRecorder, id uuid.UUID, field, code string) {
+	t.Helper()
+	p, ok := wantProblems(t, rec)[id]
+	if !ok || p.Field != field || p.Code != code {
+		t.Fatalf("problem of %s = %+v, want %s %s (body %s)", id, p, field, code, rec.Body)
 	}
 }
 
@@ -353,19 +381,32 @@ func TestOIDCProviderManagement(t *testing.T) {
 	idp := newFakeIdP(t, "factual")
 	admin := hs.browser().mustLogin(adminName, adminPassword)
 
-	// The issuer must serve discovery.
-	wantError(t, admin.do(http.MethodPost, "/api/oidc-providers", providerInput("corp", "http://127.0.0.1:1", "s")),
-		http.StatusBadRequest, "invalid_issuer")
-	// The code is used in URLs.
-	wantStatus(t, admin.do(http.MethodPost, "/api/oidc-providers", providerInput("Bad Code", idp.srv.URL, "s")), http.StatusBadRequest)
+	// The issuer must serve discovery; the code is used in URLs.
+	bad := providerUpsert("corp", "http://127.0.0.1:1", "s")
+	wantProblem(t, saveProviders(admin, []api.OidcProviderUpsert{bad}), bad.Id, "issuer", "invalid_issuer")
+	bad = providerUpsert("Bad Code", idp.srv.URL, "s")
+	wantProblem(t, saveProviders(admin, []api.OidcProviderUpsert{bad}), bad.Id, "code", "invalid_code")
+	bad = providerUpsert("corp", idp.srv.URL, "s")
+	bad.Icon = "Not An Icon"
+	wantProblem(t, saveProviders(admin, []api.OidcProviderUpsert{bad}), bad.Id, "icon", "invalid_icon")
+	// A batch with a problem saves nothing.
+	if list := listProviders(t, admin); len(list.Items) != 0 {
+		t.Fatalf("a refused batch saved %+v", list.Items)
+	}
 
-	rec := admin.do(http.MethodPost, "/api/oidc-providers", providerInput("corp", idp.srv.URL, "top-secret"))
-	wantStatus(t, rec, http.StatusCreated)
-	var created api.OidcProvider
-	decode(t, rec, &created)
-	if !created.HasSecret || created.Scopes != "openid email profile" || !created.Enabled {
+	corp := providerUpsert("corp", idp.srv.URL, "top-secret")
+	corp.Icon = "authentik"
+	wantStatus(t, saveProviders(admin, []api.OidcProviderUpsert{corp}), http.StatusOK)
+	list := listProviders(t, admin)
+	if len(list.Items) != 1 || list.CallbackUrl != testPublicURL+"/api/auth/oidc/callback" || !list.EncryptionConfigured {
+		t.Fatalf("list = %+v", list)
+	}
+	created := list.Items[0]
+	if created.Id != corp.Id || !created.HasSecret || created.Kind != api.Oidc || created.Icon != "authentik" ||
+		strings.Join(created.Scopes, " ") != "openid email profile" || !created.Enabled {
 		t.Fatalf("created provider = %+v", created)
 	}
+	rec := admin.do(http.MethodGet, "/api/oidc-providers", nil)
 	if strings.Contains(rec.Body.String(), "top-secret") {
 		t.Fatal("the client secret is returned by the API")
 	}
@@ -377,25 +418,18 @@ func TestOIDCProviderManagement(t *testing.T) {
 		t.Fatalf("the client secret is not encrypted at rest: %q", stored)
 	}
 
-	wantError(t, admin.do(http.MethodPost, "/api/oidc-providers", providerInput("corp", idp.srv.URL, "s")),
-		http.StatusConflict, "duplicate")
+	// Codes are unique among the providers kept.
+	dup := providerUpsert("corp", idp.srv.URL, "s")
+	wantProblem(t, saveProviders(admin, []api.OidcProviderUpsert{dup}), dup.Id, "code", "duplicate_code")
 
-	var list api.OidcProviderList
-	rec = admin.do(http.MethodGet, "/api/oidc-providers", nil)
-	wantStatus(t, rec, http.StatusOK)
-	decode(t, rec, &list)
-	if len(list.Items) != 1 || list.CallbackUrl != testPublicURL+"/api/auth/oidc/callback" || !list.EncryptionConfigured {
-		t.Fatalf("list = %+v", list)
-	}
-
-	// An empty secret on update keeps the stored one; disabling hides it from the login page.
-	update := providerInput("corp", idp.srv.URL, "")
-	update.Name, update.Enabled = "Renamed", false
-	rec = admin.do(http.MethodPut, "/api/oidc-providers/"+created.Id.String(), update)
-	wantStatus(t, rec, http.StatusOK)
-	var updated api.OidcProvider
-	decode(t, rec, &updated)
-	if updated.Name != "Renamed" || updated.Enabled || !updated.HasSecret {
+	// An empty secret on update keeps the stored one; disabling hides it
+	// from the login page; scopes are kept as a list, without repeats.
+	update := corp
+	update.ClientSecret, update.Name, update.Enabled = "", "Renamed", false
+	update.Scopes = []string{"openid", "groups", "groups"}
+	wantStatus(t, saveProviders(admin, []api.OidcProviderUpsert{update}), http.StatusOK)
+	updated := listProviders(t, admin).Items[0]
+	if updated.Name != "Renamed" || updated.Enabled || !updated.HasSecret || strings.Join(updated.Scopes, " ") != "openid groups" {
 		t.Fatalf("updated provider = %+v", updated)
 	}
 	var after string
@@ -405,6 +439,9 @@ func TestOIDCProviderManagement(t *testing.T) {
 	if after != stored {
 		t.Fatal("an empty client secret on update replaced the stored one")
 	}
+	bad = update
+	bad.Scopes = []string{"two words"}
+	wantProblem(t, saveProviders(admin, []api.OidcProviderUpsert{bad}), bad.Id, "scopes", "invalid_scope")
 
 	var public []api.LoginProvider
 	rec = hs.browser().do(http.MethodGet, "/api/auth/oidc/providers", nil)
@@ -414,9 +451,87 @@ func TestOIDCProviderManagement(t *testing.T) {
 		t.Fatalf("a disabled provider is offered on the login page: %+v", public)
 	}
 
-	wantStatus(t, admin.do(http.MethodDelete, "/api/oidc-providers/"+created.Id.String(), nil), http.StatusNoContent)
-	wantError(t, admin.do(http.MethodDelete, "/api/oidc-providers/"+created.Id.String(), nil), http.StatusNotFound, "not_found")
-	wantError(t, admin.do(http.MethodPut, "/api/oidc-providers/"+created.Id.String(), update), http.StatusNotFound, "not_found")
+	// The kind is fixed once created.
+	bad = update
+	bad.Kind, bad.Issuer = api.Github, "https://github.com"
+	wantProblem(t, saveProviders(admin, []api.OidcProviderUpsert{bad}), bad.Id, "kind", "kind_fixed")
+
+	// Deleting frees the code in the same batch; deleting again is nothing.
+	again := providerUpsert("corp", idp.srv.URL, "s")
+	rec = saveProviders(admin, []api.OidcProviderUpsert{again}, corp.Id)
+	wantStatus(t, rec, http.StatusOK)
+	var saved api.OidcProviderBatchSaved
+	decode(t, rec, &saved)
+	if saved.Upserted != 1 || saved.Deleted != 1 {
+		t.Fatalf("saved = %+v", saved)
+	}
+	rec = saveProviders(admin, nil, corp.Id)
+	wantStatus(t, rec, http.StatusOK)
+	decode(t, rec, &saved)
+	if saved.Deleted != 0 {
+		t.Fatalf("deleting a deleted provider = %+v", saved)
+	}
+	if list := listProviders(t, admin); len(list.Items) != 1 || list.Items[0].Id != again.Id {
+		t.Fatalf("after delete = %+v", list.Items)
+	}
+}
+
+// TestOAuthSiteLogin links and logs in through GitHub and Discord, which
+// only speak OAuth2: the user is read from their user API (ADR-125).
+func TestOAuthSiteLogin(t *testing.T) {
+	for _, kind := range []api.OidcProviderKind{api.Github, api.Discord} {
+		t.Run(string(kind), func(t *testing.T) {
+			hs := newHarness(t)
+			site := newFakeSite(t, kind)
+			admin := hs.browser().mustLogin(adminName, adminPassword)
+
+			p := providerUpsert(string(kind), site.srv.URL+"/", "")
+			p.Kind = kind
+			if kind == api.Github {
+				// GitHub always needs the secret.
+				wantProblem(t, saveProviders(admin, []api.OidcProviderUpsert{p}), p.Id, "clientSecret", "secret_required")
+			}
+			p.ClientSecret = "site-secret"
+			wantStatus(t, saveProviders(admin, []api.OidcProviderUpsert{p}), http.StatusOK)
+			saved := listProviders(t, admin).Items[0]
+			want := map[api.OidcProviderKind]string{api.Github: "read:user user:email", api.Discord: "identify email"}[kind]
+			if saved.Issuer != site.srv.URL || strings.Join(saved.Scopes, " ") != want {
+				t.Fatalf("saved provider = %+v", saved)
+			}
+
+			signIn := func(b *browser, start string, user int) *httptest.ResponseRecorder {
+				t.Helper()
+				rec := b.do(http.MethodGet, start, nil)
+				wantStatus(t, rec, http.StatusFound)
+				code, state := site.authorize(rec.Header().Get("Location"), user, want)
+				return b.do(http.MethodGet, "/api/auth/oidc/callback?code="+url.QueryEscape(code)+"&state="+url.QueryEscape(state), nil)
+			}
+			code := string(kind)
+			wantRedirect(t, signIn(hs.browser(), "/api/auth/oidc/"+code+"/login", 4242), "/login?error=oidc_not_linked")
+			wantRedirect(t, signIn(admin, "/api/auth/oidc/"+code+"/link", 4242), "/profile?linked="+code)
+			var mine []api.LinkedIdentity
+			rec := admin.do(http.MethodGet, "/api/me/identities", nil)
+			decode(t, rec, &mine)
+			if len(mine) != 1 || mine[0].Email != "user4242@site.test" {
+				t.Fatalf("identities = %+v", mine)
+			}
+			var subject string
+			if err := hs.pool.QueryRow(context.Background(), `select subject from user_identities`).Scan(&subject); err != nil {
+				t.Fatal(err)
+			}
+			if subject != "4242" {
+				t.Fatalf("subject = %q, want the site's user id", subject)
+			}
+
+			fresh := hs.browser()
+			wantRedirect(t, signIn(fresh, "/api/auth/oidc/"+code+"/login", 4242), "/")
+			if u, status := fresh.me(); status != http.StatusOK || u.Username != adminName {
+				t.Fatalf("/me after %s login = %d %+v", kind, status, u)
+			}
+			// Another user of the site is someone else.
+			wantRedirect(t, signIn(hs.browser(), "/api/auth/oidc/"+code+"/login", 7), "/login?error=oidc_not_linked")
+		})
+	}
 }
 
 func TestOIDCLoginAndLinking(t *testing.T) {
@@ -424,12 +539,14 @@ func TestOIDCLoginAndLinking(t *testing.T) {
 	idp := newFakeIdP(t, "factual")
 	hs.addUser("ming", "ming-password")
 	admin := hs.browser().mustLogin(adminName, adminPassword)
-	wantStatus(t, admin.do(http.MethodPost, "/api/oidc-providers", providerInput("corp", idp.srv.URL, "top-secret")), http.StatusCreated)
+	corp := providerUpsert("corp", idp.srv.URL, "top-secret")
+	corp.Icon = "authentik"
+	wantStatus(t, saveProviders(admin, []api.OidcProviderUpsert{corp}), http.StatusOK)
 
 	var public []api.LoginProvider
 	rec := hs.browser().do(http.MethodGet, "/api/auth/oidc/providers", nil)
 	decode(t, rec, &public)
-	if len(public) != 1 || public[0].Code != "corp" {
+	if len(public) != 1 || public[0].Code != "corp" || public[0].Icon != "authentik" {
 		t.Fatalf("login providers = %+v", public)
 	}
 
@@ -460,7 +577,8 @@ func TestOIDCLoginAndLinking(t *testing.T) {
 	rec = admin.do(http.MethodGet, "/api/me/identities", nil)
 	wantStatus(t, rec, http.StatusOK)
 	decode(t, rec, &mine)
-	if len(mine) != 1 || mine[0].ProviderCode != "corp" || mine[0].Email != "admin@corp.test" || mine[0].LastLoginAt != nil {
+	if len(mine) != 1 || mine[0].ProviderCode != "corp" || mine[0].ProviderIcon != "authentik" ||
+		mine[0].Email != "admin@corp.test" || mine[0].LastLoginAt != nil {
 		t.Fatalf("identities = %+v", mine)
 	}
 
@@ -617,4 +735,119 @@ func (f *fakeIdP) token(w http.ResponseWriter, r *http.Request) {
 	}
 	idToken, _ := jws.CompactSerialize()
 	writeJSON(w, map[string]any{"access_token": "at", "token_type": "Bearer", "expires_in": 3600, "id_token": idToken})
+}
+
+// fakeSite plays GitHub (an Enterprise Server: the API under /api/v3) or
+// Discord: a token endpoint that checks PKCE and the client secret, and the
+// user API that answers for the access token it gave.
+type fakeSite struct {
+	t    *testing.T
+	kind api.OidcProviderKind
+	srv  *httptest.Server
+
+	mu     sync.Mutex
+	grants map[string]fakeSiteGrant
+	tokens map[string]int
+}
+
+type fakeSiteGrant struct {
+	user      int
+	challenge string
+}
+
+func newFakeSite(t *testing.T, kind api.OidcProviderKind) *fakeSite {
+	t.Helper()
+	f := &fakeSite{t: t, kind: kind, grants: map[string]fakeSiteGrant{}, tokens: map[string]int{}}
+	mux := http.NewServeMux()
+	if kind == api.Github {
+		mux.HandleFunc("POST /login/oauth/access_token", f.token)
+		mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
+			if user, ok := f.caller(w, r); ok {
+				// A private address: only /user/emails has it.
+				writeJSON(w, map[string]any{"id": user, "login": fmt.Sprintf("user%d", user), "email": nil})
+			}
+		})
+		mux.HandleFunc("GET /api/v3/user/emails", func(w http.ResponseWriter, r *http.Request) {
+			if user, ok := f.caller(w, r); ok {
+				writeJSON(w, []map[string]any{
+					{"email": "old@site.test", "primary": false, "verified": true},
+					{"email": fmt.Sprintf("user%d@site.test", user), "primary": true, "verified": true},
+				})
+			}
+		})
+	} else {
+		mux.HandleFunc("POST /api/oauth2/token", f.token)
+		mux.HandleFunc("GET /api/users/@me", func(w http.ResponseWriter, r *http.Request) {
+			if user, ok := f.caller(w, r); ok {
+				writeJSON(w, map[string]any{
+					"id": fmt.Sprint(user), "username": "someone", "email": fmt.Sprintf("user%d@site.test", user), "verified": true,
+				})
+			}
+		})
+	}
+	f.srv = httptest.NewServer(mux)
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+// authorize plays the user approving our app at the site.
+func (f *fakeSite) authorize(authURL string, user int, scope string) (code, state string) {
+	f.t.Helper()
+	path := map[api.OidcProviderKind]string{api.Github: "/login/oauth/authorize", api.Discord: "/oauth2/authorize"}[f.kind]
+	u, err := url.Parse(authURL)
+	if err != nil || !strings.HasPrefix(authURL, f.srv.URL+path+"?") {
+		f.t.Fatalf("unexpected authorization URL %q", authURL)
+	}
+	q := u.Query()
+	if q.Get("code_challenge_method") != "S256" || q.Get("client_id") != "factual" || q.Get("state") == "" ||
+		q.Get("redirect_uri") != testPublicURL+"/api/auth/oidc/callback" || q.Get("scope") != scope || q.Has("nonce") {
+		f.t.Fatalf("authorization request: %v", q)
+	}
+	var seq [8]byte
+	_, _ = rand.Read(seq[:])
+	code = fmt.Sprintf("code-%x", seq)
+	f.mu.Lock()
+	f.grants[code] = fakeSiteGrant{user: user, challenge: q.Get("code_challenge")}
+	f.mu.Unlock()
+	return code, q.Get("state")
+}
+
+func (f *fakeSite) token(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	id, secret, basic := r.BasicAuth()
+	if !basic {
+		id, secret = r.Form.Get("client_id"), r.Form.Get("client_secret")
+	}
+	f.mu.Lock()
+	g, ok := f.grants[r.Form.Get("code")]
+	delete(f.grants, r.Form.Get("code"))
+	f.mu.Unlock()
+	sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
+	if !ok || id != "factual" || secret != "site-secret" || base64.RawURLEncoding.EncodeToString(sum[:]) != g.challenge {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "invalid_grant"})
+		return
+	}
+	token := fmt.Sprintf("at-%d-%s", g.user, r.Form.Get("code"))
+	f.mu.Lock()
+	f.tokens[token] = g.user
+	f.mu.Unlock()
+	if f.kind == api.Github {
+		// GitHub answers in form encoding unless asked for JSON.
+		w.Header().Set("Content-Type", "application/x-www-form-urlencoded")
+		_, _ = w.Write([]byte(url.Values{"access_token": {token}, "token_type": {"bearer"}, "scope": {"read:user,user:email"}}.Encode()))
+		return
+	}
+	writeJSON(w, map[string]any{"access_token": token, "token_type": "Bearer", "expires_in": 604800, "scope": "identify email"})
+}
+
+// caller is the user whose access token the request carries.
+func (f *fakeSite) caller(w http.ResponseWriter, r *http.Request) (int, bool) {
+	f.mu.Lock()
+	user, ok := f.tokens[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+	f.mu.Unlock()
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+	}
+	return user, ok
 }

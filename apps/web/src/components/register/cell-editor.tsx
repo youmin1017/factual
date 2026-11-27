@@ -9,6 +9,8 @@ export interface Suggestion {
   value: string
   label: string
   hint?: string
+  /** Drawn before the label (a provider's brand icon). */
+  icon?: React.ReactNode
 }
 
 /**
@@ -123,7 +125,10 @@ export function CellEditor({
                     'border-kraft bg-kraft/20 text-foreground hover:bg-kraft/20',
                 )}
               >
-                <span className="truncate">{o.label}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  {o.icon}
+                  <span className="truncate">{o.label}</span>
+                </span>
                 {o.hint && (
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {o.hint}

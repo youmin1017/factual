@@ -548,6 +548,56 @@ export const accountKeys: Array<KeyGroup> = [
   },
 ]
 
+/** The identity providers page (ADR-126). */
+export const providerKeys: Array<KeyGroup> = [
+  {
+    title: '移動',
+    entries: [
+      ['j k', '下一列、上一列；展開的設定也是一列一列'],
+      ['h l', '左右一欄（0 到最左，$ 到最右）'],
+      ['gg G', '第一個、最後一個'],
+    ],
+  },
+  {
+    title: '修改',
+    entries: [
+      [
+        'o O',
+        '在下面、上面新增：先選範本（Google、GitHub、Discord、自架的 OIDC）',
+      ],
+      ['i a Enter', '修改這一格；類型、圖示從清單選（打字找）'],
+      ['c s', '清空再輸入'],
+      [
+        'za',
+        '展開或收起 Client ID、Client Secret、網址、Scopes、備註（箭頭也可以），zo 展開並移到第一條',
+      ],
+      ['x', '啟用或停用（停用的不出現在登入頁）'],
+      ['dd', '刪除（:w 才刪，已連結的帳號也一起解除；再 dd 取消）'],
+      ['Alt-j Alt-k', '調整登入按鈕的順序（V 選取幾個一起搬）'],
+      ['u Ctrl-r', '復原、重做'],
+    ],
+  },
+  {
+    title: 'Scopes（在 Scopes 那一條按 i）',
+    entries: [
+      ['打字', '找常用的 scope；清單沒有的也可以直接加'],
+      ['Ctrl-n Ctrl-p ↑↓', '在清單裡上下選'],
+      ['Enter', '加入選到的（什麼都沒打時就是完成）'],
+      ['Backspace', '沒打字時拿掉最後一個（OIDC 的 openid 不能拿掉）'],
+      ['Tab Esc', '完成'],
+      ['Ctrl-c', '放棄這次的修改'],
+    ],
+  },
+  {
+    title: '指令',
+    entries: [
+      [':w', '儲存'],
+      [':m 3', '搬到第 3 個；:m 0 最上面、:m $ 最下面'],
+      [':e!', '放棄所有未儲存的變更'],
+    ],
+  },
+]
+
 const modeNames: Record<KeymapMode, string> = {
   normal: '一般',
   visual: '選取',
@@ -563,6 +613,7 @@ const paneNames: Record<Pane, string> = {
   goals: '目標',
   friends: '分帳',
   accounts: '帳戶',
+  providers: '第三方登入',
   main: '其他頁面',
 }
 

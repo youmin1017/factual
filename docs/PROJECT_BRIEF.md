@@ -72,6 +72,6 @@ Bank connections and automatic transaction import, native mobile apps, offline u
 | Area | Choice |
 |---|---|
 | Backend | Go, echo v4, oapi-codegen (spec-first OpenAPI), sqlc on pgx/v5, goose migrations, PostgreSQL 15+ |
-| Auth | Server-side sessions (httpOnly cookie), argon2id passwords, OpenID Connect with PKCE (go-oidc, any provider configured in the app) |
+| Auth | Server-side sessions (httpOnly cookie), argon2id passwords, OpenID Connect with PKCE (go-oidc, any provider configured in the app), plus GitHub and Discord over OAuth2 (ADR-125) |
 | Frontend | TanStack Start (React 19, SPA mode, React Compiler), TanStack Query, shadcn/ui, Tailwind, Recursive |
 | Tooling | mise (tools and tasks), dekit, lefthook, golangci-lint, oxlint, oxfmt, pnpm |

@@ -144,66 +144,48 @@ paths:
           $ref: './common.yaml#/responses/Unauthorized'
         '403':
           $ref: './common.yaml#/responses/Forbidden'
-    post:
-      operationId: createOidcProvider
-      tags: [auth]
-      summary: Add an identity provider (the issuer must serve OIDC discovery)
-      x-auth: admin
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/schemas/OidcProviderInput'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/schemas/OidcProvider'
-        '400':
-          $ref: './common.yaml#/responses/BadRequest'
-        '409':
-          $ref: './common.yaml#/responses/Conflict'
 
-  oidcProvider:
-    parameters:
-      - $ref: './common.yaml#/parameters/Id'
-    put:
-      operationId: updateOidcProvider
+  oidcProvidersBatch:
+    post:
+      operationId: saveOidcProviders
       tags: [auth]
-      summary: Update an identity provider (an empty clientSecret keeps the stored one)
+      summary: Apply the identity providers page's buffer in one database transaction (:w)
+      description: |
+        Providers are keyed by ids the client chose for new ones; `sort` is
+        their place on the login page. An OpenID Connect provider's issuer
+        must serve discovery (checked when it is new or changed); GitHub's
+        and Discord's issuer is the site's address. A provider's kind is
+        fixed once created. An empty clientSecret keeps the stored one.
+        Deleting a provider removes the identities linked to it. All or
+        nothing, with problems reported per provider (ADR-044, ADR-126).
       x-auth: admin
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/schemas/OidcProviderInput'
+              $ref: '#/schemas/OidcProviderBatch'
       responses:
         '200':
-          description: Updated
+          description: Saved
           content:
             application/json:
               schema:
-                $ref: '#/schemas/OidcProvider'
+                $ref: '#/schemas/OidcProviderBatchSaved'
         '400':
           $ref: './common.yaml#/responses/BadRequest'
-        '404':
-          $ref: './common.yaml#/responses/NotFound'
+        '401':
+          $ref: './common.yaml#/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/responses/Forbidden'
         '409':
           $ref: './common.yaml#/responses/Conflict'
-    delete:
-      operationId: deleteOidcProvider
-      tags: [auth]
-      summary: Delete an identity provider (its linked identities are removed)
-      x-auth: admin
-      responses:
-        '204':
-          description: Deleted
-        '404':
-          $ref: './common.yaml#/responses/NotFound'
+        '422':
+          description: Nothing was saved; the providers listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/schemas/BatchErrors'
 
   # --- The logged-in user ---
   me:
@@ -424,16 +406,26 @@ schemas:
 
   LoginProvider:
     type: object
-    required: [code, name]
+    required: [code, name, icon]
     properties:
       code:
         type: string
       name:
         type: string
+      icon:
+        type: string
+        description: A Simple Icons slug, or empty for the default.
+
+  OidcProviderKind:
+    type: string
+    enum: [oidc, github, discord]
+    description: |
+      `oidc`: any OpenID Connect provider, by discovery. `github` and
+      `discord`: OAuth2, the user read from their user API (ADR-125).
 
   OidcProvider:
     type: object
-    required: [id, code, name, issuer, clientId, hasSecret, scopes, sort, enabled, remark, createdAt, updatedAt]
+    required: [id, code, name, kind, issuer, clientId, hasSecret, scopes, icon, sort, enabled, remark, createdAt, updatedAt]
     properties:
       id:
         type: string
@@ -442,15 +434,23 @@ schemas:
         type: string
       name:
         type: string
+      kind:
+        $ref: '#/schemas/OidcProviderKind'
       issuer:
         type: string
+        description: The OIDC issuer, or GitHub's or Discord's address.
       clientId:
         type: string
       hasSecret:
         type: boolean
         description: Whether a client secret is stored (it is never returned).
       scopes:
+        type: array
+        items:
+          type: string
+      icon:
         type: string
+        description: A Simple Icons slug, or empty for the default.
       sort:
         type: integer
         format: int32
@@ -465,33 +465,43 @@ schemas:
         type: string
         format: date-time
 
-  OidcProviderInput:
+  OidcProviderUpsert:
     type: object
-    required: [code, name, issuer, clientId, clientSecret, scopes, sort, enabled, remark]
+    required: [id, code, name, kind, issuer, clientId, clientSecret, scopes, icon, sort, enabled, remark]
     properties:
+      id:
+        type: string
+        format: uuid
+        description: The provider's id; chosen by the client for a new one.
       code:
         type: string
-        pattern: '^[a-z][a-z0-9_-]{1,31}$'
-        description: Used in URLs, e.g. `google`.
+        description: Used in URLs, e.g. `google`; 2 to 32 of a-z, 0-9, _ and -, starting with a letter.
       name:
         type: string
-        minLength: 1
-        maxLength: 64
+        description: Shown on the login button, 1 to 64 characters.
+      kind:
+        $ref: '#/schemas/OidcProviderKind'
       issuer:
         type: string
-        minLength: 1
         maxLength: 255
       clientId:
         type: string
-        minLength: 1
         maxLength: 255
       clientSecret:
         type: string
         maxLength: 2048
-        description: Empty on update keeps the stored secret.
+        description: Empty keeps the stored secret.
       scopes:
+        type: array
+        maxItems: 32
+        items:
+          type: string
+          maxLength: 128
+        description: Empty for the kind's defaults; `openid` is always asked of an OIDC provider.
+      icon:
         type: string
-        maxLength: 255
+        maxLength: 64
+        description: A Simple Icons slug, or empty.
       sort:
         type: integer
         format: int32
@@ -500,6 +510,31 @@ schemas:
       remark:
         type: string
         maxLength: 255
+
+  OidcProviderBatch:
+    type: object
+    required: [upserts, deletes]
+    properties:
+      upserts:
+        type: array
+        maxItems: 100
+        items:
+          $ref: '#/schemas/OidcProviderUpsert'
+      deletes:
+        type: array
+        maxItems: 100
+        items:
+          type: string
+          format: uuid
+
+  OidcProviderBatchSaved:
+    type: object
+    required: [upserted, deleted]
+    properties:
+      upserted:
+        type: integer
+      deleted:
+        type: integer
 
   OidcProviderList:
     type: object
@@ -518,7 +553,7 @@ schemas:
 
   LinkedIdentity:
     type: object
-    required: [id, providerCode, providerName, email, createdAt, lastLoginAt]
+    required: [id, providerCode, providerName, providerIcon, email, createdAt, lastLoginAt]
     properties:
       id:
         type: string
@@ -526,6 +561,8 @@ schemas:
       providerCode:
         type: string
       providerName:
+        type: string
+      providerIcon:
         type: string
       email:
         type: string
