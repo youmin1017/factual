@@ -1,3 +1,5 @@
+import { cn } from '#/lib/utils'
+
 /** The page heading with an optional action on the right. */
 export function PageHeader({
   title,
@@ -21,14 +23,22 @@ export function PageHeader({
 export function Section({
   title,
   description,
+  stacked,
   children,
 }: {
   title: string
   description?: React.ReactNode
+  /** The controls under the title, the page's whole width (a wide table). */
+  stacked?: boolean
   children: React.ReactNode
 }) {
   return (
-    <section className="grid gap-x-10 gap-y-4 border-b py-8 last:border-b-0 md:grid-cols-[14rem_1fr]">
+    <section
+      className={cn(
+        'grid gap-x-10 gap-y-4 border-b py-8 last:border-b-0',
+        !stacked && 'md:grid-cols-[14rem_1fr]',
+      )}
+    >
       <div className="space-y-1">
         <h2 className="font-medium">{title}</h2>
         {description && (

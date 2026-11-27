@@ -29,14 +29,15 @@ function EditorSettingsPage() {
       <Section
         title="寫法"
         description="和 Vim 一樣；右邊的按鍵不會再被對應（全部視為 noremap）。"
+        stacked
       >
-        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+        <dl className="grid gap-x-10 gap-y-1 text-sm leading-relaxed md:grid-cols-[auto_1fr] md:gap-y-3">
           {reference.map(([code, text]) => (
             <div key={code} className="contents">
               <dt>
                 <code className="font-mono">{code}</code>
               </dt>
-              <dd className="text-muted-foreground">{text}</dd>
+              <dd className="mb-2 text-muted-foreground md:mb-0">{text}</dd>
             </div>
           ))}
         </dl>
