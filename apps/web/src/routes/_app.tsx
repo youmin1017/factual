@@ -10,10 +10,15 @@ import {
 } from '@tanstack/react-router'
 import {
   CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   ChevronsUpDownIcon,
   PlusIcon,
   SettingsIcon,
+  UserIcon,
+  UsersIcon,
 } from 'lucide-react'
+import { useState } from 'react'
 import { Logo } from '#/components/logo'
 import { Statusline } from '#/components/statusline'
 import { ThemeMenuItems } from '#/components/theme'
@@ -212,25 +217,51 @@ const navLinkClass =
 
 /**
  * The accounts, as in Actual: all of them, the budget accounts and the
- * tracking accounts, each a register one click away (ADR-071).
+ * tracking accounts, each a register one click away (ADR-071). Friend and
+ * group accounts (ADR-106, ADR-115) count on budget but are not the user's
+ * own money: they come after the budget's own accounts, under 分帳往來,
+ * which folds away as the list grows (ADR-127).
  */
 function AccountsNav({ budget }: { budget: Budget }) {
   const { data } = useQuery(accountsQuery(budget.id))
+  const [sharedOpen, setSharedOpen] = useState(readSharedOpen)
   const open = (data ?? []).filter((a) => !a.closed)
+  const onBudget = open.filter((a) => a.onBudget)
   const groups = [
     {
       id: 'on-budget',
       label: '預算內',
-      accounts: open.filter((a) => a.onBudget),
+      accounts: onBudget,
+      own: onBudget.filter((a) => a.kind !== 'friend'),
+      shared: onBudget
+        .filter((a) => a.kind === 'friend')
+        // Groups first, then friends, each by name.
+        .toSorted(
+          (x, y) =>
+            Number(!x.groupId) - Number(!y.groupId) ||
+            x.name.localeCompare(y.name, 'zh-Hant'),
+        ),
     },
     {
       id: 'off-budget',
       label: '預算外',
       accounts: open.filter((a) => !a.onBudget),
+      own: open.filter((a) => !a.onBudget),
+      shared: [],
     },
   ].filter((g) => g.accounts.length > 0)
   const total = (list: Array<Account>) =>
     list.reduce((sum, a) => sum + a.balance, 0)
+
+  function toggleShared() {
+    const next = !sharedOpen
+    setSharedOpen(next)
+    try {
+      localStorage.setItem(SHARED_OPEN_KEY, next ? '1' : '0')
+    } catch {
+      // Only a convenience.
+    }
+  }
 
   return (
     <div className="hidden flex-col gap-0.5 md:flex" aria-label="帳戶">
@@ -250,7 +281,7 @@ function AccountsNav({ budget }: { budget: Budget }) {
             balance={total(g.accounts)}
             strong
           />
-          {g.accounts.map((a) => (
+          {g.own.map((a) => (
             <AccountLink
               key={a.id}
               budget={budget}
@@ -259,6 +290,50 @@ function AccountsNav({ budget }: { budget: Budget }) {
               balance={a.balance}
             />
           ))}
+          {g.shared.length > 0 && (
+            <>
+              <button
+                type="button"
+                aria-expanded={sharedOpen}
+                onClick={toggleShared}
+                title={sharedOpen ? '收起朋友和群組' : '展開朋友和群組'}
+                className={cn(
+                  navLinkClass,
+                  'mt-1 flex items-baseline justify-between gap-3 py-1 pl-4 text-left',
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-1 self-center text-xs">
+                  {sharedOpen ? (
+                    <ChevronDownIcon className="size-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRightIcon className="size-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">分帳往來</span>
+                  <span className="text-muted-foreground/70">
+                    {g.shared.length}
+                  </span>
+                </span>
+                <Balance value={total(g.shared)} budget={budget} />
+              </button>
+              {sharedOpen &&
+                g.shared.map((a) => (
+                  <AccountLink
+                    key={a.id}
+                    budget={budget}
+                    accountId={a.id}
+                    label={a.name}
+                    balance={a.balance}
+                    icon={
+                      a.groupId ? (
+                        <UsersIcon aria-label="群組" className="size-3.5" />
+                      ) : (
+                        <UserIcon aria-label="朋友" className="size-3.5" />
+                      )
+                    }
+                  />
+                ))}
+            </>
+          )}
         </div>
       ))}
       <Link
@@ -274,18 +349,45 @@ function AccountsNav({ budget }: { budget: Budget }) {
   )
 }
 
+/** Whether 分帳往來 is open in the sidebar; kept per browser. */
+const SHARED_OPEN_KEY = 'factual:sidebar:shared-open'
+
+function readSharedOpen(): boolean {
+  try {
+    return localStorage.getItem(SHARED_OPEN_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+function Balance({ value, budget }: { value: number; budget: Budget }) {
+  return (
+    <span
+      className={cn(
+        'amount shrink-0 text-xs',
+        value < 0 ? 'amount-negative' : 'text-muted-foreground',
+      )}
+    >
+      {formatAmount(value, budget.minorUnits)}
+    </span>
+  )
+}
+
 function AccountLink({
   budget,
   accountId,
   label,
   balance,
   strong = false,
+  icon,
 }: {
   budget: Budget
   accountId: string
   label: string
   balance: number
   strong?: boolean
+  /** Before the name: a friend's or a group's account. */
+  icon?: React.ReactNode
 }) {
   return (
     <Link
@@ -294,18 +396,18 @@ function AccountLink({
       className={cn(
         navLinkClass,
         'flex items-baseline justify-between gap-3 py-1',
-        strong ? 'text-foreground' : 'pl-4',
+        strong ? 'text-foreground' : icon ? 'pl-6' : 'pl-4',
       )}
     >
-      <span className="min-w-0 truncate">{label}</span>
-      <span
-        className={cn(
-          'amount shrink-0 text-xs',
-          balance < 0 ? 'amount-negative' : 'text-muted-foreground',
+      <span className="flex min-w-0 items-center gap-1.5">
+        {icon && (
+          <span className="shrink-0 self-center text-muted-foreground">
+            {icon}
+          </span>
         )}
-      >
-        {formatAmount(balance, budget.minorUnits)}
+        <span className="truncate">{label}</span>
       </span>
+      <Balance value={balance} budget={budget} />
     </Link>
   )
 }
