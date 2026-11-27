@@ -88,7 +88,7 @@ func checkAccess(rules map[string]apispec.Operation) echo.MiddlewareFunc {
 			if !ok {
 				return apperr.New(http.StatusUnauthorized, "unauthorized", "login required")
 			}
-			if op.Access == apispec.Admin && !p.IsAdmin {
+			if op.Access == apispec.Permitted && !p.Can(op.Permission) {
 				return apperr.New(http.StatusForbidden, "forbidden", "forbidden")
 			}
 			return next(c)

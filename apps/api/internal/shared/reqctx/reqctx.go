@@ -8,6 +8,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
+	"factual/apps/api/internal/shared/roles"
 )
 
 // Principal is the authenticated caller.
@@ -15,9 +17,12 @@ type Principal struct {
 	UserID      uuid.UUID
 	Username    string
 	DisplayName string
-	// IsAdmin is the instance admin flag (`x-auth: admin` operations).
-	IsAdmin bool
+	// Role is the caller's instance role (ADR-131).
+	Role roles.Role
 }
+
+// Can reports whether the caller's instance role grants p.
+func (p Principal) Can(perm roles.Permission) bool { return p.Role.Can(perm) }
 
 // Client describes where a request comes from; stored with sessions.
 type Client struct {

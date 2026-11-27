@@ -11,8 +11,10 @@ info:
     the decimal point; 0 for TWD).
 
     Access control: every operation declares exactly one `x-auth`:
-    `public`, `authenticated` (any logged-in user) or `admin` (instance
-    admin). The API does not start otherwise. Operations inside a budget
+    `public`, `authenticated` (any logged-in user) or
+    `permission:<name>` (a user whose instance role grants that permission:
+    manage_users, manage_providers, manage_holidays, invite; ADR-131). The
+    API does not start otherwise. Operations inside a budget
     also declare `x-budget: read | write | manage`, the permission the
     caller's role in that budget must grant. Errors use the `Error` envelope.
 servers:
@@ -171,7 +173,7 @@ paths:
       tags:
         - auth
       summary: Identity providers (client secrets are never returned)
-      x-auth: admin
+      x-auth: permission:manage_providers
       responses:
         '200':
           description: Providers
@@ -197,7 +199,7 @@ paths:
         fixed once created. An empty clientSecret keeps the stored one.
         Deleting a provider removes the identities linked to it. All or
         nothing, with problems reported per provider (ADR-044, ADR-126).
-      x-auth: admin
+      x-auth: permission:manage_providers
       requestBody:
         required: true
         content:
@@ -2012,7 +2014,7 @@ paths:
       tags:
         - calendar
       summary: The imported years
-      x-auth: admin
+      x-auth: permission:manage_holidays
       responses:
         '200':
           description: Years
@@ -2037,7 +2039,7 @@ paths:
         BOM; 2 = off, 0 = working). Every year in it is replaced. A URL is
         fetched by the server (http or https, at most 1 MB) and kept so the
         year can be fetched again.
-      x-auth: admin
+      x-auth: permission:manage_holidays
       requestBody:
         required: true
         content:
@@ -2072,7 +2074,7 @@ paths:
       tags:
         - calendar
       summary: Forget a year (its days follow the weekend rule again)
-      x-auth: admin
+      x-auth: permission:manage_holidays
       responses:
         '204':
           description: Deleted
@@ -2108,6 +2110,23 @@ components:
           type: string
           minLength: 1
           maxLength: 256
+    InstanceRole:
+      type: string
+      enum:
+        - admin
+        - member
+      description: A user's role on the instance (ADR-131).
+    Permission:
+      type: string
+      enum:
+        - manage_users
+        - manage_providers
+        - manage_holidays
+        - invite
+      description: |
+        What an instance role may do: manage users (and reset links and
+        approved emails), the sign-in providers, the holiday calendar; invite
+        new users.
     CurrentUser:
       type: object
       required:
@@ -2115,7 +2134,8 @@ components:
         - username
         - displayName
         - email
-        - isAdmin
+        - role
+        - permissions
         - hasPassword
       properties:
         id:
@@ -2127,9 +2147,13 @@ components:
           type: string
         email:
           type: string
-        isAdmin:
-          type: boolean
-          description: Instance admin; may manage identity providers.
+        role:
+          $ref: '#/components/schemas/InstanceRole'
+        permissions:
+          type: array
+          description: What the user's instance role allows (ADR-131); the app shows only what they may use.
+          items:
+            $ref: '#/components/schemas/Permission'
         hasPassword:
           type: boolean
           description: Whether the user can log in with a password.

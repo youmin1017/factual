@@ -14,8 +14,10 @@ info:
     the decimal point; 0 for TWD).
 
     Access control: every operation declares exactly one `x-auth`:
-    `public`, `authenticated` (any logged-in user) or `admin` (instance
-    admin). The API does not start otherwise. Operations inside a budget
+    `public`, `authenticated` (any logged-in user) or
+    `permission:<name>` (a user whose instance role grants that permission:
+    manage_users, manage_providers, manage_holidays, invite; ADR-131). The
+    API does not start otherwise. Operations inside a budget
     also declare `x-budget: read | write | manage`, the permission the
     caller's role in that budget must grant. Errors use the `Error` envelope.
 servers:

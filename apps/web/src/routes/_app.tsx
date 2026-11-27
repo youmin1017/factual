@@ -51,7 +51,7 @@ import {
 } from '#/components/ui/sidebar'
 import { Wordmark } from '#/components/wordmark'
 import { $api } from '#/lib/api'
-import { meQueryOptions } from '#/lib/auth'
+import { can, meQueryOptions } from '#/lib/auth'
 import { accountsQuery, budgetsQueryOptions, homeBudget } from '#/lib/budget'
 import { formatAmount, setAmountGrouping } from '#/lib/money'
 import { useListKeys, usePaneNavigation } from '#/lib/panes'
@@ -168,10 +168,10 @@ function AppLayout() {
                 <SidebarMenu>
                   <NavItem to="/profile">個人資料</NavItem>
                   <NavItem to="/settings/editor">編輯器</NavItem>
-                  {user.isAdmin && (
+                  {can(user, 'manage_providers') && (
                     <NavItem to="/settings/oidc-providers">第三方登入</NavItem>
                   )}
-                  {user.isAdmin && (
+                  {can(user, 'manage_holidays') && (
                     <NavItem to="/settings/holidays">國定假日</NavItem>
                   )}
                 </SidebarMenu>

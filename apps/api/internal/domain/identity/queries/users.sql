@@ -12,7 +12,7 @@ select id,
        display_name,
        coalesce(email, '')::text         as email,
        coalesce(password_hash, '')::text as password_hash,
-       is_admin,
+       role,
        (disabled_at is not null)::boolean as disabled
   from users
  where lower(username) = lower(sqlc.arg(username)::text);
@@ -23,14 +23,14 @@ select id,
        display_name,
        coalesce(email, '')::text         as email,
        coalesce(password_hash, '')::text as password_hash,
-       is_admin,
+       role,
        (disabled_at is not null)::boolean as disabled
   from users
  where id = $1;
 
 -- name: CreateUser :one
-insert into users (username, display_name, password_hash, is_admin)
-values (sqlc.arg(username)::text, sqlc.arg(display_name), sqlc.arg(password_hash)::text, sqlc.arg(is_admin))
+insert into users (username, display_name, password_hash, role)
+values (sqlc.arg(username)::text, sqlc.arg(display_name), sqlc.arg(password_hash)::text, sqlc.arg(role))
 returning id;
 
 -- name: SetUserLastLogin :exec

@@ -11,6 +11,7 @@ import (
 	"factual/apps/api/internal/domain/identity/internal/db"
 	"factual/apps/api/internal/shared/apperr"
 	"factual/apps/api/internal/shared/reqctx"
+	"factual/apps/api/internal/shared/roles"
 )
 
 func (h *Handlers) Login(ctx context.Context, req api.LoginRequestObject) (api.LoginResponseObject, error) {
@@ -97,8 +98,16 @@ func (h *Handlers) ChangePassword(ctx context.Context, req api.ChangePasswordReq
 func currentUser(u User) api.CurrentUser {
 	return api.CurrentUser{
 		Id: u.ID, Username: u.Username, DisplayName: u.DisplayName, Email: u.Email,
-		IsAdmin: u.IsAdmin, HasPassword: u.PasswordHash != "",
+		Role: api.InstanceRole(u.Role), Permissions: permissionsOf(roles.Role(u.Role)), HasPassword: u.PasswordHash != "",
 	}
+}
+
+func permissionsOf(r roles.Role) []api.Permission {
+	out := []api.Permission{}
+	for _, p := range r.Permissions() {
+		out = append(out, api.Permission(p))
+	}
+	return out
 }
 
 // maxKeymapLen matches the column's check and the spec's maxLength.

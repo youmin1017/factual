@@ -132,7 +132,7 @@ paths:
       operationId: listOidcProviders
       tags: [auth]
       summary: Identity providers (client secrets are never returned)
-      x-auth: admin
+      x-auth: permission:manage_providers
       responses:
         '200':
           description: Providers
@@ -158,7 +158,7 @@ paths:
         fixed once created. An empty clientSecret keeps the stored one.
         Deleting a provider removes the identities linked to it. All or
         nothing, with problems reported per provider (ADR-044, ADR-126).
-      x-auth: admin
+      x-auth: permission:manage_providers
       requestBody:
         required: true
         content:
@@ -356,7 +356,7 @@ schemas:
 
   CurrentUser:
     type: object
-    required: [id, username, displayName, email, isAdmin, hasPassword]
+    required: [id, username, displayName, email, role, permissions, hasPassword]
     properties:
       id:
         type: string
@@ -367,12 +367,29 @@ schemas:
         type: string
       email:
         type: string
-      isAdmin:
-        type: boolean
-        description: Instance admin; may manage identity providers.
+      role:
+        $ref: '#/schemas/InstanceRole'
+      permissions:
+        type: array
+        description: What the user's instance role allows (ADR-131); the app shows only what they may use.
+        items:
+          $ref: '#/schemas/Permission'
       hasPassword:
         type: boolean
         description: Whether the user can log in with a password.
+
+  InstanceRole:
+    type: string
+    enum: [admin, member]
+    description: A user's role on the instance (ADR-131).
+
+  Permission:
+    type: string
+    enum: [manage_users, manage_providers, manage_holidays, invite]
+    description: |
+      What an instance role may do: manage users (and reset links and
+      approved emails), the sign-in providers, the holiday calendar; invite
+      new users.
 
   ProfileUpdate:
     type: object

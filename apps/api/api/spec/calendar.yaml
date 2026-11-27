@@ -43,7 +43,7 @@ paths:
       operationId: listHolidayYears
       tags: [calendar]
       summary: The imported years
-      x-auth: admin
+      x-auth: permission:manage_holidays
       responses:
         '200':
           description: Years
@@ -68,7 +68,7 @@ paths:
         BOM; 2 = off, 0 = working). Every year in it is replaced. A URL is
         fetched by the server (http or https, at most 1 MB) and kept so the
         year can be fetched again.
-      x-auth: admin
+      x-auth: permission:manage_holidays
       requestBody:
         required: true
         content:
@@ -103,7 +103,7 @@ paths:
       operationId: deleteHolidayYear
       tags: [calendar]
       summary: Forget a year (its days follow the weekend rule again)
-      x-auth: admin
+      x-auth: permission:manage_holidays
       responses:
         '204':
           description: Deleted

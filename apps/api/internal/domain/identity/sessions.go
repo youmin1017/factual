@@ -20,6 +20,7 @@ import (
 
 	"factual/apps/api/internal/domain/identity/internal/db"
 	"factual/apps/api/internal/shared/reqctx"
+	"factual/apps/api/internal/shared/roles"
 )
 
 var (
@@ -44,8 +45,9 @@ type User struct {
 	DisplayName  string
 	Email        string
 	PasswordHash string
-	IsAdmin      bool
-	Disabled     bool
+	// Role is the instance role (roles.Role, ADR-131).
+	Role     string
+	Disabled bool
 }
 
 // Login checks a username and password and starts a session.
@@ -135,7 +137,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (reqctx.Princi
 		}
 	}
 	return reqctx.Principal{
-		UserID: row.UserID, Username: row.Username, DisplayName: row.DisplayName, IsAdmin: row.IsAdmin,
+		UserID: row.UserID, Username: row.Username, DisplayName: row.DisplayName, Role: roles.Role(row.Role),
 	}, nil
 }
 

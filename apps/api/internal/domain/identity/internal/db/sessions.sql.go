@@ -87,7 +87,7 @@ select s.user_id,
        s.expires_at,
        coalesce(u.username, '')::text       as username,
        u.display_name,
-       u.is_admin,
+       u.role,
        (u.disabled_at is not null)::boolean as disabled
   from sessions s
   join users u on u.id = s.user_id
@@ -100,7 +100,7 @@ type GetSessionByTokenHashRow struct {
 	ExpiresAt   time.Time
 	Username    string
 	DisplayName string
-	IsAdmin     bool
+	Role        string
 	Disabled    bool
 }
 
@@ -113,7 +113,7 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 		&i.ExpiresAt,
 		&i.Username,
 		&i.DisplayName,
-		&i.IsAdmin,
+		&i.Role,
 		&i.Disabled,
 	)
 	return i, err

@@ -392,7 +392,7 @@ func (h *Handlers) SaveSplitting(ctx context.Context, req api.SaveSplittingReque
 
 func isAdmin(g api.Group, userID uuid.UUID) bool {
 	for _, m := range g.Members {
-		if m.UserId == userID && m.Role == api.Admin {
+		if m.UserId == userID && m.Role == api.GroupRoleAdmin {
 			return true
 		}
 	}

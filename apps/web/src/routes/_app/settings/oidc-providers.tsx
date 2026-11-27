@@ -7,13 +7,14 @@ import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import { $api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
+import { can } from '#/lib/auth'
 import { useKeymap } from '#/lib/preferences'
 
 export const Route = createFileRoute('/_app/settings/oidc-providers')({
   staticData: { crumb: '第三方登入', section: '設定', wide: true },
-  // Only for the UI; the API refuses non-admins on its own.
+  // Only for the UI; the API checks the permission on its own (ADR-131).
   beforeLoad: ({ context }) => {
-    if (!context.user.isAdmin) throw redirect({ to: '/' })
+    if (!can(context.user, 'manage_providers')) throw redirect({ to: '/' })
   },
   component: OidcProvidersPage,
 })

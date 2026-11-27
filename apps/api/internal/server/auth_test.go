@@ -186,7 +186,7 @@ func wantRedirect(t *testing.T, rec *httptest.ResponseRecorder, location string)
 func TestBootstrapAdminIsCreatedOnce(t *testing.T) {
 	hs := newHarness(t)
 	var n int
-	if err := hs.pool.QueryRow(context.Background(), `select count(*) from users where is_admin`).Scan(&n); err != nil {
+	if err := hs.pool.QueryRow(context.Background(), `select count(*) from users where role = 'admin'`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {
@@ -226,7 +226,8 @@ func TestLoginSessionAndLogout(t *testing.T) {
 	}
 
 	u, status := b.me()
-	if status != http.StatusOK || u.Username != adminName || !u.IsAdmin || !u.HasPassword {
+	if status != http.StatusOK || u.Username != adminName || u.Role != api.InstanceRoleAdmin || !u.HasPassword ||
+		len(u.Permissions) != 4 {
 		t.Fatalf("/me = %d %+v", status, u)
 	}
 
@@ -314,7 +315,7 @@ func TestUpdateProfile(t *testing.T) {
 	wantStatus(t, rec, http.StatusOK)
 	var u api.CurrentUser
 	decode(t, rec, &u)
-	if u.Username != "boss" || u.DisplayName != "大 老 闆" || !u.IsAdmin {
+	if u.Username != "boss" || u.DisplayName != "大 老 闆" || u.Role != api.InstanceRoleAdmin {
 		t.Fatalf("renamed user = %+v", u)
 	}
 	// Sessions carry on, under the new names.
@@ -335,6 +336,9 @@ func TestProviderSettingsAreAdminOnly(t *testing.T) {
 	hs := newHarness(t)
 	hs.addUser("ming", "ming-password")
 	ming := hs.browser().mustLogin("ming", "ming-password")
+	if u, _ := ming.me(); u.Role != api.InstanceRoleMember || len(u.Permissions) != 0 {
+		t.Fatalf("a member's /me = %+v", u)
+	}
 
 	wantError(t, ming.do(http.MethodGet, "/api/oidc-providers", nil), http.StatusForbidden, "forbidden")
 	wantError(t, saveProviders(ming, []api.OidcProviderUpsert{providerUpsert("corp", "https://idp.invalid", "s")}),

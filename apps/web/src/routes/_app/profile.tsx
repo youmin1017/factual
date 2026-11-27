@@ -144,7 +144,7 @@ function ProfileForm({ user }: { user: CurrentUser }) {
         </div>
         <p className="text-sm">
           <span className="text-muted-foreground">角色　</span>
-          {user.isAdmin ? '站台管理員' : '一般使用者'}
+          {user.role === 'admin' ? '站台管理員' : '一般使用者'}
         </p>
         {error && (
           <p className="text-sm text-destructive" role="alert">

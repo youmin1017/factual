@@ -14,15 +14,16 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { $api } from '#/lib/api'
 import { apiErrorMessage } from '#/lib/apiError'
+import { can } from '#/lib/auth'
 import type { Schemas } from '#/lib/api'
 
 type HolidayYear = Schemas['HolidayYear']
 
 export const Route = createFileRoute('/_app/settings/holidays')({
   staticData: { crumb: '國定假日', section: '設定' },
-  // Only for the UI; the API refuses non-admins on its own.
+  // Only for the UI; the API checks the permission on its own (ADR-131).
   beforeLoad: ({ context }) => {
-    if (!context.user.isAdmin) throw redirect({ to: '/' })
+    if (!can(context.user, 'manage_holidays')) throw redirect({ to: '/' })
   },
   component: HolidaysPage,
 })

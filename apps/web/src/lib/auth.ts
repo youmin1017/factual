@@ -40,3 +40,13 @@ export function oidcLoginUrl(code: string, redirect: string): string {
 export function oidcLinkUrl(code: string): string {
   return `/api/auth/oidc/${encodeURIComponent(code)}/link`
 }
+
+export type Permission = Schemas['Permission']
+
+/**
+ * Whether the user's instance role allows something (ADR-131). Only for
+ * what the app shows; the API checks every operation itself.
+ */
+export function can(user: CurrentUser, permission: Permission): boolean {
+  return user.permissions.includes(permission)
+}

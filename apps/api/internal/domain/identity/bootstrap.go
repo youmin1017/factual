@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"factual/apps/api/internal/domain/identity/internal/db"
+	"factual/apps/api/internal/shared/roles"
 )
 
 const minPasswordLen = 8
@@ -29,7 +30,7 @@ func (s *Service) EnsureBootstrapAdmin(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	_, err = s.q.CreateUser(ctx, db.CreateUserParams{
-		Username: admin.Username, DisplayName: admin.Username, PasswordHash: hash, IsAdmin: true,
+		Username: admin.Username, DisplayName: admin.Username, PasswordHash: hash, Role: string(roles.Admin),
 	})
 	if err != nil {
 		return false, fmt.Errorf("create bootstrap admin: %w", err)

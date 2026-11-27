@@ -1472,14 +1472,31 @@ export interface components {
       username: string
       password: string
     }
+    /**
+     * @description A user's role on the instance (ADR-131).
+     * @enum {string}
+     */
+    InstanceRole: 'admin' | 'member'
+    /**
+     * @description What an instance role may do: manage users (and reset links and
+     *     approved emails), the sign-in providers, the holiday calendar; invite
+     *     new users.
+     * @enum {string}
+     */
+    Permission:
+      | 'manage_users'
+      | 'manage_providers'
+      | 'manage_holidays'
+      | 'invite'
     CurrentUser: {
       /** Format: uuid */
       id: string
       username: string
       displayName: string
       email: string
-      /** @description Instance admin; may manage identity providers. */
-      isAdmin: boolean
+      role: components['schemas']['InstanceRole']
+      /** @description What the user's instance role allows (ADR-131); the app shows only what they may use. */
+      permissions: components['schemas']['Permission'][]
       /** @description Whether the user can log in with a password. */
       hasPassword: boolean
     }

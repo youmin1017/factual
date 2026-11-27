@@ -66,7 +66,7 @@ func TestGroupsAndTheirExpenses(t *testing.T) {
 	var g api.Group
 	decode(t, rec, &g)
 	if g.Name != "花蓮" || g.Currency != "TWD" || g.Archived || g.AccountId == nil || len(g.Members) != 3 ||
-		g.Members[0].UserId != me.Id || g.Members[0].Role != api.Admin {
+		g.Members[0].UserId != me.Id || g.Members[0].Role != api.GroupRoleAdmin {
 		t.Fatalf("group = %+v", g)
 	}
 	hua := g.Members[2]

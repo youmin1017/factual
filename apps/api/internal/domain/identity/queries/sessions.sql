@@ -8,7 +8,7 @@ select s.user_id,
        s.expires_at,
        coalesce(u.username, '')::text       as username,
        u.display_name,
-       u.is_admin,
+       u.role,
        (u.disabled_at is not null)::boolean as disabled
   from sessions s
   join users u on u.id = s.user_id

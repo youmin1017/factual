@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"factual/apps/api/internal/shared/roles"
 )
 
 // BaseURL prefixes every API route; it matches `servers` in openapi.yaml.
@@ -23,9 +25,12 @@ const (
 	Public Access = "public"
 	// Authenticated operations need any logged-in user.
 	Authenticated Access = "authenticated"
-	// Admin operations need the instance admin.
-	Admin Access = "admin"
+	// Permitted operations need a user whose instance role grants the
+	// operation's Permission (`x-auth: permission:<name>`, ADR-131).
+	Permitted Access = "permission"
 )
+
+const permissionPrefix = "permission:"
 
 // Operation is one API operation.
 type Operation struct {
@@ -35,6 +40,9 @@ type Operation struct {
 	OperationID string
 	Summary     string
 	Access      Access
+	// Permission is what the caller's instance role must grant, for
+	// Permitted operations.
+	Permission roles.Permission
 	// Budget is the permission the caller's role in the budget of the path
 	// must grant, from `x-budget: read | write | manage`; "" for operations
 	// outside a budget.
@@ -57,7 +65,7 @@ func Operations(spec *openapi3.T) ([]Operation, error) {
 	var errs []error
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
-			access, err := operationAccess(op)
+			access, permission, err := operationAccess(op)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s %s: %w", method, path, err))
 				continue
@@ -73,6 +81,7 @@ func Operations(spec *openapi3.T) ([]Operation, error) {
 				OperationID: op.OperationID,
 				Summary:     op.Summary,
 				Access:      access,
+				Permission:  permission,
 				Budget:      budget,
 			})
 		}
@@ -109,18 +118,23 @@ func operationBudget(op *openapi3.Operation, path string, access Access) (string
 	return p, nil
 }
 
-func operationAccess(op *openapi3.Operation) (Access, error) {
+func operationAccess(op *openapi3.Operation) (Access, roles.Permission, error) {
 	v, ok := op.Extensions["x-auth"]
 	if !ok {
-		return "", errors.New("declares no x-auth")
+		return "", "", errors.New("declares no x-auth")
 	}
-	switch v {
-	case string(Public):
-		return Public, nil
-	case string(Authenticated):
-		return Authenticated, nil
-	case string(Admin):
-		return Admin, nil
+	text, _ := v.(string)
+	switch {
+	case text == string(Public):
+		return Public, "", nil
+	case text == string(Authenticated):
+		return Authenticated, "", nil
+	case strings.HasPrefix(text, permissionPrefix):
+		p := roles.Permission(strings.TrimPrefix(text, permissionPrefix))
+		if !roles.Known(p) {
+			return "", "", fmt.Errorf("x-auth names an unknown permission %q", p)
+		}
+		return Permitted, p, nil
 	}
-	return "", fmt.Errorf("x-auth must be public, authenticated or admin, got %v", v)
+	return "", "", fmt.Errorf("x-auth must be public, authenticated or permission:<name>, got %v", v)
 }

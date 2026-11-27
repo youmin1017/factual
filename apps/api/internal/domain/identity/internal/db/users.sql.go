@@ -29,7 +29,7 @@ func (q *Queries) CountLoginUsers(ctx context.Context) (int64, error) {
 }
 
 const createUser = `-- name: CreateUser :one
-insert into users (username, display_name, password_hash, is_admin)
+insert into users (username, display_name, password_hash, role)
 values ($1::text, $2, $3::text, $4)
 returning id
 `
@@ -38,7 +38,7 @@ type CreateUserParams struct {
 	Username     string
 	DisplayName  string
 	PasswordHash string
-	IsAdmin      bool
+	Role         string
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (uuid.UUID, error) {
@@ -46,7 +46,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (uuid.UU
 		arg.Username,
 		arg.DisplayName,
 		arg.PasswordHash,
-		arg.IsAdmin,
+		arg.Role,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)
@@ -75,7 +75,7 @@ select id,
        display_name,
        coalesce(email, '')::text         as email,
        coalesce(password_hash, '')::text as password_hash,
-       is_admin,
+       role,
        (disabled_at is not null)::boolean as disabled
   from users
  where id = $1
@@ -87,7 +87,7 @@ type GetUserByIDRow struct {
 	DisplayName  string
 	Email        string
 	PasswordHash string
-	IsAdmin      bool
+	Role         string
 	Disabled     bool
 }
 
@@ -100,7 +100,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow
 		&i.DisplayName,
 		&i.Email,
 		&i.PasswordHash,
-		&i.IsAdmin,
+		&i.Role,
 		&i.Disabled,
 	)
 	return i, err
@@ -112,7 +112,7 @@ select id,
        display_name,
        coalesce(email, '')::text         as email,
        coalesce(password_hash, '')::text as password_hash,
-       is_admin,
+       role,
        (disabled_at is not null)::boolean as disabled
   from users
  where lower(username) = lower($1::text)
@@ -124,7 +124,7 @@ type GetUserByUsernameRow struct {
 	DisplayName  string
 	Email        string
 	PasswordHash string
-	IsAdmin      bool
+	Role         string
 	Disabled     bool
 }
 
@@ -137,7 +137,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 		&i.DisplayName,
 		&i.Email,
 		&i.PasswordHash,
-		&i.IsAdmin,
+		&i.Role,
 		&i.Disabled,
 	)
 	return i, err

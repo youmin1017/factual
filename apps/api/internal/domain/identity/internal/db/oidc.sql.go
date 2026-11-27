@@ -336,31 +336,6 @@ func (q *Queries) ListUserIdentities(ctx context.Context, userID uuid.UUID) ([]L
 	return items, nil
 }
 
-const oIDCProvidersExist = `-- name: OIDCProvidersExist :many
-select id from oidc_providers where id = any($1::uuid[])
-`
-
-// Which of the ids are taken by a provider (for ids a batch chose for new ones).
-func (q *Queries) OIDCProvidersExist(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, oIDCProvidersExist, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const touchIdentityLogin = `-- name: TouchIdentityLogin :exec
 update user_identities set last_login_at = $1::timestamptz where id = $2
 `
