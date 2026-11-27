@@ -28,6 +28,7 @@ tags:
   - name: ledger
   - name: calendar
   - name: splitting
+  - name: users
 paths:
   /healthz:
     $ref: './system.yaml#/paths/health'
@@ -48,6 +49,16 @@ paths:
     $ref: './auth.yaml#/paths/oidcProviders'
   /oidc-providers/batch:
     $ref: './auth.yaml#/paths/oidcProvidersBatch'
+  /auth/links/{token}:
+    $ref: './users.yaml#/paths/linkInfo'
+  /auth/join:
+    $ref: './users.yaml#/paths/join'
+  /auth/reset:
+    $ref: './users.yaml#/paths/reset'
+  /users:
+    $ref: './users.yaml#/paths/users'
+  /users/batch:
+    $ref: './users.yaml#/paths/usersBatch'
   /me:
     $ref: './auth.yaml#/paths/me'
   /me/password:

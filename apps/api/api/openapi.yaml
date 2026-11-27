@@ -25,6 +25,7 @@ tags:
   - name: ledger
   - name: calendar
   - name: splitting
+  - name: users
 paths:
   /healthz:
     get:
@@ -132,7 +133,7 @@ paths:
       tags:
         - auth
       summary: Start linking an identity to the logged-in user
-      description: Sets the flow cookie and redirects to the IdP (or to /profile?error=...).
+      description: Sets the flow cookie and redirects to the IdP (or to /settings/users?error=...).
       x-auth: authenticated
       responses:
         '302':
@@ -148,7 +149,7 @@ paths:
       description: |
         Completes the flow from the flow cookie. Login: sets the session cookie
         and redirects to the requested page, or to /login?error=<code>. Link:
-        redirects to /profile?linked=<provider> or /profile?error=<code>.
+        redirects to /settings/users?linked=<provider> or /settings/users?error=<code>.
       x-auth: public
       parameters:
         - name: code
@@ -223,6 +224,149 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           description: Nothing was saved; the providers listed have problems
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchErrors'
+  /auth/links/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 128
+    get:
+      operationId: getLink
+      tags:
+        - users
+      summary: What a one-time link is for, before it is used
+      x-auth: public
+      responses:
+        '200':
+          description: The link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkInfo'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /auth/join:
+    post:
+      operationId: joinWithLink
+      tags:
+        - users
+      summary: Register through a join link, and log in
+      x-auth: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinRequest'
+      responses:
+        '200':
+          description: Registered and logged in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /auth/reset:
+    post:
+      operationId: resetPasswordWithLink
+      tags:
+        - users
+      summary: Set a new password through a reset link, end the user's sessions, and log in
+      x-auth: public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetRequest'
+      responses:
+        '200':
+          description: Password set and logged in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /users:
+    get:
+      operationId: listUsers
+      tags:
+        - users
+      summary: The registered users and the open one-time links
+      description: |
+        Users who can log in (with a password or a linked identity);
+        placeholder friends are their creators' (ADR-104) and not listed.
+        Links are those not used, revoked or expired.
+      x-auth: permission:manage_users
+      responses:
+        '200':
+          description: Users and links
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /users/batch:
+    post:
+      operationId: saveUsers
+      tags:
+        - users
+      summary: Apply the users page's buffer in one database transaction (:w)
+      description: |
+        Changes users' roles and whether they may log in, makes new links
+        (keyed by ids the client chose; their tokens are returned once) and
+        revokes links. The caller cannot change their own role or disable
+        themselves, and an enabled admin always remains. All or nothing,
+        with problems per user or link (ADR-044).
+      x-auth: permission:manage_users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsersBatch'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersBatchSaved'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Nothing was saved; the users and links listed have problems
           content:
             application/json:
               schema:
@@ -2380,6 +2524,240 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BatchProblem'
+    LinkPurpose:
+      type: string
+      enum:
+        - join
+        - reset
+      description: '`join` registers a new user; `reset` sets a user''s password.'
+    LinkInfo:
+      type: object
+      required:
+        - purpose
+        - expiresAt
+        - username
+      properties:
+        purpose:
+          $ref: '#/components/schemas/LinkPurpose'
+        expiresAt:
+          type: string
+          format: date-time
+        username:
+          type: string
+          description: For a reset link, the user whose password it sets; empty for a join link.
+    JoinRequest:
+      type: object
+      required:
+        - token
+        - username
+        - displayName
+        - password
+      properties:
+        token:
+          type: string
+          maxLength: 128
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 64
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+    ResetRequest:
+      type: object
+      required:
+        - token
+        - password
+      properties:
+        token:
+          type: string
+          maxLength: 128
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+    UserSummary:
+      type: object
+      required:
+        - id
+        - username
+        - displayName
+        - role
+        - active
+        - hasPassword
+        - identities
+        - lastLoginAt
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        displayName:
+          type: string
+        role:
+          $ref: '#/components/schemas/InstanceRole'
+        active:
+          type: boolean
+          description: False when the user is disabled and cannot log in.
+        hasPassword:
+          type: boolean
+        identities:
+          type: integer
+          format: int32
+          description: How many sign-in identities the user linked.
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    OpenLink:
+      type: object
+      required:
+        - id
+        - purpose
+        - userId
+        - note
+        - createdBy
+        - createdAt
+        - expiresAt
+        - token
+      properties:
+        id:
+          type: string
+          format: uuid
+        purpose:
+          $ref: '#/components/schemas/LinkPurpose'
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The user a reset link is for.
+        note:
+          type: string
+        createdBy:
+          type: string
+          description: Who made it (display name).
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        token:
+          type: string
+          nullable: true
+          description: |
+            The link's secret, to copy again while it can be used (ADR-135);
+            null when the server has no FACTUAL_ENCRYPTION_KEY to keep it.
+    UsersPage:
+      type: object
+      required:
+        - users
+        - links
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSummary'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpenLink'
+    UserChange:
+      type: object
+      required:
+        - id
+        - role
+        - active
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/InstanceRole'
+        active:
+          type: boolean
+    NewLink:
+      type: object
+      required:
+        - id
+        - purpose
+        - userId
+        - note
+      properties:
+        id:
+          type: string
+          format: uuid
+        purpose:
+          $ref: '#/components/schemas/LinkPurpose'
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The user a reset link is for; null for a join link.
+        note:
+          type: string
+          maxLength: 255
+          description: Who it is for, as the admin remembers it.
+    UsersBatch:
+      type: object
+      required:
+        - users
+        - links
+        - revoke
+      properties:
+        users:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/UserChange'
+        links:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/NewLink'
+        revoke:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+    CreatedLink:
+      type: object
+      required:
+        - id
+        - token
+      properties:
+        id:
+          type: string
+          format: uuid
+        token:
+          type: string
+          description: The link's secret; the page is /join/<token> or /reset/<token>.
+    UsersBatchSaved:
+      type: object
+      required:
+        - updated
+        - created
+        - revoked
+      properties:
+        updated:
+          type: integer
+        created:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatedLink'
+        revoked:
+          type: integer
     ProfileUpdate:
       type: object
       required:

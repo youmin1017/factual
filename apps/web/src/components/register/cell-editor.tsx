@@ -34,6 +34,7 @@ export function CellEditor({
   calendar,
   chips,
   enterHint,
+  secret,
 }: {
   inputRef: React.RefObject<HTMLElement | null>
   value: string
@@ -60,6 +61,8 @@ export function CellEditor({
   chips?: React.ReactNode
   /** What Enter does while nothing in the list is highlighted, when not the usual. */
   enterHint?: string
+  /** A password: shown as dots and kept from spell checkers. */
+  secret?: boolean
 }) {
   const day = calendar ? fromIso(calendar.value) : undefined
   const thisYear = new Date().getFullYear()
@@ -72,6 +75,7 @@ export function CellEditor({
         numeric={numeric}
         listed={options.length > 0}
         chips={chips}
+        secret={secret}
         onChange={onChange}
         onKeyDown={onKeyDown}
       />
@@ -221,6 +225,7 @@ function TextField({
   numeric,
   listed,
   chips,
+  secret,
   onChange,
   onKeyDown,
 }: {
@@ -230,6 +235,7 @@ function TextField({
   numeric?: 'date' | 'amount'
   listed: boolean
   chips?: React.ReactNode
+  secret?: boolean
   onChange: (value: string) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void
 }) {
@@ -321,6 +327,7 @@ function TextField({
           'min-w-0 flex-1 overflow-x-auto whitespace-pre outline-none [scrollbar-width:none]',
           chips && 'min-w-16',
           numeric === 'amount' && 'text-right',
+          secret && 'font-mono [-webkit-text-security:disc]',
         )}
         onKeyDown={onKeyDown}
         onInput={(e) => {

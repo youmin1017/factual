@@ -548,6 +548,57 @@ export const accountKeys: Array<KeyGroup> = [
   },
 ]
 
+/** The users page (ADR-131, ADR-132). */
+export const userKeys: Array<KeyGroup> = [
+  {
+    title: '移動',
+    entries: [
+      ['j k', '下一列、上一列（使用者在上，連結在下）'],
+      ['h l', '左右一欄'],
+      ['gg G', '第一列、最後一列'],
+    ],
+  },
+  {
+    title: '修改',
+    entries: [
+      [
+        'i a Enter',
+        '改角色（從清單選）；自己的帳號、顯示名稱；新的邀請連結填備註',
+      ],
+      [
+        'za',
+        '自己那一列底下：展開或收起「密碼」「第三方帳號」（zo 兩個都展開）',
+      ],
+      ['x', '停用或啟用使用者（停用的會被登出、不能登入；不能停用自己）'],
+      ['o O', '新增一條邀請連結（:w 儲存後複製）'],
+      ['dd', '作廢連結（:w 才作廢；再 dd 取消）'],
+      ['yy', '複製連結（滑鼠點「複製連結」也可以）；連結用過一次就失效'],
+      ['V x d', '選取幾列一起停用、作廢'],
+      ['u Ctrl-r', '復原、重做'],
+    ],
+  },
+  {
+    title: '密碼和第三方帳號（自己那一列底下）',
+    entries: [
+      ['i', '輸入密碼（不會顯示、不存草稿）；Tab 到下一格'],
+      ['dd', '清掉輸入的密碼；在已連結的帳號上：標記解除（:w 才解除）'],
+      ['i Enter', '在還沒連結的帳號上：前往連結（要先 :w 或 :e!）'],
+    ],
+  },
+  {
+    title: '指令',
+    entries: [
+      [
+        ':w',
+        '儲存（帳號名稱、密碼、解除連結、使用者和連結）；新的連結第一條自動複製',
+      ],
+      [':invite 備註', '新增一條邀請連結'],
+      [':reset', '新增一條重設游標所在使用者密碼的連結'],
+      [':e!', '放棄所有未儲存的變更'],
+    ],
+  },
+]
+
 /** The identity providers page (ADR-126). */
 export const providerKeys: Array<KeyGroup> = [
   {
@@ -614,6 +665,7 @@ const paneNames: Record<Pane, string> = {
   friends: '分帳',
   accounts: '帳戶',
   providers: '第三方登入',
+  users: '使用者',
   main: '其他頁面',
 }
 

@@ -14,6 +14,8 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppProfileRouteImport } from './routes/_app/profile'
 import { Route as AppSetupRouteImport } from './routes/_app/setup'
+import { Route as JoinTokenRouteImport } from './routes/join.$token'
+import { Route as ResetTokenRouteImport } from './routes/reset.$token'
 import { Route as AppBBudgetIdRouteImport } from './routes/_app/b/$budgetId'
 import { Route as AppFriendsIndexRouteImport } from './routes/_app/friends/index'
 import { Route as AppFriendsFriendIdRouteImport } from './routes/_app/friends/$friendId'
@@ -21,6 +23,7 @@ import { Route as AppGroupsGroupIdRouteImport } from './routes/_app/groups/$grou
 import { Route as AppSettingsEditorRouteImport } from './routes/_app/settings/editor'
 import { Route as AppSettingsHolidaysRouteImport } from './routes/_app/settings/holidays'
 import { Route as AppSettingsOidcProvidersRouteImport } from './routes/_app/settings/oidc-providers'
+import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppBBudgetIdIndexRouteImport } from './routes/_app/b/$budgetId/index'
 import { Route as AppBBudgetIdGoalsRouteImport } from './routes/_app/b/$budgetId/goals'
 import { Route as AppBBudgetIdPayeesRouteImport } from './routes/_app/b/$budgetId/payees'
@@ -51,6 +54,16 @@ const AppSetupRoute = AppSetupRouteImport.update({
   id: '/setup',
   path: '/setup',
   getParentRoute: () => AppRoute,
+} as any)
+const JoinTokenRoute = JoinTokenRouteImport.update({
+  id: '/join/$token',
+  path: '/join/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetTokenRoute = ResetTokenRouteImport.update({
+  id: '/reset/$token',
+  path: '/reset/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppBBudgetIdRoute = AppBBudgetIdRouteImport.update({
   id: '/b/$budgetId',
@@ -88,6 +101,11 @@ const AppSettingsOidcProvidersRoute =
     path: '/settings/oidc-providers',
     getParentRoute: () => AppRoute,
   } as any)
+const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
+  id: '/settings/users',
+  path: '/settings/users',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppBBudgetIdIndexRoute = AppBBudgetIdIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -126,12 +144,15 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/profile': typeof AppProfileRoute
   '/setup': typeof AppSetupRoute
+  '/join/$token': typeof JoinTokenRoute
+  '/reset/$token': typeof ResetTokenRoute
   '/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
   '/friends/$friendId': typeof AppFriendsFriendIdRoute
   '/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/holidays': typeof AppSettingsHolidaysRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/settings/users': typeof AppSettingsUsersRoute
   '/friends/': typeof AppFriendsIndexRoute
   '/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
@@ -144,12 +165,15 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/profile': typeof AppProfileRoute
   '/setup': typeof AppSetupRoute
+  '/join/$token': typeof JoinTokenRoute
+  '/reset/$token': typeof ResetTokenRoute
   '/': typeof AppIndexRoute
   '/friends/$friendId': typeof AppFriendsFriendIdRoute
   '/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/settings/editor': typeof AppSettingsEditorRoute
   '/settings/holidays': typeof AppSettingsHolidaysRoute
   '/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/settings/users': typeof AppSettingsUsersRoute
   '/friends': typeof AppFriendsIndexRoute
   '/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
@@ -164,6 +188,8 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/profile': typeof AppProfileRoute
   '/_app/setup': typeof AppSetupRoute
+  '/join/$token': typeof JoinTokenRoute
+  '/reset/$token': typeof ResetTokenRoute
   '/_app/': typeof AppIndexRoute
   '/_app/b/$budgetId': typeof AppBBudgetIdRouteWithChildren
   '/_app/friends/$friendId': typeof AppFriendsFriendIdRoute
@@ -171,6 +197,7 @@ export interface FileRoutesById {
   '/_app/settings/editor': typeof AppSettingsEditorRoute
   '/_app/settings/holidays': typeof AppSettingsHolidaysRoute
   '/_app/settings/oidc-providers': typeof AppSettingsOidcProvidersRoute
+  '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/friends/': typeof AppFriendsIndexRoute
   '/_app/b/$budgetId/goals': typeof AppBBudgetIdGoalsRoute
   '/_app/b/$budgetId/payees': typeof AppBBudgetIdPayeesRoute
@@ -186,12 +213,15 @@ export interface FileRouteTypes {
     | '/login'
     | '/profile'
     | '/setup'
+    | '/join/$token'
+    | '/reset/$token'
     | '/b/$budgetId'
     | '/friends/$friendId'
     | '/groups/$groupId'
     | '/settings/editor'
     | '/settings/holidays'
     | '/settings/oidc-providers'
+    | '/settings/users'
     | '/friends/'
     | '/b/$budgetId/goals'
     | '/b/$budgetId/payees'
@@ -204,12 +234,15 @@ export interface FileRouteTypes {
     | '/login'
     | '/profile'
     | '/setup'
+    | '/join/$token'
+    | '/reset/$token'
     | '/'
     | '/friends/$friendId'
     | '/groups/$groupId'
     | '/settings/editor'
     | '/settings/holidays'
     | '/settings/oidc-providers'
+    | '/settings/users'
     | '/friends'
     | '/b/$budgetId/goals'
     | '/b/$budgetId/payees'
@@ -223,6 +256,8 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/profile'
     | '/_app/setup'
+    | '/join/$token'
+    | '/reset/$token'
     | '/_app/'
     | '/_app/b/$budgetId'
     | '/_app/friends/$friendId'
@@ -230,6 +265,7 @@ export interface FileRouteTypes {
     | '/_app/settings/editor'
     | '/_app/settings/holidays'
     | '/_app/settings/oidc-providers'
+    | '/_app/settings/users'
     | '/_app/friends/'
     | '/_app/b/$budgetId/goals'
     | '/_app/b/$budgetId/payees'
@@ -242,6 +278,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  JoinTokenRoute: typeof JoinTokenRoute
+  ResetTokenRoute: typeof ResetTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -280,6 +318,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/setup'
       preLoaderRoute: typeof AppSetupRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/join/$token': {
+      id: '/join/$token'
+      path: '/join/$token'
+      fullPath: '/join/$token'
+      preLoaderRoute: typeof JoinTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset/$token': {
+      id: '/reset/$token'
+      path: '/reset/$token'
+      fullPath: '/reset/$token'
+      preLoaderRoute: typeof ResetTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/b/$budgetId': {
       id: '/_app/b/$budgetId'
@@ -328,6 +380,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/oidc-providers'
       fullPath: '/settings/oidc-providers'
       preLoaderRoute: typeof AppSettingsOidcProvidersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/users': {
+      id: '/_app/settings/users'
+      path: '/settings/users'
+      fullPath: '/settings/users'
+      preLoaderRoute: typeof AppSettingsUsersRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/b/$budgetId/': {
@@ -407,6 +466,7 @@ interface AppRouteChildren {
   AppSettingsEditorRoute: typeof AppSettingsEditorRoute
   AppSettingsHolidaysRoute: typeof AppSettingsHolidaysRoute
   AppSettingsOidcProvidersRoute: typeof AppSettingsOidcProvidersRoute
+  AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppFriendsIndexRoute: typeof AppFriendsIndexRoute
 }
 
@@ -420,6 +480,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsEditorRoute: AppSettingsEditorRoute,
   AppSettingsHolidaysRoute: AppSettingsHolidaysRoute,
   AppSettingsOidcProvidersRoute: AppSettingsOidcProvidersRoute,
+  AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppFriendsIndexRoute: AppFriendsIndexRoute,
 }
 
@@ -428,6 +489,8 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  JoinTokenRoute: JoinTokenRoute,
+  ResetTokenRoute: ResetTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

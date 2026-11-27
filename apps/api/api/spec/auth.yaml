@@ -90,7 +90,7 @@ paths:
       operationId: startOidcLink
       tags: [auth]
       summary: Start linking an identity to the logged-in user
-      description: Sets the flow cookie and redirects to the IdP (or to /profile?error=...).
+      description: Sets the flow cookie and redirects to the IdP (or to /settings/users?error=...).
       x-auth: authenticated
       responses:
         '302':
@@ -106,7 +106,7 @@ paths:
       description: |
         Completes the flow from the flow cookie. Login: sets the session cookie
         and redirects to the requested page, or to /login?error=<code>. Link:
-        redirects to /profile?linked=<provider> or /profile?error=<code>.
+        redirects to /settings/users?linked=<provider> or /settings/users?error=<code>.
       x-auth: public
       parameters:
         - name: code

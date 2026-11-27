@@ -512,7 +512,7 @@ func TestOAuthSiteLogin(t *testing.T) {
 			}
 			code := string(kind)
 			wantRedirect(t, signIn(hs.browser(), "/api/auth/oidc/"+code+"/login", 4242), "/login?error=oidc_not_linked")
-			wantRedirect(t, signIn(admin, "/api/auth/oidc/"+code+"/link", 4242), "/profile?linked="+code)
+			wantRedirect(t, signIn(admin, "/api/auth/oidc/"+code+"/link", 4242), "/settings/users?linked="+code)
 			var mine []api.LinkedIdentity
 			rec := admin.do(http.MethodGet, "/api/me/identities", nil)
 			decode(t, rec, &mine)
@@ -576,7 +576,7 @@ func TestOIDCLoginAndLinking(t *testing.T) {
 	wantError(t, hs.browser().do(http.MethodGet, "/api/auth/oidc/corp/link", nil), http.StatusUnauthorized, "unauthorized")
 
 	// 3. The admin links their identity from the profile.
-	wantRedirect(t, signIn(admin, "/api/auth/oidc/corp/link", "sub-admin", "admin@corp.test"), "/profile?linked=corp")
+	wantRedirect(t, signIn(admin, "/api/auth/oidc/corp/link", "sub-admin", "admin@corp.test"), "/settings/users?linked=corp")
 	var mine []api.LinkedIdentity
 	rec = admin.do(http.MethodGet, "/api/me/identities", nil)
 	wantStatus(t, rec, http.StatusOK)
@@ -603,8 +603,8 @@ func TestOIDCLoginAndLinking(t *testing.T) {
 	// 6. The same identity cannot be linked to a second user, and a user links
 	// one identity per provider.
 	ming := hs.browser().mustLogin("ming", "ming-password")
-	wantRedirect(t, signIn(ming, "/api/auth/oidc/corp/link", "sub-admin", ""), "/profile?error=oidc_identity_taken")
-	wantRedirect(t, signIn(admin, "/api/auth/oidc/corp/link", "sub-other", ""), "/profile?error=oidc_already_linked")
+	wantRedirect(t, signIn(ming, "/api/auth/oidc/corp/link", "sub-admin", ""), "/settings/users?error=oidc_identity_taken")
+	wantRedirect(t, signIn(admin, "/api/auth/oidc/corp/link", "sub-other", ""), "/settings/users?error=oidc_already_linked")
 
 	// 7. A tampered state, a missing flow cookie and an IdP error are refused.
 	b := hs.browser()

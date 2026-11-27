@@ -114,7 +114,7 @@ export interface paths {
     }
     /**
      * Start linking an identity to the logged-in user
-     * @description Sets the flow cookie and redirects to the IdP (or to /profile?error=...).
+     * @description Sets the flow cookie and redirects to the IdP (or to /settings/users?error=...).
      */
     get: operations['startOidcLink']
     put?: never
@@ -136,7 +136,7 @@ export interface paths {
      * Redirect target of every identity provider
      * @description Completes the flow from the flow cookie. Login: sets the session cookie
      *     and redirects to the requested page, or to /login?error=<code>. Link:
-     *     redirects to /profile?linked=<provider> or /profile?error=<code>.
+     *     redirects to /settings/users?linked=<provider> or /settings/users?error=<code>.
      */
     get: operations['oidcCallback']
     put?: never
@@ -184,6 +184,105 @@ export interface paths {
      *     nothing, with problems reported per provider (ADR-044, ADR-126).
      */
     post: operations['saveOidcProviders']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/auth/links/{token}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        token: string
+      }
+      cookie?: never
+    }
+    /** What a one-time link is for, before it is used */
+    get: operations['getLink']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/auth/join': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Register through a join link, and log in */
+    post: operations['joinWithLink']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/auth/reset': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Set a new password through a reset link, end the user's sessions, and log in */
+    post: operations['resetPasswordWithLink']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/users': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * The registered users and the open one-time links
+     * @description Users who can log in (with a password or a linked identity);
+     *     placeholder friends are their creators' (ADR-104) and not listed.
+     *     Links are those not used, revoked or expired.
+     */
+    get: operations['listUsers']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/users/batch': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Apply the users page's buffer in one database transaction (:w)
+     * @description Changes users' roles and whether they may log in, makes new links
+     *     (keyed by ids the client chose; their tokens are returned once) and
+     *     revokes links. The caller cannot change their own role or disable
+     *     themselves, and an enabled admin always remains. All or nothing,
+     *     with problems per user or link (ADR-044).
+     */
+    post: operations['saveUsers']
     delete?: never
     options?: never
     head?: never
@@ -1597,6 +1696,107 @@ export interface components {
     }
     BatchErrors: {
       errors: components['schemas']['BatchProblem'][]
+    }
+    /**
+     * @description `join` registers a new user; `reset` sets a user's password.
+     * @enum {string}
+     */
+    LinkPurpose: 'join' | 'reset'
+    LinkInfo: {
+      purpose: components['schemas']['LinkPurpose']
+      /** Format: date-time */
+      expiresAt: string
+      /** @description For a reset link, the user whose password it sets; empty for a join link. */
+      username: string
+    }
+    JoinRequest: {
+      token: string
+      username: string
+      displayName: string
+      password: string
+    }
+    ResetRequest: {
+      token: string
+      password: string
+    }
+    UserSummary: {
+      /** Format: uuid */
+      id: string
+      username: string
+      displayName: string
+      role: components['schemas']['InstanceRole']
+      /** @description False when the user is disabled and cannot log in. */
+      active: boolean
+      hasPassword: boolean
+      /**
+       * Format: int32
+       * @description How many sign-in identities the user linked.
+       */
+      identities: number
+      /** Format: date-time */
+      lastLoginAt: string | null
+      /** Format: date-time */
+      createdAt: string
+    }
+    OpenLink: {
+      /** Format: uuid */
+      id: string
+      purpose: components['schemas']['LinkPurpose']
+      /**
+       * Format: uuid
+       * @description The user a reset link is for.
+       */
+      userId: string | null
+      note: string
+      /** @description Who made it (display name). */
+      createdBy: string
+      /** Format: date-time */
+      createdAt: string
+      /** Format: date-time */
+      expiresAt: string
+      /**
+       * @description The link's secret, to copy again while it can be used (ADR-135);
+       *     null when the server has no FACTUAL_ENCRYPTION_KEY to keep it.
+       */
+      token: string | null
+    }
+    UsersPage: {
+      users: components['schemas']['UserSummary'][]
+      links: components['schemas']['OpenLink'][]
+    }
+    UserChange: {
+      /** Format: uuid */
+      id: string
+      role: components['schemas']['InstanceRole']
+      active: boolean
+    }
+    NewLink: {
+      /** Format: uuid */
+      id: string
+      purpose: components['schemas']['LinkPurpose']
+      /**
+       * Format: uuid
+       * @description The user a reset link is for; null for a join link.
+       */
+      userId: string | null
+      /** @description Who it is for, as the admin remembers it. */
+      note: string
+    }
+    UsersBatch: {
+      users: components['schemas']['UserChange'][]
+      links: components['schemas']['NewLink'][]
+      revoke: string[]
+    }
+    CreatedLink: {
+      /** Format: uuid */
+      id: string
+      /** @description The link's secret; the page is /join/<token> or /reset/<token>. */
+      token: string
+    }
+    UsersBatchSaved: {
+      updated: number
+      created: components['schemas']['CreatedLink'][]
+      revoked: number
     }
     ProfileUpdate: {
       username: string
@@ -3211,6 +3411,143 @@ export interface operations {
       403: components['responses']['Forbidden']
       409: components['responses']['Conflict']
       /** @description Nothing was saved; the providers listed have problems */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BatchErrors']
+        }
+      }
+    }
+  }
+  getLink: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        token: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description The link */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LinkInfo']
+        }
+      }
+      404: components['responses']['NotFound']
+    }
+  }
+  joinWithLink: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['JoinRequest']
+      }
+    }
+    responses: {
+      /** @description Registered and logged in */
+      200: {
+        headers: {
+          'Set-Cookie'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CurrentUser']
+        }
+      }
+      400: components['responses']['BadRequest']
+      404: components['responses']['NotFound']
+      409: components['responses']['Conflict']
+    }
+  }
+  resetPasswordWithLink: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ResetRequest']
+      }
+    }
+    responses: {
+      /** @description Password set and logged in */
+      200: {
+        headers: {
+          'Set-Cookie'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CurrentUser']
+        }
+      }
+      400: components['responses']['BadRequest']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+    }
+  }
+  listUsers: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Users and links */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['UsersPage']
+        }
+      }
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+    }
+  }
+  saveUsers: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UsersBatch']
+      }
+    }
+    responses: {
+      /** @description Saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['UsersBatchSaved']
+        }
+      }
+      400: components['responses']['BadRequest']
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+      /** @description Nothing was saved; the users and links listed have problems */
       422: {
         headers: {
           [name: string]: unknown

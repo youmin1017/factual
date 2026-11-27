@@ -39,6 +39,7 @@ export const panes = [
   'friends',
   'accounts',
   'providers',
+  'users',
   'main',
 ] as const
 export type Pane = (typeof panes)[number]

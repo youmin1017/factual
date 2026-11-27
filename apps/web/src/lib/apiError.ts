@@ -32,6 +32,13 @@ const messages: Record<string, string> = {
     'Issuer 無效：找不到 OpenID Connect 設定（/.well-known/openid-configuration）',
   encryption_key_missing:
     '伺服器尚未設定 FACTUAL_ENCRYPTION_KEY，無法儲存用戶端密鑰',
+  link_invalid: '連結無效、已經用過或過期了，請向對方要一條新的',
+  own_role: '不能改自己的角色',
+  own_access: '不能停用自己',
+  last_admin: '至少要留一位啟用中的管理員',
+  invalid_role: '角色只有管理員和一般使用者',
+  invalid_purpose: '連結只能是邀請或重設密碼',
+  invalid_note: '備註最多 255 個字',
   invalid_provider_kind: '類型只有 OIDC、GitHub、Discord',
   kind_fixed: '建立後不能改類型；要換就新增一個',
   invalid_code: 'ID 是 2 到 32 個小寫英數字、_ 或 -，以英文字母開頭',

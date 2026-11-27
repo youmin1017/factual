@@ -24,7 +24,7 @@ import (
 
 const (
 	loginPage   = "/login"
-	profilePage = "/profile"
+	profilePage = "/settings/users" // the caller's own line there (ADR-136)
 )
 
 // redirectResponse is a 302 that can also set cookies; it serves every

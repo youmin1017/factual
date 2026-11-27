@@ -166,8 +166,10 @@ function AppLayout() {
               <SidebarGroup>
                 <SidebarGroupLabel>設定</SidebarGroupLabel>
                 <SidebarMenu>
-                  <NavItem to="/profile">個人資料</NavItem>
                   <NavItem to="/settings/editor">編輯器</NavItem>
+                  <NavItem to="/settings/users">
+                    {can(user, 'manage_users') ? '使用者' : '我的帳號'}
+                  </NavItem>
                   {can(user, 'manage_providers') && (
                     <NavItem to="/settings/oidc-providers">第三方登入</NavItem>
                   )}

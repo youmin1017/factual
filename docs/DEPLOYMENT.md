@@ -56,7 +56,7 @@ App 用 `X-Forwarded-For` 中最後一個不是內網位址的項目當作用戶
 |---|---|
 | `FACTUAL_DATABASE_URL` | PostgreSQL 連線字串（必填；Compose 會用 `POSTGRES_PASSWORD` 組出來） |
 | `FACTUAL_PUBLIC_URL` | 瀏覽器連到本站的網址，例如 `https://money.example.com`。OIDC 回呼網址由它決定；是 https 時 cookie 會加上 Secure |
-| `FACTUAL_ENCRYPTION_KEY` | 32 bytes 的 base64 金鑰（`openssl rand -base64 32`），用來加密 IdP 的 client secret 與登入流程 cookie。沒有設定就無法使用第三方登入；換掉它，已存的 client secret 就解不開，要重新輸入 |
+| `FACTUAL_ENCRYPTION_KEY` | 32 bytes 的 base64 金鑰（`openssl rand -base64 32`），用來加密 IdP 的 client secret、登入流程 cookie，以及邀請和重設密碼連結（讓連結在有效期間能再複製）。沒有設定就無法使用第三方登入，連結也只能在建立當下複製；換掉它，已存的 client secret 就解不開，要重新輸入 |
 | `FACTUAL_BOOTSTRAP_ADMIN_USERNAME`、`FACTUAL_BOOTSTRAP_ADMIN_PASSWORD` | 還沒有任何人能登入時，啟動時建立的第一位管理員（密碼至少 8 個字元） |
 | `FACTUAL_PASSWORD_LOGIN` | 設為 `false` 可關閉密碼登入（確定每個人都能用第三方登入之後再關） |
 | `FACTUAL_SESSION_IDLE_TIMEOUT`、`FACTUAL_SESSION_MAX_AGE` | session 閒置與最長有效時間，預設 `720h` 與 `2160h` |
