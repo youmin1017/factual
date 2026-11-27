@@ -4,6 +4,7 @@ import {
   Outlet,
   createFileRoute,
   redirect,
+  useLocation,
   useMatches,
   useParams,
   useRouter,
@@ -18,7 +19,7 @@ import {
   UserIcon,
   UsersIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Logo } from '#/components/logo'
 import { Statusline } from '#/components/statusline'
 import { ThemeMenuItems } from '#/components/theme'
@@ -30,6 +31,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  SidebarProvider,
+  SidebarRail,
+  useSidebar,
+} from '#/components/ui/sidebar'
 import { Wordmark } from '#/components/wordmark'
 import { $api } from '#/lib/api'
 import { meQueryOptions } from '#/lib/auth'
@@ -38,6 +57,7 @@ import { formatAmount, setAmountGrouping } from '#/lib/money'
 import { useListKeys, usePaneNavigation } from '#/lib/panes'
 import { preferencesQuery, useKeymap } from '#/lib/preferences'
 import { cn } from '#/lib/utils'
+import type { LinkProps } from '@tanstack/react-router'
 import type { CurrentUser } from '#/lib/auth'
 import type { Account, Budget } from '#/lib/budget'
 
@@ -59,8 +79,9 @@ export const Route = createFileRoute('/_app')({
   component: AppLayout,
 })
 
-// The frame of an editor: places on the left, the page in the middle, the
-// status line along the bottom. On narrow screens the places move to the top.
+// The frame of an editor (ADR-130): shadcn's sidebar on the left (a sheet
+// on narrow screens), the page beside it, the status line along the whole
+// bottom, where the sidebar is opened and closed.
 function AppLayout() {
   const { user } = Route.useRouteContext()
   const budgets = useQuery(budgetsQueryOptions).data ?? []
@@ -80,115 +101,95 @@ function AppLayout() {
   return (
     // Keyed by the grouping so every amount, the sidebar's too, is drawn
     // again when it changes.
-    <div key={grouping} className="flex h-dvh flex-col">
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <aside
-          data-pane="sidebar"
-          data-editor
-          onKeyDown={onSidebarKeyDown}
-          className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-sidebar px-4 pt-2 md:w-60 md:flex-col md:flex-nowrap md:items-stretch md:gap-6 md:border-r md:border-b-0 md:px-3 md:py-4"
-        >
-          <Link to="/" className="flex items-center gap-2 px-2 text-lg md:pt-1">
-            <Logo />
-            <Wordmark />
-          </Link>
-
-          <nav
-            aria-label="主選單"
-            className="order-last -mx-2 flex w-full items-center gap-1 overflow-x-auto pb-1 text-sm [scrollbar-width:none] md:order-none md:mx-0 md:w-auto md:min-h-0 md:flex-1 md:flex-col md:items-stretch md:gap-5 md:overflow-y-auto md:pb-0"
+    <SidebarProvider key={grouping} className="h-dvh min-h-0 flex-col">
+      <CloseSheetOnNavigate />
+      <div className="relative flex min-h-0 flex-1">
+        <Sidebar>
+          {/* The pane j/k move through (ADR-071); the rail stays out of it. */}
+          <div
+            data-pane="sidebar"
+            data-editor
+            onKeyDown={onSidebarKeyDown}
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="flex items-center gap-1 md:flex-col md:items-stretch">
-              {budget ? (
-                <>
-                  <BudgetSwitcher budgets={budgets} current={budget} />
-                  <Link
-                    to="/b/$budgetId"
-                    params={{ budgetId: budget.id }}
-                    activeOptions={{ exact: true, includeSearch: false }}
-                    className={navLinkClass}
-                  >
-                    預算
-                  </Link>
-                  {/* Narrow screens have no room for the accounts list. */}
-                  <Link
-                    to="/b/$budgetId/accounts/$accountId"
-                    params={{ budgetId: budget.id, accountId: 'all' }}
-                    className={cn(navLinkClass, 'md:hidden')}
-                  >
-                    明細
-                  </Link>
-                  <Link
-                    to="/b/$budgetId/accounts"
-                    params={{ budgetId: budget.id }}
-                    activeOptions={{ exact: true }}
-                    className={cn(navLinkClass, 'md:hidden')}
-                  >
-                    帳戶
-                  </Link>
-                  <Link
-                    to="/b/$budgetId/schedules"
-                    params={{ budgetId: budget.id }}
-                    className={navLinkClass}
-                  >
-                    排程
-                  </Link>
-                  <Link
-                    to="/b/$budgetId/goals"
-                    params={{ budgetId: budget.id }}
-                    className={navLinkClass}
-                  >
-                    目標
-                  </Link>
-                  <Link to="/friends" className={navLinkClass}>
-                    分帳
-                  </Link>
-                  <Link
-                    to="/b/$budgetId/payees"
-                    params={{ budgetId: budget.id }}
-                    className={navLinkClass}
-                  >
-                    收付款對象
-                  </Link>
-                </>
-              ) : (
-                <Link to="/setup" className={navLinkClass}>
-                  建立帳本
-                </Link>
-              )}
-            </div>
-            {budget && <AccountsNav budget={budget} />}
-            <div className="flex items-center gap-1 md:flex-col md:items-stretch">
-              <p className="hidden px-2 pb-1 text-xs text-muted-foreground md:block">
-                設定
-              </p>
-              <Link to="/profile" className={navLinkClass}>
-                個人資料
+            <SidebarHeader className="gap-1 px-3 pt-4">
+              <Link
+                to="/"
+                className="flex items-center gap-2 px-2 pb-1 text-lg"
+              >
+                <Logo />
+                <Wordmark />
               </Link>
-              <Link to="/settings/editor" className={navLinkClass}>
-                編輯器
-              </Link>
-              {user.isAdmin && (
-                <Link to="/settings/oidc-providers" className={navLinkClass}>
-                  第三方登入
-                </Link>
-              )}
-              {user.isAdmin && (
-                <Link to="/settings/holidays" className={navLinkClass}>
-                  國定假日
-                </Link>
-              )}
-            </div>
-          </nav>
+              {budget && <BudgetSwitcher budgets={budgets} current={budget} />}
+            </SidebarHeader>
 
-          <UserMenu user={user} />
-        </aside>
+            <SidebarContent className="gap-0">
+              <SidebarGroup>
+                <SidebarMenu aria-label="主選單">
+                  {budget ? (
+                    <>
+                      <NavItem
+                        to="/b/$budgetId"
+                        params={{ budgetId: budget.id }}
+                        exact
+                      >
+                        預算
+                      </NavItem>
+                      <NavItem
+                        to="/b/$budgetId/schedules"
+                        params={{ budgetId: budget.id }}
+                      >
+                        排程
+                      </NavItem>
+                      <NavItem
+                        to="/b/$budgetId/goals"
+                        params={{ budgetId: budget.id }}
+                      >
+                        目標
+                      </NavItem>
+                      <NavItem to="/friends">分帳</NavItem>
+                      <NavItem
+                        to="/b/$budgetId/payees"
+                        params={{ budgetId: budget.id }}
+                      >
+                        收付款對象
+                      </NavItem>
+                    </>
+                  ) : (
+                    <NavItem to="/setup">建立帳本</NavItem>
+                  )}
+                </SidebarMenu>
+              </SidebarGroup>
 
-        <main
+              {budget && <AccountsNav budget={budget} />}
+
+              <SidebarGroup>
+                <SidebarGroupLabel>設定</SidebarGroupLabel>
+                <SidebarMenu>
+                  <NavItem to="/profile">個人資料</NavItem>
+                  <NavItem to="/settings/editor">編輯器</NavItem>
+                  {user.isAdmin && (
+                    <NavItem to="/settings/oidc-providers">第三方登入</NavItem>
+                  )}
+                  {user.isAdmin && (
+                    <NavItem to="/settings/holidays">國定假日</NavItem>
+                  )}
+                </SidebarMenu>
+              </SidebarGroup>
+            </SidebarContent>
+
+            <SidebarFooter className="px-3 pb-3">
+              <UserMenu user={user} />
+            </SidebarFooter>
+          </div>
+          <SidebarRail />
+        </Sidebar>
+
+        <SidebarInset
           data-pane="main"
           tabIndex={-1}
           className={cn(
-            'outline-none',
-            'min-w-0 flex-1',
+            'min-w-0 outline-none',
             wide ? 'overflow-hidden' : 'overflow-y-auto',
           )}
         >
@@ -201,19 +202,59 @@ function AppLayout() {
           >
             <Outlet />
           </div>
-        </main>
+        </SidebarInset>
       </div>
 
       <Statusline username={user.username} />
-    </div>
+    </SidebarProvider>
   )
+}
+
+/** On narrow screens the sidebar is a sheet; going to a page closes it. */
+function CloseSheetOnNavigate() {
+  const { setOpenMobile } = useSidebar()
+  const path = useLocation({ select: (l) => l.pathname })
+  useEffect(() => {
+    setOpenMobile(false)
+  }, [path, setOpenMobile])
+  return null
 }
 
 // The kraft bar marks the current place, like a cursor in the margin; the
 // keyboard focus is a kraft tint, as the selection in the register is. The
 // router sets data-status="active" on the current link.
 const navLinkClass =
-  'rounded-md border-l-2 border-transparent px-2 py-1.5 whitespace-nowrap text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:bg-kraft/20 focus-visible:text-foreground data-[status=active]:rounded-l-none data-[status=active]:border-kraft data-[status=active]:font-medium data-[status=active]:text-foreground'
+  'rounded-md border-l-2 border-transparent text-muted-foreground focus-visible:bg-kraft/20 focus-visible:text-foreground focus-visible:ring-0 data-[status=active]:rounded-l-none data-[status=active]:border-kraft data-[status=active]:font-medium data-[status=active]:text-foreground'
+
+/** A page in the sidebar's menu. */
+function NavItem({
+  to,
+  params,
+  exact = false,
+  children,
+}: {
+  to: LinkProps['to']
+  params?: LinkProps['params']
+  /** Active only on this page itself, not the pages under it. */
+  exact?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild className={navLinkClass}>
+        <Link
+          to={to}
+          params={params}
+          activeOptions={
+            exact ? { exact: true, includeSearch: false } : undefined
+          }
+        >
+          {children}
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
+}
 
 /**
  * The accounts, as in Actual: all of them, the budget accounts and the
@@ -264,88 +305,98 @@ function AccountsNav({ budget }: { budget: Budget }) {
   }
 
   return (
-    <div className="hidden flex-col gap-0.5 md:flex" aria-label="帳戶">
-      <AccountLink
-        budget={budget}
-        accountId="all"
-        label="所有帳戶"
-        balance={total(open)}
-        strong
-      />
-      {groups.map((g) => (
-        <div key={g.id} className="mt-2 flex flex-col gap-0.5">
-          <AccountLink
-            budget={budget}
-            accountId={g.id}
-            label={g.label}
-            balance={total(g.accounts)}
-            strong
-          />
-          {g.own.map((a) => (
-            <AccountLink
-              key={a.id}
+    <SidebarGroup aria-label="帳戶">
+      <SidebarGroupLabel>帳戶</SidebarGroupLabel>
+      <SidebarMenu>
+        <AccountItem
+          budget={budget}
+          accountId="all"
+          label="所有帳戶"
+          balance={total(open)}
+        />
+        {groups.map((g) => (
+          <SidebarMenuItem key={g.id}>
+            <AccountButton
               budget={budget}
-              accountId={a.id}
-              label={a.name}
-              balance={a.balance}
+              accountId={g.id}
+              label={g.label}
+              balance={total(g.accounts)}
             />
-          ))}
-          {g.shared.length > 0 && (
-            <>
-              <button
-                type="button"
-                aria-expanded={sharedOpen}
-                onClick={toggleShared}
-                title={sharedOpen ? '收起朋友和群組' : '展開朋友和群組'}
-                className={cn(
-                  navLinkClass,
-                  'mt-1 flex items-baseline justify-between gap-3 py-1 pl-4 text-left',
-                )}
-              >
-                <span className="flex min-w-0 items-center gap-1 self-center text-xs">
-                  {sharedOpen ? (
-                    <ChevronDownIcon className="size-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRightIcon className="size-3.5 shrink-0" />
+            <SidebarMenuSub>
+              {g.own.map((a) => (
+                <AccountSubItem
+                  key={a.id}
+                  budget={budget}
+                  accountId={a.id}
+                  label={a.name}
+                  balance={a.balance}
+                />
+              ))}
+              {g.shared.length > 0 && (
+                <SidebarMenuSubItem>
+                  <SidebarMenuSubButton asChild>
+                    <button
+                      type="button"
+                      aria-expanded={sharedOpen}
+                      onClick={toggleShared}
+                      title={sharedOpen ? '收起朋友和群組' : '展開朋友和群組'}
+                      className="w-full cursor-default text-muted-foreground focus-visible:bg-kraft/20 focus-visible:ring-0"
+                    >
+                      <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-1">
+                          {sharedOpen ? (
+                            <ChevronDownIcon className="size-3.5 shrink-0" />
+                          ) : (
+                            <ChevronRightIcon className="size-3.5 shrink-0" />
+                          )}
+                          <span className="truncate">分帳往來</span>
+                          <span className="text-muted-foreground/70">
+                            {g.shared.length}
+                          </span>
+                        </span>
+                        <Balance value={total(g.shared)} budget={budget} />
+                      </span>
+                    </button>
+                  </SidebarMenuSubButton>
+                  {sharedOpen && (
+                    <SidebarMenuSub className="mr-0 pr-0">
+                      {g.shared.map((a) => (
+                        <AccountSubItem
+                          key={a.id}
+                          budget={budget}
+                          accountId={a.id}
+                          label={a.name}
+                          balance={a.balance}
+                          icon={
+                            a.groupId ? (
+                              <UsersIcon aria-label="群組" />
+                            ) : (
+                              <UserIcon aria-label="朋友" />
+                            )
+                          }
+                        />
+                      ))}
+                    </SidebarMenuSub>
                   )}
-                  <span className="truncate">分帳往來</span>
-                  <span className="text-muted-foreground/70">
-                    {g.shared.length}
-                  </span>
-                </span>
-                <Balance value={total(g.shared)} budget={budget} />
-              </button>
-              {sharedOpen &&
-                g.shared.map((a) => (
-                  <AccountLink
-                    key={a.id}
-                    budget={budget}
-                    accountId={a.id}
-                    label={a.name}
-                    balance={a.balance}
-                    icon={
-                      a.groupId ? (
-                        <UsersIcon aria-label="群組" className="size-3.5" />
-                      ) : (
-                        <UserIcon aria-label="朋友" className="size-3.5" />
-                      )
-                    }
-                  />
-                ))}
-            </>
-          )}
-        </div>
-      ))}
-      <Link
-        to="/b/$budgetId/accounts"
-        params={{ budgetId: budget.id }}
-        activeOptions={{ exact: true }}
-        className={cn(navLinkClass, 'mt-2 flex items-center gap-1.5 text-xs')}
-      >
-        <SettingsIcon className="size-3.5" />
-        管理帳戶
-      </Link>
-    </div>
+                </SidebarMenuSubItem>
+              )}
+            </SidebarMenuSub>
+          </SidebarMenuItem>
+        ))}
+        <SidebarMenuItem>
+          <SidebarMenuButton asChild size="sm" className={navLinkClass}>
+            <Link
+              to="/b/$budgetId/accounts"
+              params={{ budgetId: budget.id }}
+              activeOptions={{ exact: true }}
+            >
+              <SettingsIcon />
+              <span>管理帳戶</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarGroup>
   )
 }
 
@@ -373,42 +424,89 @@ function Balance({ value, budget }: { value: number; budget: Budget }) {
   )
 }
 
-function AccountLink({
-  budget,
-  accountId,
+/** A register: its name and balance. */
+function AccountLabel({
   label,
   balance,
-  strong = false,
+  budget,
   icon,
 }: {
-  budget: Budget
-  accountId: string
   label: string
   balance: number
-  strong?: boolean
-  /** Before the name: a friend's or a group's account. */
+  budget: Budget
   icon?: React.ReactNode
 }) {
   return (
-    <Link
-      to="/b/$budgetId/accounts/$accountId"
-      params={{ budgetId: budget.id, accountId }}
-      className={cn(
-        navLinkClass,
-        'flex items-baseline justify-between gap-3 py-1',
-        strong ? 'text-foreground' : icon ? 'pl-6' : 'pl-4',
-      )}
-    >
+    <span className="flex min-w-0 flex-1 items-baseline justify-between gap-3">
       <span className="flex min-w-0 items-center gap-1.5">
         {icon && (
-          <span className="shrink-0 self-center text-muted-foreground">
+          <span className="shrink-0 self-center text-muted-foreground [&>svg]:size-3.5">
             {icon}
           </span>
         )}
         <span className="truncate">{label}</span>
       </span>
       <Balance value={balance} budget={budget} />
-    </Link>
+    </span>
+  )
+}
+
+interface AccountProps {
+  budget: Budget
+  accountId: string
+  label: string
+  balance: number
+  /** Before the name: a friend's or a group's account. */
+  icon?: React.ReactNode
+}
+
+function AccountButton({ budget, accountId, label, balance }: AccountProps) {
+  return (
+    <SidebarMenuButton
+      asChild
+      className={cn(navLinkClass, 'text-sidebar-foreground')}
+    >
+      <Link
+        to="/b/$budgetId/accounts/$accountId"
+        params={{ budgetId: budget.id, accountId }}
+      >
+        <AccountLabel label={label} balance={balance} budget={budget} />
+      </Link>
+    </SidebarMenuButton>
+  )
+}
+
+function AccountItem(props: AccountProps) {
+  return (
+    <SidebarMenuItem>
+      <AccountButton {...props} />
+    </SidebarMenuItem>
+  )
+}
+
+function AccountSubItem({
+  budget,
+  accountId,
+  label,
+  balance,
+  icon,
+}: AccountProps) {
+  return (
+    <SidebarMenuSubItem>
+      <SidebarMenuSubButton asChild className={navLinkClass}>
+        <Link
+          to="/b/$budgetId/accounts/$accountId"
+          params={{ budgetId: budget.id, accountId }}
+        >
+          <AccountLabel
+            label={label}
+            balance={balance}
+            budget={budget}
+            icon={icon}
+          />
+        </Link>
+      </SidebarMenuSubButton>
+    </SidebarMenuSubItem>
   )
 }
 

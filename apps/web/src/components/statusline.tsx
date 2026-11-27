@@ -1,4 +1,5 @@
 import { useMatches } from '@tanstack/react-router'
+import { SidebarTrigger } from '#/components/ui/sidebar'
 import { $api } from '#/lib/api'
 import { useEditorStatus } from '#/lib/editorStatus'
 import { cn } from '#/lib/utils'
@@ -34,6 +35,11 @@ export function Statusline({ username }: { username: string }) {
 
   return (
     <footer className="flex h-7 shrink-0 items-stretch border-t bg-sidebar font-mono text-xs text-muted-foreground">
+      {/* Opens and closes the sidebar (a sheet on narrow screens), ADR-130. */}
+      <SidebarTrigger
+        title="開關側欄"
+        className="h-full w-8 shrink-0 rounded-none border-r text-muted-foreground hover:text-foreground"
+      />
       {editor && (
         <span
           data-testid="editor-mode"
