@@ -33,3 +33,6 @@ dist
 # the web app copied in for the single binary (mise run build, Dockerfile)
 /apps/api/internal/webui/static/*
 !/apps/api/internal/webui/static/.gitkeep
+
+# Claude Code (local settings, worktrees)
+.claude/
